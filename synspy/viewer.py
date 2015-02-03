@@ -110,7 +110,7 @@ class Canvas(base.Canvas):
 
         # get per-core measurements
         t0 = datetime.datetime.now()
-        syn_values, vcn_values, centroids = analyzer.analyze(syn_channel, vcn_hollow)
+        syn_values, vcn_values, centroids, widths = analyzer.analyze(syn_channel, vcn_hollow)
         t1 = datetime.datetime.now()
         print "\nanalyze took %s seconds" % (t1-t0).total_seconds()
 
@@ -148,6 +148,7 @@ class Canvas(base.Canvas):
         self.syn_values = syn_values
         self.vcn_values = vcn_values
         self.centroids = centroids
+        self.widths = widths
 
         return result
 
@@ -282,15 +283,16 @@ red mask threshold: %f
 
         csvfile = open('/scratch/segments.csv', 'w')
         writer = csv.writer(csvfile)
-        writer.writerow( ('Z', 'Y', 'X', 'central value', 'vicinity value', 'red value') )
+        writer.writerow( ('Z', 'Y', 'X', 'D', 'H', 'W', 'central value', 'vicinity value', 'red value') )
         for i in range(len(self.syn_values)):
             Z, Y, X = self.centroids[i]
+            D, H, W = self.widths[i]
             red = data[Z,Y,X,3]
             Z += zpad
             Y += ypad
             X += xpad
             writer.writerow( 
-                (Z, Y, X, self.syn_values[i], self.vcn_values[i], red) 
+                (Z, Y, X, D, H, W, self.syn_values[i], self.vcn_values[i], red) 
             )
         del writer
         csvfile.close()

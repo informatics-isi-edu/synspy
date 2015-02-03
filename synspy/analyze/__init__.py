@@ -548,7 +548,7 @@ class BlockedAnalyzer (object):
         return result
 
     def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-        peaks = (synapse > syn_lvl) & (synapse > hollow)
+        peaks = (synapse > syn_lvl)# & (synapse > hollow)
         if vcn_lvl is not None:
             return peaks & (hollow < vcn_lvl)
         else:
@@ -564,15 +564,17 @@ class BlockedAnalyzer (object):
               syn_lvl: minimum synapse core measurement accepted
               vcn_lvl: maximum synapse background measurement accepted
 
-           Returns 3-tuple:
+           Returns 4-tuple:
 
-              (syn_values, vcn_values, centroids)
+              (syn_values, vcn_values, centroids, widths)
 
-           all of which have same length N for N synapses accepted. The
-           first two contain the measured core and background levels while
-           centroids contains the (Z, Y, X) voxel coordinates of the
-           detected synapse center, where (0, 0, 0) is the least corner
-           voxel of syn_channel.
+           all of which have same length N for N synapses
+           accepted. The first two contain the measured core and
+           background levels while centroids contains the (Z, Y, X)
+           voxel coordinates of the detected synapse center, where (0,
+           0, 0) is the least corner voxel of syn_channel.  Widths are
+           (d, h, w) full-width-half-maximum spans of the feature on
+           the corresponding (Z, Y, X) axes.
 
         """
         if syn_lvl is None:
@@ -662,14 +664,72 @@ class BlockedAnalyzer (object):
         centroids = zip(*centroid_components)
         t6 = datetime.datetime.now()
 
+        centroid_widths = []
+
+        for i in range(len(syn_vals)):
+            centroid = centroids[i]
+            # use synapse core value as proxy for maximum
+            # since we did peak detection
+            hm = syn_vals[i] / 2
+            widths = []
+
+            def slice_d(d, pos):
+                return tuple(
+                    [ centroid[a] for a in range(d) ]
+                    + [ pos ]
+                    + [ centroid[a] for a in range(d+1, 3) ]
+                )
+
+            def interp_d(d, p0, p1, v):
+                v0 = synapse[slice_d(d, p0)]
+                v1 = synapse[slice_d(d, p1)]
+                if (v1 - v0) > 0.0:
+                    return float(p0) + (v - v0) / (v1 - v0)
+                else:
+                    # avoid divide-by-zero
+                    return float(p0)
+
+            for d in range(3):
+                # scan from center along axes in negative and positive 
+                # directions until half-maximum is found
+                for pos in range(centroid[d], -1, -1):
+                    lower = pos
+                    if synapse[ slice_d(d, pos) ] <= hm:
+                        break
+
+                # interpolate to find hm sub-pixel position
+                if lower < centroid[d]:
+                    lower = interp_d(d, lower, lower+1, hm)
+                elif lower > 0:
+                    lower = interp_d(d, lower, lower-1, hm)
+
+                for pos in range(centroid[d], synapse.shape[d]):
+                    upper = pos
+                    if synapse[slice_d(d, pos)] <= hm:
+                        break
+
+                # interpolate to find hm sub-pixel position
+                if upper > centroid[d]:
+                    upper = interp_d(d, upper, upper-1, hm)
+                elif upper < (synapse.shape[d] - 1):
+                    upper = interp_d(d, upper, upper+1, hm)
+
+                # accumulate N-d measurement for centroid
+                widths.append( upper - lower )
+
+            # accumulate measurements for all centroids
+            centroid_widths.append( tuple(widths) )
+
+        t7 = datetime.datetime.now()
+
         try:
             print "centroids:", centroids[0:10], "...", centroids[-1]
         except:
             pass
 
-        print "\nanalyze splits: %s" % map(lambda p: (p[1]-p[0]).total_seconds(), [ (t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5), (t5, t6) ])
+        print "\nanalyze splits: %s" % map(lambda p: (p[1]-p[0]).total_seconds(), [ (t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5), (t5, t6), (t6, t7) ])
 
-        return syn_vals, vcn_vals, centroids
+        return syn_vals, vcn_vals, centroids, centroid_widths
 
 BlockedAnalyzerOpt = BlockedAnalyzer
 assign_voxels_opt = numpylib.assign_voxels
@@ -685,7 +745,8 @@ try:
             return numerexprlib.array_mult(a1, a2)
 
         def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-            expr = "(synapse > syn_lvl) & (synapse > hollow)"
+            expr = "(synapse > syn_lvl)"
+            #expr += " & (synapse > hollow)"
             if vcn_lvl is not None:
                 expr += " & (hollow < vcn_lvl)"
 

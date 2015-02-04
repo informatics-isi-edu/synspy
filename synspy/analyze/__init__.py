@@ -274,6 +274,7 @@ class BlockedAnalyzer (object):
         # may modify previous fields as side-effect...
         self.block_size, self.num_blocks = self.find_blocking(desired_block_size)
         
+        self.image_meta = image_meta
         self.separated_kernels, self.kernels_3d, self.hollow_offset, self.hollow_scale = prepare_kernels(image_meta, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
         def kernel_radii(k):
@@ -453,13 +454,15 @@ class BlockedAnalyzer (object):
     def volume_process(self):
 
         syn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
+        pks_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         vcn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         msk_channel = empty(self.dst_shape, dtype=self.mask_channel.dtype)
         
         for blockpos in self.block_iter():
             dslc = self.block_slice_dst(blockpos)
-            syn_channel[dslc], vcn_channel[dslc], msk_channel[dslc] \
+            syn_channel[dslc], pks_channel[dslc], vcn_channel[dslc], msk_channel[dslc] \
                 = self.block_process(blockpos)
+
 
         raw_channel = self.raw_channel[
             tuple([ 
@@ -469,7 +472,7 @@ class BlockedAnalyzer (object):
               )
         ]
 
-        return raw_channel, syn_channel, vcn_channel, msk_channel
+        return raw_channel, syn_channel, pks_channel, vcn_channel, msk_channel
 
     def block_process(self, blockpos):
         """Process block data to return convolved results.
@@ -480,12 +483,13 @@ class BlockedAnalyzer (object):
 
            Result is a 3-tuple:
 
-              (synapse, hollow, mask)
+              (synapse, peaks, hollow, mask)
 
            where all fields are Numpy arrays with the same shape and
            different result fields:
 
               synapse: convolution measuring synapse core intensity
+              peaks: synapse core values only at local maxima
               hollow: convolution measuring synapse background intensity
               mask: convolution giving low-pass filtered red channel
 
@@ -539,12 +543,12 @@ class BlockedAnalyzer (object):
         k_channel = None
 
         # find syn cores via local maxima test
-        syn_channel = syn_channel * (syn_channel == max_channel)
+        pks_channel = syn_channel * (syn_channel == max_channel)
         max_channel = None
 
-        result = syn_channel, vcn_hollow, msk_channel
+        result = syn_channel, pks_channel, vcn_hollow, msk_channel
     
-        #print "Calculated block shapes: %s, %s, %s" % tuple(map(lambda a: a.shape, result))
+        print "Calculated block shapes: %s" % map(lambda a: a.shape, result)
         return result
 
     def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
@@ -554,12 +558,13 @@ class BlockedAnalyzer (object):
         else:
             return peaks
 
-    def analyze(self, synapse, hollow, syn_lvl=None, vcn_lvl=None):
+    def analyze(self, synapse, peaks, hollow, syn_lvl=None, vcn_lvl=None):
         """Analyze synapse features and return measurements.
 
            Parameters:
 
               synapse: from block_process results
+              peaks: from block_process results
               hollow: from block_process results
               syn_lvl: minimum synapse core measurement accepted
               vcn_lvl: maximum synapse background measurement accepted
@@ -581,11 +586,11 @@ class BlockedAnalyzer (object):
             syn_lvl = 0
 
         t0 = datetime.datetime.now()
-        peaks = self.get_peaks(synapse, hollow, syn_lvl, vcn_lvl)
+        peaksf = self.get_peaks(peaks, hollow, syn_lvl, vcn_lvl)
 
         t1 = datetime.datetime.now()
-        label_im, nb_labels = ndimage.label(peaks)
-        peaks = None
+        label_im, nb_labels = ndimage.label(peaksf)
+        peaksf = None
 
         print "found %d centroids" % nb_labels
 
@@ -607,7 +612,7 @@ class BlockedAnalyzer (object):
 
         t3 = datetime.datetime.now()
         sums = self.sum_labeled(
-            synapse,
+            peaks,
             label_im,
             nb_labels + 1
         )[1:]
@@ -644,13 +649,13 @@ class BlockedAnalyzer (object):
         for d in range(3):
             coords = self.array_mult(
                 array(
-                    range(0, synapse.shape[d]) 
+                    range(0, peaks.shape[d]) 
                 ).astype('float32')[
                     [ None for i in range(d) ]  # add dims before axis
                     + [ slice(None) ]              # get axis
-                    + [ None for i in range(synapse.ndim - 1 - d) ] # add dims after axis
+                    + [ None for i in range(peaks.ndim - 1 - d) ] # add dims after axis
                 ],
-                ones(synapse.shape, 'float32') # broadcast to full volume
+                ones(peaks.shape, 'float32') # broadcast to full volume
             )
 
             centroid_components.append(
@@ -682,40 +687,43 @@ class BlockedAnalyzer (object):
 
             def interp_d(d, p0, p1, v):
                 v0 = synapse[slice_d(d, p0)]
-                v1 = synapse[slice_d(d, p1)]
-                if (v1 - v0) > 0.0:
+                if p1 >= 0 and p1 < synapse.shape[d]:
+                    v1 = synapse[slice_d(d, p1)]
+                else:
+                    v1 = v0
+
+                if v0 < v and v < v1 \
+                   or v0 > v and v > v1:
                     return float(p0) + (v - v0) / (v1 - v0)
                 else:
-                    # avoid divide-by-zero
-                    return float(p0)
+                    return p0
 
             for d in range(3):
                 # scan from center along axes in negative and positive 
                 # directions until half-maximum is found
                 for pos in range(centroid[d], -1, -1):
                     lower = pos
-                    if synapse[ slice_d(d, pos) ] <= hm:
+                    if synapse[ slice_d(d, pos) ] < hm:
                         break
 
                 # interpolate to find hm sub-pixel position
-                if lower < centroid[d]:
-                    lower = interp_d(d, lower, lower+1, hm)
-                elif lower > 0:
-                    lower = interp_d(d, lower, lower-1, hm)
+                lower = interp_d(d, lower, lower+1, hm)
 
                 for pos in range(centroid[d], synapse.shape[d]):
                     upper = pos
-                    if synapse[slice_d(d, pos)] <= hm:
+                    if synapse[slice_d(d, pos)] < hm:
                         break
 
                 # interpolate to find hm sub-pixel position
-                if upper > centroid[d]:
-                    upper = interp_d(d, upper, upper-1, hm)
-                elif upper < (synapse.shape[d] - 1):
-                    upper = interp_d(d, upper, upper+1, hm)
+                upper = interp_d(d, upper, upper-1, hm)
 
                 # accumulate N-d measurement for centroid
-                widths.append( upper - lower )
+                widths.append( (upper - lower) * [
+                    self.image_meta.z_microns,
+                    self.image_meta.y_microns,
+                    self.image_meta.x_microns
+                ][d]
+                )
 
             # accumulate measurements for all centroids
             centroid_widths.append( tuple(widths) )
@@ -829,14 +837,15 @@ try:
             k_channel_dev = None
 
             # find syn cores via local maxima test
-            syn_channel_dev = syn_channel_dev * (syn_channel_dev == max_channel_dev)
+            pks_channel_dev = syn_channel_dev * (syn_channel_dev == max_channel_dev)
             max_channel_dev = None
 
             syn_channel = syn_channel_dev.map_to_host(clq)
+            pks_channel = pks_channel_dev.map_to_host(clq)
             vcn_hollow = vcn_hollow_dev.map_to_host(clq)
             clq.finish()
 
-            result = syn_channel, vcn_hollow, msk_channel
+            result = syn_channel, pks_channel, vcn_hollow, msk_channel
             return result
 
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL

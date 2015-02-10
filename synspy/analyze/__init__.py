@@ -457,12 +457,18 @@ class BlockedAnalyzer (object):
         pks_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         vcn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         msk_channel = empty(self.dst_shape, dtype=self.mask_channel.dtype)
+
+        noise = None
         
         for blockpos in self.block_iter():
             dslc = self.block_slice_dst(blockpos)
-            syn_channel[dslc], pks_channel[dslc], vcn_channel[dslc], msk_channel[dslc] \
+            syn_channel[dslc], pks_channel[dslc], vcn_channel[dslc], msk_channel[dslc], blocknoise \
                 = self.block_process(blockpos)
 
+            if noise is None:
+                noise = blocknoise
+            else:
+                noise = min(noise, blocknoise)
 
         raw_channel = self.raw_channel[
             tuple([ 
@@ -471,6 +477,9 @@ class BlockedAnalyzer (object):
             ]
               )
         ]
+
+        self.noise = noise
+        print "estimating noise as %f" % self.noise
 
         return raw_channel, syn_channel, pks_channel, vcn_channel, msk_channel
 
@@ -481,9 +490,9 @@ class BlockedAnalyzer (object):
 
               blockpos: N-dimensional block numbers
 
-           Result is a 3-tuple:
+           Result is a K-tuple:
 
-              (synapse, peaks, hollow, mask)
+              (synapse, peaks, hollow, mask, noise)
 
            where all fields are Numpy arrays with the same shape and
            different result fields:
@@ -530,6 +539,8 @@ class BlockedAnalyzer (object):
             self.separated_kernels[3]
         )
 
+        noise = vcn_channel.min()
+
         # compute hollow vicinity convolution using separated convolutions
         #  ((B - A + k)/s)*I 
         #  = ((B - A + k)*I)/s
@@ -546,7 +557,7 @@ class BlockedAnalyzer (object):
         pks_channel = syn_channel * (syn_channel == max_channel)
         max_channel = None
 
-        result = syn_channel, pks_channel, vcn_hollow, msk_channel
+        result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
     
         print "Calculated block shapes: %s" % map(lambda a: a.shape, result)
         return result
@@ -675,8 +686,10 @@ class BlockedAnalyzer (object):
             centroid = centroids[i]
             # use synapse core value as proxy for maximum
             # since we did peak detection
-            hm = syn_vals[i] / 2
+            hm = (syn_vals[i] - self.noise) / 2 + self.noise
             widths = []
+
+            assert hm >= 0
 
             def slice_d(d, pos):
                 return tuple(
@@ -833,6 +846,8 @@ try:
                 - syn_channel_dev
                 + k_channel_dev
             ) / self.hollow_scale
+
+            noise = vcn_channel_dev.map_to_host(clq).min()
             vcn_channel_dev = None
             k_channel_dev = None
 
@@ -845,7 +860,7 @@ try:
             vcn_hollow = vcn_hollow_dev.map_to_host(clq)
             clq.finish()
 
-            result = syn_channel, pks_channel, vcn_hollow, msk_channel
+            result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
             return result
 
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL

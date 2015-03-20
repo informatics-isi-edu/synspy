@@ -682,14 +682,27 @@ class BlockedAnalyzer (object):
 
         centroid_widths = []
 
+        noise = np.percentile(vcn_vals, 5.0)
+        if noise > self.noise:
+            print "overriding noise estimate %f with 5th percentile measure %f" % (self.noise, noise)
+        else:
+            noise = self.noise
+
+        noise = noise * 2.0
+        print "scaling noise estimate to %f for FWHM tests" % noise
+
         for i in range(len(syn_vals)):
             centroid = centroids[i]
             # use synapse core value as proxy for maximum
             # since we did peak detection
-            hm = (syn_vals[i] - self.noise) / 2 + self.noise
-            widths = []
 
-            assert hm >= 0
+            # treat vicinity measure as another local background estimate
+            # and give it a fudge-factor
+            floor_value = max(vcn_vals[i] * 1.5, noise)
+            fm = max(syn_vals[i] - floor_value, 0)
+            hm = fm / 2 + floor_value
+
+            widths = []
 
             def slice_d(d, pos):
                 return tuple(
@@ -716,7 +729,7 @@ class BlockedAnalyzer (object):
                 # directions until half-maximum is found
                 for pos in range(centroid[d], -1, -1):
                     lower = pos
-                    if synapse[ slice_d(d, pos) ] < hm:
+                    if synapse[slice_d(d, pos)] <= hm:
                         break
 
                 # interpolate to find hm sub-pixel position
@@ -724,18 +737,19 @@ class BlockedAnalyzer (object):
 
                 for pos in range(centroid[d], synapse.shape[d]):
                     upper = pos
-                    if synapse[slice_d(d, pos)] < hm:
+                    if synapse[slice_d(d, pos)] <= hm:
                         break
 
                 # interpolate to find hm sub-pixel position
                 upper = interp_d(d, upper, upper-1, hm)
 
                 # accumulate N-d measurement for centroid
-                widths.append( (upper - lower) * [
-                    self.image_meta.z_microns,
-                    self.image_meta.y_microns,
-                    self.image_meta.x_microns
-                ][d]
+                widths.append( 
+                    (upper - lower) * [
+                        self.image_meta.z_microns,
+                        self.image_meta.y_microns,
+                        self.image_meta.x_microns
+                    ][d]
                 )
 
             # accumulate measurements for all centroids

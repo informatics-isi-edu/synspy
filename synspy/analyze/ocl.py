@@ -473,6 +473,8 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 
     // compute dst-based bbox for splat/dst intersection
+    // splat_shape box centered at centroid
+    // but clamped by dst_shape boundaries
     void dst_slice(
        const int3 splat_shape,
        const int3 dst_shape,
@@ -492,6 +494,8 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     }
 
     // compute splat-based bbox for splat/dst intersection
+    // same clamped shape as dst_slice
+    // but re-centered in original splat_shape coordinates
     void splat_slice(
        const int3 splat_shape,
        const int3 dst_shape,
@@ -499,15 +503,9 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
        int3*      lower_out,
        int3*      upper_out)
     {
-       *lower_out = (int3) (0,0,0) - min(
-          centroid - splat_shape/((int3) (2,2,2)),
-          (int3) (0,0,0)
-       );
-       
-       *upper_out = splat_shape - min(
-          dst_shape - centroid - splat_shape/((int3) (2,2,2)) + 1,
-          (int3) (0,0,0)
-       );
+       dst_slice(splat_shape, dst_shape, centroid, lower_out, upper_out);
+       *lower_out = *lower_out - centroid + splat_shape / ((int3) (2,2,2));
+       *upper_out = *upper_out - centroid + splat_shape / ((int3) (2,2,2));
     }
 
     __kernel void fill(
@@ -521,6 +519,7 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
        const int3             dst_shape,
        const int              pass_number)
     {
+       // vectors are in Z,Y,X component order
        int3 splat_stride, dst_stride;
        int3 splat_lower, splat_upper;
        int3 dst_lower, dst_upper;
@@ -531,29 +530,23 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
        int x,y,z; // dst coords
 
        // get array layouts
-       splat_stride.s2 = 1;
-       dst_stride.s2 = 1;
-       splat_stride.s1 = weights_shape.s2;
-       dst_stride.s1   = dst_shape.s2;
-       splat_stride.s0 = splat_stride.s1 * weights_shape.s1;
-       dst_stride.s0   = dst_stride.s1 * dst_shape.s1;
+       splat_stride = (int3) (weights_shape.s1 * weights_shape.s2, weights_shape.s2, 1);
+       dst_stride = (int3) (dst_shape.s1 * dst_shape.s2, dst_shape.s2, 1);
 
-       // get intersecting bounding box
-       centroid.s0 = centroids[3*seg_id+0];
-       centroid.s1 = centroids[3*seg_id+1];
-       centroid.s2 = centroids[3*seg_id+2];
-
+       // get centroid properties
+       centroid = vload3(seg_id, centroids);
        seg_value = values[seg_id];
+
+       // compute intersecting bounding box in splat and dst coordinate spaces
        splat_slice(weights_shape, dst_shape, centroid, &splat_lower, &splat_upper);
        dst_slice(weights_shape, dst_shape, centroid, &dst_lower, &dst_upper);
 
        // process each voxel in bounding box
        k = splat_lower.s0;  z = dst_lower.s0;
-       j = splat_lower.s1;  y = dst_lower.s1;
-       i = splat_lower.s2;  x = dst_lower.s2;
-
        while (k < splat_upper.s0) {
+         j = splat_lower.s1;  y = dst_lower.s1;
          while (j < splat_upper.s1) {
+            i = splat_lower.s2;  x = dst_lower.s2;
             while (i < splat_upper.s2) {
                union {
                  int ival;
@@ -567,30 +560,26 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
 
                voxel = weighted_dst + dst_stride.s0*z + dst_stride.s1*y + x;
 
-               if (pass_number == 1) {
-                  // splat our value unless the old is larger...
+               if ((pass_number == 1) && (splat.fval > 0.0)) {
+                  // splat our value
                   old.ival = atom_xchg((__global int*)voxel, splat.ival);
+                  // but restore old value if it is larger
                   while (old.fval > splat.fval) {
                      splat.fval = old.fval;
                      old.ival = atom_xchg((__global int*)voxel, splat.ival);
                   }
                }
-               else {
-                  // splat our label if our values match
-                  float value = *voxel;
+               else if ((pass_number == 2) && (splat.fval > 0.0)) {
+                  // splat our label if our value matches
+                  int ival = * (__global int*) voxel;
 
-                  if (value <= splat.fval) {
+                  if (ival == splat.ival) {
                      %(lab_type)s old, label;
                      __global %(lab_type)s* label_voxel;
 
                      label_voxel = labeled_dst + dst_stride.s0*z + dst_stride.s1*y + x;
                      label = seg_id + 1;
-
                      old = atom_xchg(label_voxel, label);
-                     while (old > label) {
-                        label = old;
-                        old = atom_xchg(label_voxel, label);
-                     }
                   }
                }
                i++;
@@ -613,7 +602,7 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     # with maximum value winning in overlapped voxels
     program.fill(
         clq, (values_dev.shape[0],), None,
-        values_dev.data, centroids_dev.data, int32(values_dev.shape[0]),
+        values_dev.data, centroids_dev.data, uint32(values_dev.shape[0]),
         kernel_dev.data, cl_array.vec.make_int3(*kernel_dev.shape),
         weighted_dev.data, labeled_dev.data, cl_array.vec.make_int3(*weighted_dev.shape),
         int32(1)
@@ -622,10 +611,10 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     clq.flush()
 
     # then we can fill in labeled voxels where voxels have matching 
-    # weighted value, with maximum label winning in overlapped voxels
+    # weighted value, with arbitrary winner in overlapped segments of equal value
     program.fill(
         clq, (values_dev.shape[0],), None,
-        values_dev.data, centroids_dev.data, int32(values_dev.shape[0]),
+        values_dev.data, centroids_dev.data, uint32(values_dev.shape[0]),
         kernel_dev.data, cl_array.vec.make_int3(*kernel_dev.shape),
         weighted_dev.data, labeled_dev.data, cl_array.vec.make_int3(*weighted_dev.shape),
         int32(2)
@@ -638,19 +627,53 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
     assert len(centroids) == len(syn_values)
 
     N = len(syn_values)
-    if N < 2**32:
-        dtype = numpy.uint32
-    elif N < 2**64:
-        dtype = numpy.uint64
-    else:
+    dtype = numpy.uint32
+    if N > (2**32-2):
         raise NotImplementedError("Absurdly large segment count %s" % N)
 
     syn_values = numpy.array(syn_values, float32)
     centroids = numpy.array(centroids, int32)
-    kernel = numpy.array(syn_kernel_3d, numpy.float32)
 
+    # use a slight subset as the splatting body
+    body_shape = syn_kernel_3d.shape
+    edge_val = syn_kernel_3d[0,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
+    cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
+    limit = edge_val + (cent_val - edge_val) / 2.0
+    mask_3d = syn_kernel_3d > limit
+    kernel = syn_kernel_3d * mask_3d
+
+    # trim off zero-padded border to reduce per-feature work size
+    def trim(data):
+        assert data.min() >= 0.0
+        for axis in range(data.ndim):
+            while data.shape[axis] > 1 and data[tuple(
+                    [ slice(None) for i in range(axis) ]
+                    + [ 0 ]
+                    + [ slice(None) for i in range(axis + 1, data.ndim) ]
+            )].max() == 0.0:
+                data = data[tuple(
+                    [ slice(None) for i in range(axis) ]
+                    + [ slice(1, None) ]
+                    + [ slice(None) for i in range(axis + 1, data.ndim) ]
+                )]
+            while data.shape[axis] > 1 and data[tuple(
+                    [ slice(None) for i in range(axis) ]
+                    + [ data.shape[axis]-1 ]
+                    + [ slice(None) for i in range(axis + 1, data.ndim) ]
+            )].max() == 0.0:
+                data = data[tuple(
+                    [ slice(None) for i in range(axis) ]
+                    + [ slice(0, data.shape[axis]-1) ]
+                    + [ slice(None) for i in range(axis + 1, data.ndim) ]
+                )]
+        return numpy.array(data, dtype=data.dtype)
+
+    kernel = trim(kernel)
+    
     assert syn_values.ndim == 1
     assert centroids.ndim == 2
+    assert centroids.shape[1] == 3
+    assert syn_values.shape[0] == centroids.shape[0]
     assert kernel.ndim == 3
 
     clq = cl.CommandQueue(ctx)

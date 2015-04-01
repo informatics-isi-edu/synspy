@@ -263,7 +263,7 @@ class BlockedAnalyzer (object):
     def sum_labeled(self, src, labels, n):
         return ndimage.sum(src, labels, range(n))
 
-    def __init__(self, raw_channel, mask_channel, image_meta, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(1024,1024,1024)):
+    def __init__(self, raw_channel, mask_channel, image_meta, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(256,256,512)):
 
         assert raw_channel.shape == mask_channel.shape
 
@@ -878,7 +878,7 @@ try:
             return result
 
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
-    #assign_voxels_opt = opencllib.assign_voxels
+    assign_voxels_opt = opencllib.assign_voxels
 except:
     pass
 

@@ -569,6 +569,75 @@ class BlockedAnalyzer (object):
         else:
             return peaks
 
+    def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
+        """Estimate FWHM measures for synapse candidates."""
+        centroid_widths = []
+        for i in range(len(syn_vals)):
+            centroid = centroids[i]
+            # use synapse core value as proxy for maximum
+            # since we did peak detection
+
+            # treat vicinity measure as another local background estimate
+            # and give it a fudge-factor
+            floor_value = max(vcn_vals[i] * 1.5, noise)
+            fm = max(syn_vals[i] - floor_value, 0)
+            hm = fm / 2 + floor_value
+
+            widths = []
+
+            def slice_d(d, pos):
+                return tuple(
+                    [ centroid[a] for a in range(d) ]
+                    + [ pos ]
+                    + [ centroid[a] for a in range(d+1, 3) ]
+                )
+
+            def interp_d(d, p0, p1, v):
+                v0 = synapse[slice_d(d, p0)]
+                if p1 >= 0 and p1 < synapse.shape[d]:
+                    v1 = synapse[slice_d(d, p1)]
+                else:
+                    v1 = v0
+
+                if v0 < v and v < v1 \
+                   or v0 > v and v > v1:
+                    return float(p0) + (v - v0) / (v1 - v0)
+                else:
+                    return p0
+
+            for d in range(3):
+                # scan from center along axes in negative and positive 
+                # directions until half-maximum is found
+                for pos in range(centroid[d], -1, -1):
+                    lower = pos
+                    if synapse[slice_d(d, pos)] <= hm:
+                        break
+
+                # interpolate to find hm sub-pixel position
+                lower = interp_d(d, lower, lower+1, hm)
+
+                for pos in range(centroid[d], synapse.shape[d]):
+                    upper = pos
+                    if synapse[slice_d(d, pos)] <= hm:
+                        break
+
+                # interpolate to find hm sub-pixel position
+                upper = interp_d(d, upper, upper-1, hm)
+
+                # accumulate N-d measurement for centroid
+                widths.append( 
+                    (upper - lower) * [
+                        self.image_meta.z_microns,
+                        self.image_meta.y_microns,
+                        self.image_meta.x_microns
+                    ][d]
+                )
+
+            # accumulate measurements for all centroids
+            centroid_widths.append( tuple(widths) )
+
+        return centroid_widths
+        
     def analyze(self, synapse, peaks, hollow, syn_lvl=None, vcn_lvl=None):
         """Analyze synapse features and return measurements.
 
@@ -680,8 +749,6 @@ class BlockedAnalyzer (object):
         centroids = zip(*centroid_components)
         t6 = datetime.datetime.now()
 
-        centroid_widths = []
-
         noise = np.percentile(vcn_vals, 5.0)
         if noise > self.noise:
             print "overriding noise estimate %f with 5th percentile measure %f" % (self.noise, noise)
@@ -691,70 +758,8 @@ class BlockedAnalyzer (object):
         noise = noise * 2.0
         print "scaling noise estimate to %f for FWHM tests" % noise
 
-        for i in range(len(syn_vals)):
-            centroid = centroids[i]
-            # use synapse core value as proxy for maximum
-            # since we did peak detection
-
-            # treat vicinity measure as another local background estimate
-            # and give it a fudge-factor
-            floor_value = max(vcn_vals[i] * 1.5, noise)
-            fm = max(syn_vals[i] - floor_value, 0)
-            hm = fm / 2 + floor_value
-
-            widths = []
-
-            def slice_d(d, pos):
-                return tuple(
-                    [ centroid[a] for a in range(d) ]
-                    + [ pos ]
-                    + [ centroid[a] for a in range(d+1, 3) ]
-                )
-
-            def interp_d(d, p0, p1, v):
-                v0 = synapse[slice_d(d, p0)]
-                if p1 >= 0 and p1 < synapse.shape[d]:
-                    v1 = synapse[slice_d(d, p1)]
-                else:
-                    v1 = v0
-
-                if v0 < v and v < v1 \
-                   or v0 > v and v > v1:
-                    return float(p0) + (v - v0) / (v1 - v0)
-                else:
-                    return p0
-
-            for d in range(3):
-                # scan from center along axes in negative and positive 
-                # directions until half-maximum is found
-                for pos in range(centroid[d], -1, -1):
-                    lower = pos
-                    if synapse[slice_d(d, pos)] <= hm:
-                        break
-
-                # interpolate to find hm sub-pixel position
-                lower = interp_d(d, lower, lower+1, hm)
-
-                for pos in range(centroid[d], synapse.shape[d]):
-                    upper = pos
-                    if synapse[slice_d(d, pos)] <= hm:
-                        break
-
-                # interpolate to find hm sub-pixel position
-                upper = interp_d(d, upper, upper-1, hm)
-
-                # accumulate N-d measurement for centroid
-                widths.append( 
-                    (upper - lower) * [
-                        self.image_meta.z_microns,
-                        self.image_meta.y_microns,
-                        self.image_meta.x_microns
-                    ][d]
-                )
-
-            # accumulate measurements for all centroids
-            centroid_widths.append( tuple(widths) )
-
+        centroid_widths = self.fwhm_estimate(synapse, centroids, syn_vals, vcn_vals, noise)
+        
         t7 = datetime.datetime.now()
 
         try:
@@ -877,6 +882,12 @@ try:
             result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
             return result
 
+        def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
+            return opencllib.fwhm_estimate(
+                synapse, centroids, syn_vals, vcn_vals, noise,
+                (self.image_meta.z_microns, self.image_meta.y_microns, self.image_meta.x_microns)
+            )
+            
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels
 except:

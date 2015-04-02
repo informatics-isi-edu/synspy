@@ -693,3 +693,117 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
 
     return labeled
 
+def fwhm_estimate_dev(clq, synapse_dev, centroids_dev, syn_val_dev, vcn_val_dev, noise, voxel_size, widths_dev):
+    
+    CL = """
+    float measure_1d(
+       __global const float* synapse,
+       size_t                center,
+       float                 half_magnitude,
+       int                   min_offset,
+       int                   max_offset,
+       int                   stride)
+    {
+       float lower, upper;
+       int offset0, offset1;
+       float value0, value1;
+
+       value1 = synapse[center];
+       offset1 = 0;
+       for (offset1=0; offset1>=min_offset; offset1--) {
+          value0 = value1;
+          offset0 = offset1;
+          value1 = synapse[center + offset1 * stride];
+          if (value1 <= half_magnitude) break;
+       }
+       lower = (float) offset1 + smoothstep((float) value1, (float) value0, half_magnitude);
+
+       value1 = synapse[center];
+       offset1 = 0;
+       for (offset1=0; offset1<=max_offset; offset1++) {
+          value0 = value1;
+          offset0 = offset1;
+          value1 = synapse[center + offset1 * stride];
+          if (value1 <= half_magnitude) break;
+       }
+       upper = (float) offset0 + smoothstep((float) value0, (float) value1, half_magnitude);
+
+       return (upper - lower);
+    }
+
+    __kernel void measure(
+       __global const float*  synapse,
+       const int3             synapse_shape,
+       __global const float*  syn_val,
+       __global const float*  vcn_val,
+       __global const int*    centroids,
+       const unsigned int     num_segments,
+       float                  noise,
+       float3                 voxel_size,
+       __global float*        widths_dst)
+    {
+       unsigned int seg_id = get_global_id(0);
+       int3 stride, centroid;
+       float3 width;
+       int x,y,z;
+       float floor_value, full_magnitude, half_magnitude;
+       size_t center;
+       
+       floor_value = max(vcn_val[seg_id] * (float) 1.5, noise);
+       full_magnitude = max(syn_val[seg_id] - floor_value, (float) 0.0);
+       half_magnitude = full_magnitude / 2.0 + floor_value;
+
+       stride = (int3) (synapse_shape.s1 * synapse_shape.s2, synapse_shape.s2, 1);
+       centroid = vload3(seg_id, centroids);
+       center = centroid.s0 * stride.s0 + centroid.s1 * stride.s1 + centroid.s2;
+      
+       width.s0 = measure_1d(synapse, center, half_magnitude, 0 - centroid.s0, synapse_shape.s0 - centroid.s0 - 1, stride.s0);
+       width.s1 = measure_1d(synapse, center, half_magnitude, 0 - centroid.s1, synapse_shape.s1 - centroid.s1 - 1, stride.s1);
+       width.s2 = measure_1d(synapse, center, half_magnitude, 0 - centroid.s2, synapse_shape.s2 - centroid.s2 - 1, stride.s2);
+
+       width = width * voxel_size;
+       vstore3(width, seg_id, widths_dst);
+    }
+    """
+    
+    program = cl.Program(ctx, CL).build()
+
+    program.measure(
+        clq, (syn_val_dev.shape[0],), None,
+        synapse_dev.data, cl_array.vec.make_int3(*synapse_dev.shape),
+        syn_val_dev.data, vcn_val_dev.data, centroids_dev.data, uint32(syn_val_dev.shape[0]),
+        float32(noise),
+        cl_array.vec.make_float3(*voxel_size),
+        widths_dev.data
+    )
+
+    clq.flush()
+
+def fwhm_estimate(synapse, centroids, syn_values, vcn_values, noise, voxel_size):
+    
+    syn_values = numpy.array(syn_values, float32)
+    vcn_values = numpy.array(vcn_values, float32)
+    centroids = numpy.array(centroids, int32)
+
+    assert syn_values.ndim == 1
+    assert vcn_values.shape == syn_values.shape
+    assert centroids.ndim == 2
+    assert centroids.shape[1] == 3
+    assert syn_values.shape[0] == centroids.shape[0]
+
+    clq = cl.CommandQueue(ctx)
+
+    synapse_dev = cl_array.to_device(clq, synapse)
+    syn_val_dev = cl_array.to_device(clq, syn_values)
+    vcn_val_dev = cl_array.to_device(clq, vcn_values)
+    centroids_dev = cl_array.to_device(clq, centroids)
+
+    widths_dev = cl_array.zeros(clq, (syn_values.shape[0], 3), float32)
+
+    fwhm_estimate_dev(clq, synapse_dev, centroids_dev, syn_val_dev, vcn_val_dev, noise, voxel_size, widths_dev)
+
+    widths = widths_dev.map_to_host()
+    clq.finish()
+
+    return widths
+

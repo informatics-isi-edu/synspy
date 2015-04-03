@@ -24,17 +24,6 @@ The method uses several convolution kernels:
 The 3D image convolution I*Core is trivially separated into 1D
 convolutions on each axis.
 
-The 3D image convolution I*Hollow is algebraically decomposed into a
-combination of convolutions which can each be separated into 1D
-convolutions:
-
-   I*Hollow = I*(Vicinity - Core + k)/s)
-            = (I*(Vicinity - Core + k))/s
-            = (I*Vicinity - I*Core + I*k)/s
-
-where Vicinity and Core are gaussian kernels as described above, k is
-a constant box filter kernel, and s is a scalar.
-
 Additionally, the method uses a local maxima filter using a box filter
 size related to the Hollow filter size.
 
@@ -54,6 +43,9 @@ thresholds to accept synapses that are:
 
    C. (optional) with dark enough auto-fluorescence channel to not be
       considered junk
+
+The I*Hollow convolution is evaluated sparsely, only at the candidate
+synapse centroids voxels, to avoid wastful calculations.
 
 """
 

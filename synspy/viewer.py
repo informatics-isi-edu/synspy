@@ -104,13 +104,13 @@ class Canvas(base.Canvas):
 
         t0 = datetime.datetime.now()
         t00 = t0
-        raw_channel, syn_channel, pks_channel, vcn_hollow, msk_channel = analyzer.volume_process()
+        raw_channel, syn_channel, pks_channel, msk_channel = analyzer.volume_process()
         t1 = datetime.datetime.now()
         print "\nvolume_process took %s seconds\n" % (t1-t0).total_seconds()
 
         # get per-core measurements
         t0 = datetime.datetime.now()
-        syn_values, vcn_values, centroids, widths = analyzer.analyze(syn_channel, pks_channel, vcn_hollow)
+        syn_values, vcn_values, centroids, widths = analyzer.analyze(syn_channel, pks_channel)
         t1 = datetime.datetime.now()
         print "\nanalyze took %s seconds" % (t1-t0).total_seconds()
 
@@ -143,7 +143,7 @@ class Canvas(base.Canvas):
 
         segment_map = None
 
-        self._all_segments = (syn_channel, pks_channel, vcn_hollow)
+        self._all_segments = (syn_channel, pks_channel)
         self.analyzer = analyzer
         self.syn_values = syn_values
         self.vcn_values = vcn_values
@@ -318,7 +318,6 @@ red mask threshold: %f
             return self.analyzer.analyze(
                 self._all_segments[0],
                 self._all_segments[1],
-                self._all_segments[2],
                 syn_lvl,
                 vcn_lvl
             )

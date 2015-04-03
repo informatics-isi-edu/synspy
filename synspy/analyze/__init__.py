@@ -63,7 +63,7 @@ import datetime
 import sys
 import random
 import numpy as np
-from numpy import array, float32, empty, newaxis, dot, cross, zeros, ones
+from numpy import array, float32, int32, empty, newaxis, dot, cross, zeros, ones
 from numpy.linalg import norm
 import scipy
 from scipy import ndimage
@@ -455,14 +455,13 @@ class BlockedAnalyzer (object):
 
         syn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         pks_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
-        vcn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
         msk_channel = empty(self.dst_shape, dtype=self.mask_channel.dtype)
 
         noise = None
         
         for blockpos in self.block_iter():
             dslc = self.block_slice_dst(blockpos)
-            syn_channel[dslc], pks_channel[dslc], vcn_channel[dslc], msk_channel[dslc], blocknoise \
+            syn_channel[dslc], pks_channel[dslc], msk_channel[dslc], blocknoise \
                 = self.block_process(blockpos)
 
             if noise is None:
@@ -481,7 +480,7 @@ class BlockedAnalyzer (object):
         self.noise = noise
         print "estimating noise as %f" % self.noise
 
-        return raw_channel, syn_channel, pks_channel, vcn_channel, msk_channel
+        return raw_channel, syn_channel, pks_channel, msk_channel
 
     def block_process(self, blockpos):
         """Process block data to return convolved results.
@@ -492,7 +491,7 @@ class BlockedAnalyzer (object):
 
            Result is a K-tuple:
 
-              (synapse, peaks, hollow, mask, noise)
+              (synapse, peaks, mask, noise)
 
            where all fields are Numpy arrays with the same shape and
            different result fields:
@@ -526,48 +525,21 @@ class BlockedAnalyzer (object):
               )
         ]
     
-        vcn_channel = self.convNx1d(
-            self.raw_channel[self.block_slice_src(1, blockpos)], 
-            self.separated_kernels[1]
-        )
         msk_channel = self.convNx1d(
             self.mask_channel[self.block_slice_src(2, blockpos)], 
             self.separated_kernels[2]
         )
-        k_channel = self.convNx1d(
-            self.raw_channel[self.block_slice_src(3, blockpos)], 
-            self.separated_kernels[3]
-        )
 
-        noise = vcn_channel.min()
-
-        # compute hollow vicinity convolution using separated convolutions
-        #  ((B - A + k)/s)*I 
-        #  = ((B - A + k)*I)/s
-        #  = (B*I - A*I + k*I)/s
-        vcn_hollow = (
-            vcn_channel
-            - syn_channel
-            + k_channel
-        ) / self.hollow_scale
-        vcn_channel = None
-        k_channel = None
+        noise = syn_channel.min()
 
         # find syn cores via local maxima test
         pks_channel = syn_channel * (syn_channel == max_channel)
         max_channel = None
 
-        result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
+        result = syn_channel, pks_channel, msk_channel, noise
     
         print "Calculated block shapes: %s" % map(lambda a: a.shape, result)
         return result
-
-    def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-        peaks = (synapse > syn_lvl)# & (synapse > hollow)
-        if vcn_lvl is not None:
-            return peaks & (hollow < vcn_lvl)
-        else:
-            return peaks
 
     def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
         """Estimate FWHM measures for synapse candidates."""
@@ -637,15 +609,62 @@ class BlockedAnalyzer (object):
             centroid_widths.append( tuple(widths) )
 
         return centroid_widths
+
+
+    def weighted_measure(self, data, centroids, kernel_3d):
+        """Return weighted 3D tap of data at each centroid position.
+
+           Result is equivalent to convolving data * kernel_3d and
+           then projecting the output value at each centroid voxel.
+        """
+
+        radii = [ d / 2 for d in kernel_3d.shape ]
         
-    def analyze(self, synapse, peaks, hollow, syn_lvl=None, vcn_lvl=None):
+        def get_slices(centroid):
+            data_slc = []
+            kern_slc = []
+            clipped = False
+            for d in range(kernel_3d.ndim):
+                if (centroid[d] - radii[d]) < 0:
+                    clipped = True
+
+                l = max(0, centroid[d] - radii[d])
+                lowers = (l, l + radii[d] - centroid[d])
+                    
+                if (centroid[d] + radii[d] + 1) >= data.shape[d]:
+                    clipped = True
+
+                u = min(centroid[d] + radii[d] + 1, data.shape[d])
+                uppers = (u, u + radii[d] - centroid[d])
+                    
+                data_slc.append(slice(lowers[0], uppers[0]))
+                kern_slc.append(slice(lowers[1], uppers[1]))
+                
+            return tuple(data_slc), tuple(kern_slc), clipped
+                    
+        measures = []
+        
+        for centroid in centroids:
+            data_slc, kern_slc, clipped = get_slices(centroid)
+            
+            if clipped:
+                weights = kernel_3d[kern_slc]
+                weights = weights * 1.0/weights.sum()
+            else:
+                weights = kernel_3d
+                
+            weighted = data[data_slc] * weights
+            measures.append( weighted.sum() )
+
+        return measures
+    
+    def analyze(self, synapse, peaks, syn_lvl=None, vcn_lvl=None):
         """Analyze synapse features and return measurements.
 
            Parameters:
 
               synapse: from block_process results
               peaks: from block_process results
-              hollow: from block_process results
               syn_lvl: minimum synapse core measurement accepted
               vcn_lvl: maximum synapse background measurement accepted
 
@@ -666,11 +685,9 @@ class BlockedAnalyzer (object):
             syn_lvl = 0
 
         t0 = datetime.datetime.now()
-        peaksf = self.get_peaks(peaks, hollow, syn_lvl, vcn_lvl)
+        t1 = t0
 
-        t1 = datetime.datetime.now()
-        label_im, nb_labels = ndimage.label(peaksf)
-        peaksf = None
+        label_im, nb_labels = ndimage.label(peaks)
 
         print "found %d centroids" % nb_labels
 
@@ -691,41 +708,9 @@ class BlockedAnalyzer (object):
             pass
 
         t3 = datetime.datetime.now()
-        sums = self.sum_labeled(
-            peaks,
-            label_im,
-            nb_labels + 1
-        )[1:]
-
-        syn_vals = sums / sizes
-
-        t4 = datetime.datetime.now()
-        sums = self.sum_labeled(
-            hollow,
-            label_im,
-            nb_labels + 1
-        )[1:]
-
-        vcn_vals = sums / sizes
-
-        try:
-            print "centroid values: %s, %s, %s" % (
-                syn_vals.min(),
-                syn_vals.mean(),
-                syn_vals.max()
-            )
-
-            print "centroid background: %s, %s, %s" % (
-                vcn_vals.min(),
-                vcn_vals.mean(),
-                vcn_vals.max()
-            )
-        except:
-            pass    
 
         centroid_components = [ ]
 
-        t5 = datetime.datetime.now()
         for d in range(3):
             coords = self.array_mult(
                 array(
@@ -747,6 +732,43 @@ class BlockedAnalyzer (object):
                 )
 
         centroids = zip(*centroid_components)
+
+        try:
+            print "centroids:", centroids[0:10], "...", centroids[-1]
+        except:
+            pass
+
+        t4 = datetime.datetime.now()
+
+        # put centroids back into original voxel grid to measure past borders
+        offset_centroids = array(centroids, int32)
+        offset_centroids[:,0] += self.max_border_widths[0]
+        offset_centroids[:,1] += self.max_border_widths[1]
+        offset_centroids[:,2] += self.max_border_widths[2]
+        
+        sums = self.weighted_measure(self.raw_channel, offset_centroids, self.kernels_3d[0])
+        syn_vals = sums / sizes
+
+        t5 = datetime.datetime.now()
+
+        sums = self.weighted_measure(self.raw_channel, offset_centroids, self.kernels_3d[1])
+        vcn_vals = sums / sizes
+
+        try:
+            print "centroid values: %s, %s, %s" % (
+                syn_vals.min(),
+                syn_vals.mean(),
+                syn_vals.max()
+            )
+
+            print "centroid background: %s, %s, %s" % (
+                vcn_vals.min(),
+                vcn_vals.mean(),
+                vcn_vals.max()
+            )
+        except:
+            pass    
+
         t6 = datetime.datetime.now()
 
         noise = np.percentile(vcn_vals, 5.0)
@@ -761,11 +783,6 @@ class BlockedAnalyzer (object):
         centroid_widths = self.fwhm_estimate(synapse, centroids, syn_vals, vcn_vals, noise)
         
         t7 = datetime.datetime.now()
-
-        try:
-            print "centroids:", centroids[0:10], "...", centroids[-1]
-        except:
-            pass
 
         print "\nanalyze splits: %s" % map(lambda p: (p[1]-p[0]).total_seconds(), [ (t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5), (t5, t6), (t6, t7) ])
 
@@ -783,14 +800,6 @@ try:
 
         def array_mult(self, a1, a2):
             return numerexprlib.array_mult(a1, a2)
-
-        def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-            expr = "(synapse > syn_lvl)"
-            #expr += " & (synapse > hollow)"
-            if vcn_lvl is not None:
-                expr += " & (hollow < vcn_lvl)"
-
-            return numerexprlib.neval(expr)
 
     BlockedAnalyzerOpt = BlockedAnalyzerNumerexpr
 except:
@@ -841,45 +850,22 @@ try:
             syn_channel = syn_channel.astype(opencllib.float32, copy=True)
             syn_channel_dev = opencllib.cl_array.to_device(clq, syn_channel)
     
-            vcn_channel_dev = opencllib.convNx1d(
-                self.raw_channel[self.block_slice_src(1, blockpos)], 
-                self.separated_kernels[1],
-                clq=clq
-            )
             msk_channel = opencllib.convNx1d(
                 self.mask_channel[self.block_slice_src(2, blockpos)], 
                 self.separated_kernels[2]
             )
-            k_channel_dev = opencllib.convNx1d(
-                self.raw_channel[self.block_slice_src(3, blockpos)], 
-                self.separated_kernels[3],
-                clq=clq
-            )
 
-            # compute hollow vicinity convolution using separated convolutions
-            #  ((B - A + k)/s)*I 
-            #  = ((B - A + k)*I)/s
-            #  = (B*I - A*I + k*I)/s
-            vcn_hollow_dev = (
-                vcn_channel_dev
-                - syn_channel_dev
-                + k_channel_dev
-            ) / self.hollow_scale
-
-            noise = vcn_channel_dev.map_to_host(clq).min()
-            vcn_channel_dev = None
-            k_channel_dev = None
+            noise = syn_channel.min()
 
             # find syn cores via local maxima test
             pks_channel_dev = syn_channel_dev * (syn_channel_dev == max_channel_dev)
             max_channel_dev = None
+            syn_channel_dev = None
 
-            syn_channel = syn_channel_dev.map_to_host(clq)
             pks_channel = pks_channel_dev.map_to_host(clq)
-            vcn_hollow = vcn_hollow_dev.map_to_host(clq)
             clq.finish()
 
-            result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
+            result = syn_channel, pks_channel, msk_channel, noise
             return result
 
         def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
@@ -887,7 +873,11 @@ try:
                 synapse, centroids, syn_vals, vcn_vals, noise,
                 (self.image_meta.z_microns, self.image_meta.y_microns, self.image_meta.x_microns)
             )
-            
+
+        def weighted_measure(self, data, centroids, kernel):
+            return opencllib.weighted_measure(data, centroids, kernel)
+
+        
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels
 except:

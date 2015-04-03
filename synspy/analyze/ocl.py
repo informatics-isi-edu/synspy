@@ -807,3 +807,83 @@ def fwhm_estimate(synapse, centroids, syn_values, vcn_values, noise, voxel_size)
 
     return widths
 
+def weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev):
+    
+    CL = """
+    __kernel void measure(
+       __global const float*  data,
+       const int3             data_shape,
+       __global const int*    centroids,
+       __global const float*  kern,
+       const int3             kern_shape,
+       __global float*        measures_dst)
+    {
+       unsigned int seg_id = get_global_id(0);
+       int3 centroid, kstride, dstride, D0, D1, K0;
+       int x,y,z, i,j,k;
+       float measure = 0.0, weight = 0.0;
+       
+       dstride = (int3) (data_shape.s1 * data_shape.s2, data_shape.s2, 1);
+       kstride = (int3) (kern_shape.s1 * kern_shape.s2, kern_shape.s2, 1);
+
+       centroid = vload3(seg_id, centroids);
+
+       // data sampling bounding box corners intersect data and kernel
+       D0 = max((int3) (0,0,0), centroid - kern_shape/2);
+       D1 = min(centroid + kern_shape/2 + 1, data_shape);
+
+       // kernel bounding box corner is offset by centroid and kernel radius
+       K0 = D0 + kern_shape/2 - centroid;
+
+       for (z=D0.s0, k=K0.s0; z<D1.s0; z++, k++) {
+          for (y=D0.s1, j=K0.s1; y<D1.s1; y++, j++) {
+             for (x=D0.s2, i=K0.s2; x<D1.s2; x++, i++) {
+                float s = kern[kstride.s0 * k + kstride.s1 * j + i];
+                measure += data[dstride.s0 * z + dstride.s1 * y + x] * s;
+                weight += s;
+             }
+          }
+       }
+
+       measures_dst[seg_id] = measure / weight;
+    }
+    """
+    
+    program = cl.Program(ctx, CL).build()
+
+    program.measure(
+        clq, (centroids_dev.shape[0],), None,
+        data_dev.data, cl_array.vec.make_int3(*data_dev.shape),
+        centroids_dev.data,
+        kernel_dev.data, cl_array.vec.make_int3(*kernel_dev.shape),
+        measures_dev.data
+    )
+
+    clq.flush()
+
+def weighted_measure(data, centroids, kernel):
+
+    assert data.ndim == 3
+    assert kernel.ndim == 3
+    
+    data = numpy.array(data, float32)
+    centroids = numpy.array(centroids, int32)
+    kernel = numpy.array(kernel, float32)
+
+    assert centroids.ndim == 2
+    assert centroids.shape[1] == 3
+
+    clq = cl.CommandQueue(ctx)
+
+    data_dev = cl_array.to_device(clq, data)
+    centroids_dev = cl_array.to_device(clq, centroids)
+    kernel_dev = cl_array.to_device(clq, kernel)
+    measures_dev = cl_array.zeros(clq, (centroids.shape[0],), float32)
+
+    weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
+
+    measures = measures_dev.map_to_host()
+    clq.finish()
+
+    return measures
+

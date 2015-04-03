@@ -740,16 +740,16 @@ class BlockedAnalyzer (object):
 
         t4 = datetime.datetime.now()
 
+        sums = array(map(lambda c: synapse[c], centroids), dtype=float32)
+        syn_vals = sums / sizes
+        
+        t5 = datetime.datetime.now()
+
         # put centroids back into original voxel grid to measure past borders
         offset_centroids = array(centroids, int32)
         offset_centroids[:,0] += self.max_border_widths[0]
         offset_centroids[:,1] += self.max_border_widths[1]
         offset_centroids[:,2] += self.max_border_widths[2]
-        
-        sums = self.weighted_measure(self.raw_channel, offset_centroids, self.kernels_3d[0])
-        syn_vals = sums / sizes
-
-        t5 = datetime.datetime.now()
 
         sums = self.weighted_measure(self.raw_channel, offset_centroids, self.kernels_3d[1])
         vcn_vals = sums / sizes

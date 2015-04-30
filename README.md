@@ -69,7 +69,7 @@ NiBabel prerequisite if you do not need to read those types of files.
   - Press `?` to print UI help text to console output.
   - The `f` and `F` keys control the minimum *feature* intensity
     threshold for classifying blobs as synapses.
-  - The `n` and `N` keys control the maximum *noise* threshold to
+  - The `n` and `N` keys control the maximum *neighborhood* threshold to
     reject blobs that are not in a dark background.
   - The `m` and `M` keys control the maximum *mask* threshold to
     reject blobs that are in autofluorescing regions according to the
@@ -77,17 +77,17 @@ NiBabel prerequisite if you do not need to read those types of files.
   - The number keys `0` to `9` with and without shift modifier control
     the intensity gain of the on-screen rendering (but do not affect
     image analysis).
-  - The `c` key cycles through feature color interpretation for
+  - The `b` key cycles through feature blending mode for
     on-screen rendering, where unclassified voxels are rendered in
     blue:
     1. Linear intensity mapping for voxels within classified segments
       (green for synapses, red for auto-fluorescence).
     2. Full intensity fill for voxels within classified segments
       (green for synapses, red for auto-fluorescence).
-  - The 'd' key *dumps* current parameters to the console output.
-  - The 'D' key writes out a *debug* image with classified voxels and
+  - The `d` key *dumps* current parameters to the console output.
+  - The `D` key writes out a *debug* image with classified voxels and
     also writes out the list of segmented blobs as a CSV file.
-  - The 'h' key writes out a 2D histogram of all blobs using the
+  - The `h` key writes out a 2D histogram of all blobs using the
     feature intensity and background noise intensity measures as the
     two plotting axes.
 

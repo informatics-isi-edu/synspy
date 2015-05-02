@@ -96,7 +96,11 @@ class Canvas(base.Canvas):
     
     def _reform_image(self, I, meta):
         raw_channel = I[:,:,:,0]
-        red_channel = I[:,:,:,1]
+
+        try:
+            red_channel = I[:,:,:,1]
+        except IndexError:
+            red_channel = np.zeros(I.shape[0:3], I.dtype)
 
         analyzer = BlockedAnalyzerOpt(raw_channel, red_channel, meta, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
 

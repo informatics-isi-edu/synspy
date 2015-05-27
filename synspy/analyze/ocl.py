@@ -638,7 +638,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
     body_shape = syn_kernel_3d.shape
     edge_val = syn_kernel_3d[0,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
     cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
-    limit = edge_val + (cent_val - edge_val) / 2.0
+    limit = edge_val + (cent_val - edge_val) * 0.1
     mask_3d = syn_kernel_3d > limit
     kernel = syn_kernel_3d * mask_3d
 

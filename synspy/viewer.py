@@ -38,14 +38,14 @@ _linear1_colorxfer = """
           col_smp.b = 0.0;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
-          col_smp.g = col_smp.r;
-          col_smp.a = col_smp.r;
+          col_smp.g = 1.0;
+          col_smp.a = col_smp.r - 0.03;
           col_smp.b = 0.0;
           col_smp.r = 0.0;
        }
        else {
-          col_smp.b = col_smp.r;
-          col_smp.a = col_smp.r;
+          col_smp.b = 1.0;
+          col_smp.a = col_smp.r - 0.03;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }

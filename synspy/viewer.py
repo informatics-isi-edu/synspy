@@ -120,7 +120,7 @@ class Canvas(base.Canvas):
 
         # get labeled voxels
         t0 = datetime.datetime.now()
-        segment_map = assign_voxels_opt(syn_values, centroids, syn_channel.shape, analyzer.kernels_3d[0])
+        segment_map = assign_voxels_opt(syn_values, centroids, syn_channel.shape, analyzer.kernels_3d[0], (meta.z_microns, meta.y_microns, meta.x_microns))
         t1 = datetime.datetime.now()
         print "assign_voxels took %s seconds" % (t1-t0).total_seconds()
 

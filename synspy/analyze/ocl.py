@@ -623,7 +623,7 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     clq.flush()
 
 
-def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
+def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=None):
     assert len(centroids) == len(syn_values)
 
     N = len(syn_values)
@@ -669,6 +669,12 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
         return numpy.array(data, dtype=data.dtype)
 
     kernel = trim(kernel)
+    if gridsize:
+        print "assigning voxels with %fx%fx%f micron core bbox" % tuple(map(
+            lambda v, r: v * r,
+            kernel.shape,
+            gridsize
+        ))
     
     assert syn_values.ndim == 1
     assert centroids.ndim == 2

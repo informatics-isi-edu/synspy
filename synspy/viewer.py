@@ -204,13 +204,13 @@ class Canvas(base.Canvas):
         """Reset UI controls to startup state."""
         #self.nuclvl = 0.02
         #self.msklvl = 0.12
-        self.nuclvl = 1268.0 / (self.data_max - self.data_min)
+        self.nuclvl = 0.2 #1268.0 / (self.data_max - self.data_min)
         self.msklvl = 4531.0 / (self.data_max - self.data_min)
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
         base.Canvas.reset_ui(self, event)
         #self.floorlvl = 0.01
-        self.floorlvl = 1449.0 / (self.data_max - self.data_min)
+        self.floorlvl = 0.02 #1449.0 / (self.data_max - self.data_min)
         self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
 
     def dump_parameters(self, event):

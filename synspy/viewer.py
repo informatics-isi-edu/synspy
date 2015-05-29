@@ -25,6 +25,7 @@ uniform float u_gain;
 uniform float u_floorlvl;
 uniform float u_nuclvl;
 uniform float u_msklvl;
+uniform float u_zerlvl;
 """
 
 # R: raw signal
@@ -34,19 +35,26 @@ uniform float u_msklvl;
 
 _linear1_colorxfer = """
        if (col_smp.a > u_msklvl) {
-          col_smp.r = col_smp.a;
+          col_smp.r = 1.0;
+          col_smp.a = col_smp.a - 0.01;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
           col_smp.g = 1.0;
-          col_smp.a = col_smp.r - 0.03;
+          col_smp.a = col_smp.r - 0.01;
           col_smp.b = 0.0;
           col_smp.r = 0.0;
        }
+       else if (col_smp.r < u_zerlvl) {
+          col_smp.r = 0.0;
+          col_smp.g = 0.0;
+          col_smp.b = 0.0;
+          col_smp.a = 0.0;
+       }
        else {
           col_smp.b = 1.0;
-          col_smp.a = col_smp.r - 0.03;
+          col_smp.a = col_smp.r - 0.01;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }
@@ -61,9 +69,9 @@ _linear_alpha = """
 _binary1_colorxfer = """
        if (col_smp.a > u_msklvl) {
           col_smp.r = 1.0;
+          col_smp.a = col_smp.a - 0.05;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
-          col_smp.a = 0.05;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
           col_smp.g = 1.0;
@@ -71,22 +79,20 @@ _binary1_colorxfer = """
           col_smp.b = 0.0;
           col_smp.r = 0.0;
        }
+       else if (col_smp.r < u_zerlvl) {
+          col_smp.r = 0.0;
+          col_smp.g = 0.0;
+          col_smp.b = 0.0;
+          col_smp.a = 0.0;
+       }
        else {
-          col_smp.b = col_smp.r;
-          col_smp.a = clamp(col_smp.r, 0.0, 0.7);
+          col_smp.b = 1.0;
+          col_smp.a = col_smp.r - 0.05;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }
 
        col_smp.rgb = clamp( u_gain * col_smp.rgb, 0.0, 1.0);
-       if (col_smp.a > 0.9) {
-          // leave alpha alone for segment markers
-       }
-       else {
-          // don't let voxel alpha saturate
-          col_smp.a = clamp( u_gain * col_smp.a, 0.0, 0.5);
-       }
-
 """
 
 _binary_alpha = ""
@@ -199,6 +205,7 @@ class Canvas(base.Canvas):
 
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
+        self.key_press_handlers['T'] = self.adjust_zer_level
         self.key_press_handlers['D'] = self.dump_params_or_classified
         self.key_press_handlers['H'] = self.dump_segment_heatmap
         self.key_press_handlers['?'] = self.help
@@ -214,8 +221,10 @@ class Canvas(base.Canvas):
         #self.msklvl = 0.12
         self.nuclvl = 0.2 #1268.0 / (self.data_max - self.data_min)
         self.msklvl = 4531.0 / (self.data_max - self.data_min)
+        self.zerlvl = 0.0
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
+        self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
         base.Canvas.reset_ui(self, event)
         #self.floorlvl = 0.01
         self.floorlvl = 0.02 #1449.0 / (self.data_max - self.data_min)
@@ -444,4 +453,19 @@ red mask threshold: %f
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
         self.update()
         print 'red mask level set to %.5f' % (self.msklvl * self.data_max)
+
+    def adjust_zer_level(self, event):
+        """Increase ('T') or decrease ('t') transparency zero-crossing level."""
+        if 'Alt' in event.modifiers:
+            step = 0.00005
+        else:
+            step = 0.0005
+
+        if 'Shift' in event.modifiers:
+            self.zerlvl += step
+        else:
+            self.zerlvl -= step
+        self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
+        self.update()
+        print 'zero-crossing level set to %.5f' % (self.zerlvl * self.data_max)
 

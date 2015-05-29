@@ -181,8 +181,8 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
     #  splat an elliptic core instead of a box?
-    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.5*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
-    span_kernel = ones(tuple(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
+    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.75*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
+    span_kernel = ones(tuple(map(lambda d, s: 2*(int(1.0*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
     hollow_kernel = span_kernel - pad_centered(core_kernel, span_kernel.shape)
 
     core_kernel /= core_kernel.sum()

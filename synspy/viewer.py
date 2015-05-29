@@ -36,13 +36,13 @@ uniform float u_zerlvl;
 _linear1_colorxfer = """
        if (col_smp.a > u_msklvl) {
           col_smp.r = 1.0;
-          col_smp.a = col_smp.a - 0.01;
+          col_smp.a = col_smp.a - u_zerlvl;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
           col_smp.g = 1.0;
-          col_smp.a = col_smp.r - 0.01;
+          col_smp.a = col_smp.r - u_zerlvl;
           col_smp.b = 0.0;
           col_smp.r = 0.0;
        }
@@ -54,7 +54,7 @@ _linear1_colorxfer = """
        }
        else {
           col_smp.b = 1.0;
-          col_smp.a = col_smp.r - 0.01;
+          col_smp.a = col_smp.r - u_zerlvl;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }
@@ -69,7 +69,7 @@ _linear_alpha = """
 _binary1_colorxfer = """
        if (col_smp.a > u_msklvl) {
           col_smp.r = 1.0;
-          col_smp.a = col_smp.a - 0.01;
+          col_smp.a = col_smp.a - u_zerlvl;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
        }
@@ -87,19 +87,20 @@ _binary1_colorxfer = """
        }
        else {
           col_smp.b = 1.0;
-          col_smp.a = col_smp.r - 0.01;
+          col_smp.a = col_smp.r - u_zerlvl;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }
 
-       col_smp.rgb = clamp( u_gain * col_smp.rgb, 0.0, 1.0);
+       col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
 """
 
 _binary_alpha = ""
 
 class Canvas(base.Canvas):
 
-    _vol_interp = 'nearest' # 'linear'
+    _vol_interp = 'nearest'
+    #_vol_interp = 'linear'
     
     def _reform_image(self, I, meta):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
@@ -111,19 +112,21 @@ class Canvas(base.Canvas):
         view_image, centroids, centroid_measures = analyzer.volume_process()
         splits.append((datetime.datetime.now(), 'volume process'))
 
+        def rinfo(a):
+            return (a.min(), a.mean(), a.max())
+        
         # get labeled voxels
         centroid_measures = np.array(centroid_measures, dtype=np.float32)
-        print "core range:", centroid_measures[:,0].min(), centroid_measures[:,0].max()
-        print "hollow range:", centroid_measures[:,1].min(), centroid_measures[:,1].max()
-        corevals = centroid_measures[:,0]
+        print "core range:", rinfo(centroid_measures[:,0])
+        print "hollow range:", rinfo(centroid_measures[:,1])
         centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)
-        print "centroid2 range:", [(v.min(), v.max()) for v in [centroids2[0], centroids2[1], centroids2[2]]]
+        print "centroid2 range:", [rinfo(v) for v in [centroids2[0], centroids2[1], centroids2[2]]]
         print "view_image shape:", view_image.shape
         splat_kern = bin_reduce(compose_3d_kernel(analyzer.kernels_3x1d[0]), analyzer.view_reduction)
         splat_kern /= splat_kern.sum()
         print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
         segment_map = assign_voxels_opt(
-            corevals,
+            centroid_measures[:,0],
             centroids2,
             view_image.shape[0:3],
             splat_kern
@@ -131,7 +134,7 @@ class Canvas(base.Canvas):
         splits.append((datetime.datetime.now(), 'segment map'))
 
         # fill segmented voxels w/ per-segment measurements
-        syn_val_map = np.array([0] + list(corevals)).astype(I.dtype)[segment_map]
+        syn_val_map = np.array([0] + list(centroid_measures[:,0])).astype(I.dtype)[segment_map]
         vcn_val_map = np.array([0] + list(centroid_measures[:,1])).astype(I.dtype)[segment_map]
         if centroid_measures.shape[1] > 2:
             msk_channel = np.array([0] + list(centroid_measures[:,2])).astype(I.dtype)[segment_map]
@@ -159,10 +162,10 @@ class Canvas(base.Canvas):
         segment_map = None
 
         self.analyzer = analyzer
-        self.syn_values = centroid_measures[0]
-        self.vcn_values = centroid_measures[1]
+        self.syn_values = centroid_measures[:,0]
+        self.vcn_values = centroid_measures[:,1]
         if centroid_measures.shape[1] > 2:
-            self.red_values = centroid_measures[2]
+            self.red_values = centroid_measures[:,2]
         else:
             self.red_values = np.zeros((centroid_measures.shape[0],), dtype=np.float32)
         self.centroids = centroids
@@ -217,17 +220,15 @@ class Canvas(base.Canvas):
 
     def reset_ui(self, event=None):
         """Reset UI controls to startup state."""
-        #self.nuclvl = 0.02
-        #self.msklvl = 0.12
-        self.nuclvl = 0.2 #1268.0 / (self.data_max - self.data_min)
-        self.msklvl = 4531.0 / (self.data_max - self.data_min)
-        self.zerlvl = 0.0
+        self.nuclvl = (1.2*self.vcn_values.mean()-self.data_min) / (self.data_max-self.data_min)
+        self.msklvl = (self.red_values.max()-self.data_min) / (self.data_max-self.data_min) or 1.0
+        self.zerlvl = (0.9*self.syn_values.min()-self.data_min) * 0.75 / (self.data_max-self.data_min)
+
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
         self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
         base.Canvas.reset_ui(self, event)
-        #self.floorlvl = 0.01
-        self.floorlvl = 0.02 #1449.0 / (self.data_max - self.data_min)
+        self.floorlvl = (0.9*self.syn_values.mean()-self.data_min) / (self.data_max-self.data_min)
         self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
 
     def dump_parameters(self, event):
@@ -240,14 +241,16 @@ color mode: %d %s
 small feature threshold: %f
 nuclear feature threshold: %f
 red mask threshold: %f
+zero crossing threshold: %f
 """ % (
             self.gain,
             self.zoom,
             self.volume_renderer.color_mode, 
-            self._frag_glsl_dicts[self.volume_renderer.color_mode].get('desc', ''),
-            self.floorlvl * (self.data_max - self.data_min),
-            self.nuclvl * (self.data_max - self.data_min),
-            self.msklvl * (self.data_max - self.data_min)
+            self._frag_glsl_dicts[self.volume_renderer.color_mode].get('desc', 'UNKNOWN'),
+            self.floorlvl * (self.data_max - self.data_min) + self.data_min,
+            self.nuclvl * (self.data_max - self.data_min) + self.data_min,
+            self.msklvl * (self.data_max - self.data_min) + self.data_min,
+            self.zerlvl * (self.data_max - self.data_min) + self.data_min
             )
 
     def dump_params_or_classified(self, event):
@@ -422,7 +425,7 @@ red mask threshold: %f
             self.floorlvl -= step
         self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
         self.update()
-        print 'small feature level set to %.5f' % (self.floorlvl * self.data_max)
+        print 'small feature level set to %.5f' % (self.floorlvl * (self.data_max-self.data_min) + self.data_min)
 
     def adjust_nuc_level(self, event):
         """Increase ('N') or decrease ('n') nuclei-scale feature threshold level."""
@@ -437,7 +440,7 @@ red mask threshold: %f
             self.nuclvl -= step
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.update()
-        print 'nucleus level set to %.5f' % (self.nuclvl * self.data_max)
+        print 'nucleus level set to %.5f' % (self.nuclvl * (self.data_max-self.data_min) + self.data_min)
 
     def adjust_msk_level(self, event):
         """Increase ('M') or descrease ('m') red-channel mask threshold level."""
@@ -452,7 +455,7 @@ red mask threshold: %f
             self.msklvl -= step
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
         self.update()
-        print 'red mask level set to %.5f' % (self.msklvl * self.data_max)
+        print 'red mask level set to %.5f' % (self.msklvl * (self.data_max-self.data_min) + self.data_min)
 
     def adjust_zer_level(self, event):
         """Increase ('T') or decrease ('t') transparency zero-crossing level."""
@@ -467,5 +470,5 @@ red mask threshold: %f
             self.zerlvl -= step
         self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
         self.update()
-        print 'zero-crossing level set to %.5f' % (self.zerlvl * self.data_max)
+        print 'zero-crossing level set to %.5f' % (self.zerlvl * (self.data_max-self.data_min) + self.data_min)
 

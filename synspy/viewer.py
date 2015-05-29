@@ -15,6 +15,7 @@ import csv
 import volspy.viewer as base
 
 from analyze import BlockedAnalyzerOpt, assign_voxels_opt
+from volspy.util import bin_reduce
 
 import tifffile
         
@@ -95,64 +96,71 @@ class Canvas(base.Canvas):
     _vol_interp = 'nearest' # 'linear'
     
     def _reform_image(self, I, meta):
-        raw_channel = I[:,:,:,0]
-
-        try:
-            red_channel = I[:,:,:,1]
-        except IndexError:
-            red_channel = np.zeros(I.shape[0:3], I.dtype)
-
-        analyzer = BlockedAnalyzerOpt(raw_channel, red_channel, meta, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
+        analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
 
         self.raw_shape = I.shape
 
-        t0 = datetime.datetime.now()
-        t00 = t0
-        raw_channel, syn_channel, pks_channel, msk_channel = analyzer.volume_process()
-        t1 = datetime.datetime.now()
-        print "\nvolume_process took %s seconds\n" % (t1-t0).total_seconds()
-
-        # get per-core measurements
-        t0 = datetime.datetime.now()
-        syn_values, vcn_values, centroids, widths = analyzer.analyze(syn_channel, pks_channel)
-        t1 = datetime.datetime.now()
-        print "\nanalyze took %s seconds" % (t1-t0).total_seconds()
+        splits = [(datetime.datetime.now(), None)]
+        
+        view_image, centroids, centroid_measures = analyzer.volume_process()
+        splits.append((datetime.datetime.now(), 'volume process'))
 
         # get labeled voxels
-        t0 = datetime.datetime.now()
-        segment_map = assign_voxels_opt(syn_values, centroids, syn_channel.shape, analyzer.kernels_3d[0], (meta.z_microns, meta.y_microns, meta.x_microns))
-        t1 = datetime.datetime.now()
-        print "assign_voxels took %s seconds" % (t1-t0).total_seconds()
+        centroid_measures = np.array(centroid_measures, dtype=np.float32)
+        print "core range:", centroid_measures[:,0].min(), centroid_measures[:,0].max()
+        print "hollow range:", centroid_measures[:,1].min(), centroid_measures[:,1].max()
+        corevals = centroid_measures[:,0]
+        centroids2 = centroids / np.array(analyzer.view_reduction, dtype=np.int32)
+        print "centroid2 range:", [(v.min(), v.max()) for v in [centroids2[0], centroids2[1], centroids2[2]]]
+        print "view_image shape:", view_image.shape
+        splat_kern = bin_reduce(analyzer.kernels_3d[0], analyzer.view_reduction)
+        splat_kern /= splat_kern.sum()
+        print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
+        segment_map = assign_voxels_opt(
+            corevals,
+            centroids2,
+            view_image.shape[0:3],
+            splat_kern
+        )
+        splits.append((datetime.datetime.now(), 'segment map'))
 
         # fill segmented voxels w/ per-segment measurements
-        t0 = datetime.datetime.now()
-        syn_val_map = np.array([0] + list(syn_values)).astype(I.dtype)[segment_map]
-        vcn_val_map = np.array([0] + list(vcn_values)).astype(I.dtype)[segment_map]
-        t1 = datetime.datetime.now()
-        print "taking assigned voxels took %s seconds" % (t1-t0).total_seconds()
-        print "total image processing was %s seconds\n" % (t1-t00).total_seconds()
+        syn_val_map = np.array([0] + list(corevals)).astype(I.dtype)[segment_map]
+        vcn_val_map = np.array([0] + list(centroid_measures[:,1])).astype(I.dtype)[segment_map]
+        if centroid_measures.shape[1] > 2:
+            msk_channel = np.array([0] + list(centroid_measures[:,2])).astype(I.dtype)[segment_map]
+        splits.append((datetime.datetime.now(), 'segment measures splat'))
 
-        result = np.zeros( syn_channel.shape + (4,), dtype=I.dtype )
-        result[:,:,:,0] = raw_channel
+        result = np.zeros( view_image.shape[0:3] + (4,), dtype=I.dtype )
+        result[:,:,:,0] = view_image[:,:,:,0]
         result[:,:,:,1] = syn_val_map
         result[:,:,:,2] = vcn_val_map
-        result[:,:,:,3] = msk_channel
-
+        if centroid_measures.shape[1] > 2:
+            result[:,:,:,3] = msk_channel + view_image[:,:,:,1] * (segment_map>0)
+        splits.append((datetime.datetime.now(), 'segmented volume assemble'))
+            
         self.data_max = result.max()
         self.data_min = result.min()
 
-        print "measure counts:", len(syn_values), len(vcn_values), len(centroids)
+        perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+        for elapsed, desc in perf_vector:
+            print "%8.2fs %s task time" % (elapsed, desc)
+        
+        print "measure counts:", centroid_measures.shape
         print "map range:", segment_map.min(), segment_map.max()
         print "packed data range: ", self.data_min, self.data_max
 
         segment_map = None
 
-        self._all_segments = (syn_channel, pks_channel)
         self.analyzer = analyzer
-        self.syn_values = syn_values
-        self.vcn_values = vcn_values
+        self.syn_values = centroid_measures[0]
+        self.vcn_values = centroid_measures[1]
+        if centroid_measures.shape[1] > 2:
+            self.red_values = centroid_measures[2]
+        else:
+            self.red_values = np.zeros((centroid_measures.shape[0],), dtype=np.float32)
         self.centroids = centroids
-        self.widths = widths
+        #self.widths = widths
 
         return result
 

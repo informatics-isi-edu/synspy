@@ -467,7 +467,7 @@ class BlockedAnalyzer (object):
             done_blocks += 1
             progress = int(100 * done_blocks / total_blocks)
             for i in range(last_progress, progress, 2):
-                sys.stderr.write('%x' % (progress/10))
+                sys.stderr.write('%x' % (i/10))
             last_progress = progress
         sys.stderr.write(' DONE.\n')
                 
@@ -699,9 +699,9 @@ try:
                 (self.image_meta.z_microns, self.image_meta.y_microns, self.image_meta.x_microns)
             )
 
+        # This is actually slower due to data input bottleneck!
         #def convNd_sparse(self, data, kernel, centroids):
         #    return opencllib.weighted_measure(data, centroids, kernel)
-
         
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels

@@ -172,10 +172,13 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
 
     # use a slight subset as the splatting body
     body_shape = syn_kernel_3d.shape
-    limit = (syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]) * 0.1
+    D, H, W = body_shape
+    center_val = syn_kernel_3d[D/2,H/2,W/2]
+    edge_val = syn_kernel_3d[0,H/2,W/2]
+    limit = (center_val - edge_val) * 0.1 + edge_val
     mask_3d = syn_kernel_3d > limit
-    weights = syn_kernel_3d * mask_3d
     mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
+    weights = syn_kernel_3d * mask_3d
 
     def splat_segment(label):
         weighted = weights * syn_values[label]
@@ -201,8 +204,8 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
                 upper = body_shape[d]
                 if centroid[d] < body_shape[d]/2:
                     lower = body_shape[d]/2 - centroid[d]
-                if centroid[d] + body_shape[d]/2 + body_shape[d]%2 > valid_shape[d]:
-                    upper = valid_shape[d] - centroid[d] - body_shape[d]/2
+                if (centroid[d] + body_shape[d]/2 + body_shape[d]%2) > valid_shape[d]:
+                    upper -= (centroid[d] + body_shape[d]/2 + body_shape[d]%2) - valid_shape[d]
                 return slice(lower,upper)
 
             return tuple(map(helper, range(3)))
@@ -216,7 +219,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
             segment_map[mslc] = segment_map[mslc] * (~segvoxels) + (label+1) * segvoxels
             gaussian_map[mslc] = gaussian_map[mslc] * (~segvoxels) + weighted[bslc] * segvoxels
         except:
-            print label, centroid, mslc, bslc, valid_shape
+            print label, centroid, mslc, bslc, valid_shape, body_shape
 
     for label in range(len(syn_values)):
         splat_segment(label)

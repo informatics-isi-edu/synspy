@@ -14,7 +14,7 @@ import csv
 
 import volspy.viewer as base
 
-from analyze import BlockedAnalyzerOpt, assign_voxels_opt
+from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel
 from volspy.util import bin_reduce
 
 import tifffile
@@ -110,10 +110,10 @@ class Canvas(base.Canvas):
         print "core range:", centroid_measures[:,0].min(), centroid_measures[:,0].max()
         print "hollow range:", centroid_measures[:,1].min(), centroid_measures[:,1].max()
         corevals = centroid_measures[:,0]
-        centroids2 = centroids / np.array(analyzer.view_reduction, dtype=np.int32)
+        centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)
         print "centroid2 range:", [(v.min(), v.max()) for v in [centroids2[0], centroids2[1], centroids2[2]]]
         print "view_image shape:", view_image.shape
-        splat_kern = bin_reduce(analyzer.kernels_3d[0], analyzer.view_reduction)
+        splat_kern = bin_reduce(compose_3d_kernel(analyzer.kernels_3x1d[0]), analyzer.view_reduction)
         splat_kern /= splat_kern.sum()
         print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
         segment_map = assign_voxels_opt(

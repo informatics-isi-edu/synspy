@@ -181,8 +181,8 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
     #  splat an elliptic core instead of a box?
-    core_kernel = ones(tuple(map(lambda d, s: 2*(int(d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
-    span_kernel = ones(tuple(map(lambda d, s: 2*(int(d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
+    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.5*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
+    span_kernel = ones(tuple(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
     hollow_kernel = span_kernel - pad_centered(core_kernel, span_kernel.shape)
 
     core_kernel /= core_kernel.sum()
@@ -233,11 +233,7 @@ class BlockedAnalyzer (object):
 
         self.image = image
 
-        self.view_reduction = tuple(map(
-            lambda pr, vs: max(int(pr/vs), 1),
-            (0.75, 0.5, 0.5),
-            self.image.micron_spacing
-        ))
+        self.view_reduction = (max(int(0.5/self.image.micron_spacing[2]), 1),) * 3
         
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
@@ -355,14 +351,14 @@ class BlockedAnalyzer (object):
         def slice1d(d):
             # invalid border gets trimmed from first and last blocks
             if blockpos[d] == 0:
-                lower = 0
+                lower = self.max_border_widths[d]
             else:
-                lower = self.block_size[d] * blockpos[d] - self.max_border_widths[d]
+                lower = self.block_size[d] * blockpos[d]
         
             if blockpos[d] == (self.num_blocks[d] - 1):
-                upper = self.block_size[d] * (1 + blockpos[d]) - self.max_border_widths[d] * 2
-            else:
                 upper = self.block_size[d] * (1 + blockpos[d]) - self.max_border_widths[d]
+            else:
+                upper = self.block_size[d] * (1 + blockpos[d])
 
             assert lower % self.view_reduction[d] == 0
             assert upper % self.view_reduction[d] == 0
@@ -442,8 +438,8 @@ class BlockedAnalyzer (object):
         return tuple(block_size), tuple(num_blocks)
                         
     def volume_process(self):
-        view_image = empty(tuple(
-            map(lambda w, b, r: (w-b)/r, self.image.shape[0:3], self.max_border_widths, self.view_reduction)
+        view_image = zeros(tuple(
+            map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction)
             + [self.image.shape[-1]]
         ))
 
@@ -452,6 +448,12 @@ class BlockedAnalyzer (object):
         centroids = []
         centroid_measures = []
         perf_vector = None
+
+        total_blocks = reduce(lambda a, b: a*b, self.num_blocks, 1)
+        done_blocks = 0
+        last_progress = 0
+
+        sys.stderr.write("Progress processing %d blocks:\n" % total_blocks)
         
         for blockpos in self.block_iter():
             view, cent, meas, perf = self.block_process(blockpos)
@@ -462,7 +464,13 @@ class BlockedAnalyzer (object):
                 perf_vector = perf
             else:
                 perf_vector = map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf)
-
+            done_blocks += 1
+            progress = int(100 * done_blocks / total_blocks)
+            for i in range(last_progress, progress, 2):
+                sys.stderr.write('%x' % (progress/10))
+            last_progress = progress
+        sys.stderr.write(' DONE.\n')
+                
         total = 0.
         for elapsed, desc in perf_vector:
             total += elapsed
@@ -558,13 +566,13 @@ class BlockedAnalyzer (object):
                     )[1:] / sizes).astype(np.int)
                 )
 
-        # centroids are in peaks grid
+        # centroids are in block peaks grid
         centroids = zip(*centroid_components)
-        # image_centroids are in image grid
+        # image_centroids are in block image grid
         image_centroids = array(centroids, int32) + array(self.max_border_widths, int32)
         # global_centroids are in self.image grid
         global_centroids = (
-            array([slc.start or 0 for slc in self.block_slice_dst(blockpos)[0:3]], int32)
+            array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
             + image_centroids
         )
         splits.append((datetime.datetime.now(), 'centroid coords'))
@@ -673,7 +681,6 @@ except:
     pass
 
 try:
-    assert False
     import ocl as opencllib
     class BlockedAnalyzerOpenCL (BlockedAnalyzerOpt):
 

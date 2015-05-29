@@ -69,7 +69,7 @@ _linear_alpha = """
 _binary1_colorxfer = """
        if (col_smp.a > u_msklvl) {
           col_smp.r = 1.0;
-          col_smp.a = col_smp.a - 0.05;
+          col_smp.a = col_smp.a - 0.01;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
        }
@@ -87,7 +87,7 @@ _binary1_colorxfer = """
        }
        else {
           col_smp.b = 1.0;
-          col_smp.a = col_smp.r - 0.05;
+          col_smp.a = col_smp.r - 0.01;
           col_smp.r = 0.0;
           col_smp.g = 0.0;
        }

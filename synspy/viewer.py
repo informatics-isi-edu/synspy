@@ -136,7 +136,7 @@ class Canvas(base.Canvas):
         result[:,:,:,1] = syn_val_map
         result[:,:,:,2] = vcn_val_map
         if centroid_measures.shape[1] > 2:
-            result[:,:,:,3] = msk_channel + view_image[:,:,:,1] * (segment_map>0)
+            result[:,:,:,3] = msk_channel + view_image[:,:,:,1] * (segment_map==0)
         splits.append((datetime.datetime.now(), 'segmented volume assemble'))
             
         self.data_max = result.max()

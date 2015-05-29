@@ -30,7 +30,7 @@ uniform float u_msklvl;
 # R: raw signal
 # G: synapse core samples
 # B: synapse vicinity samples
-# A: mskblur gaussian blurred auto-fluorescence signal
+# A: auto-fluorescence signal and synapse mask sample
 
 _linear1_colorxfer = """
        if (col_smp.a > u_msklvl) {

@@ -233,8 +233,7 @@ class BlockedAnalyzer (object):
 
         self.image = image
 
-        self.view_reduction = (max(int(0.5/self.image.micron_spacing[2]), 1),) * 3
-        
+        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.75, 0.5, 0.5)))
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
         def kernel_radii(k):

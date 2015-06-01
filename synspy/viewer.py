@@ -104,7 +104,6 @@ class Canvas(base.Canvas):
     
     def _reform_image(self, I, meta):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
-
         self.raw_shape = I.shape
 
         splits = [(datetime.datetime.now(), None)]
@@ -171,7 +170,7 @@ class Canvas(base.Canvas):
         self.centroids = centroids
         #self.widths = widths
 
-        return result
+        return result, analyzer.view_reduction
 
     _frag_glsl_dicts = [
         dict(

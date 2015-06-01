@@ -121,7 +121,14 @@ class Canvas(base.Canvas):
         centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)
         print "centroid2 range:", [rinfo(v) for v in [centroids2[0], centroids2[1], centroids2[2]]]
         print "view_image shape:", view_image.shape
-        splat_kern = bin_reduce(compose_3d_kernel(analyzer.kernels_3x1d[0]), analyzer.view_reduction)
+        splat_kern = compose_3d_kernel(analyzer.kernels_3x1d[0])
+        splat_kern = splat_kern[tuple([
+            slice(
+                (splat_kern.shape[d]-splat_kern.shape[d]/analyzer.view_reduction[d])/2,
+                -(splat_kern.shape[d]-splat_kern.shape[d]/analyzer.view_reduction[d])/2,
+            )
+            for d in range(3)
+        ])]
         splat_kern /= splat_kern.sum()
         print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
         segment_map = assign_voxels_opt(

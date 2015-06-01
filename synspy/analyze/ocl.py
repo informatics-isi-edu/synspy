@@ -640,6 +640,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
     cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
     limit = edge_val + (cent_val - edge_val) * 0.1
     mask_3d = syn_kernel_3d > limit
+    mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
     kernel = syn_kernel_3d * mask_3d
 
     # trim off zero-padded border to reduce per-feature work size

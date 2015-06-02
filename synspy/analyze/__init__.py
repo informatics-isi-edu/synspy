@@ -175,13 +175,13 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
 
     """
     # these are separated 1d gaussian kernels
-    low_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
+    low_kernels = map(lambda d, s: gaussian_kernel(0.5*d/s/6.), vicinity_diam_microns, gridsize)
     span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
 
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
     #  splat an elliptic core instead of a box?
-    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.75*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
+    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.8*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
     span_kernel = ones(tuple(map(lambda d, s: 2*(int(1.0*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
     hollow_kernel = span_kernel - pad_centered(core_kernel, span_kernel.shape)
 
@@ -229,24 +229,18 @@ class BlockedAnalyzer (object):
     def sum_labeled(self, src, labels, n):
         return ndimage.sum(src, labels, range(n))
 
-    def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(384,384,512)):
+    def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(384,384,450)):
 
         self.image = image
 
-        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.75, 0.5, 0.5)))
+        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.16, 0.15, 0.15)))
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
-
-        def kernel_radii(k):
-            result = []
-            for k1d in k:
-                result.append( len(k1d)/2 )
-            return result
-
+        
         self.kernel_radii = [
             tuple(len(k1d)/2 for k1d in k3x1d)
             for k3x1d in self.kernels_3x1d
         ] + [
-            tuple(map(lambda r: r/2, k3d.shape))
+            tuple(map(lambda d: d/2, k3d.shape))
             for k3d in self.kernels_3d
         ]
         
@@ -258,8 +252,9 @@ class BlockedAnalyzer (object):
 
         # this is how much border we trim at image boundaries to find
         # valid results, rounding up to multiple of reduction step size
+        # and adding a bit more padding to locate centroids near block boundaries
         self.max_border_widths = tuple(map(
-            lambda w, r: (w%r) and (w+r-w%r) or w,
+            lambda w, r: ((w%r) and (w+r-w%r) or w) + (r>=3 and r or 2*r),
             map(max, *self.src_border_widths),
             self.view_reduction
         ))
@@ -404,7 +399,7 @@ class BlockedAnalyzer (object):
                     raise ValueError("Dimension %d, length %d, smaller than desired block size %d but not divisible by reduction %d" % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
             # prefer desired_block_size or something a bit smaller
-            for w in xrange(desired_block_size[d], max(desired_block_size[d]/3, 2*self.max_border_widths[d]), -1):
+            for w in xrange(desired_block_size[d], max(desired_block_size[d]/2, 2*self.max_border_widths[d]), -1):
                 if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
                     return w, self.image.shape[d] / w
             # also consider something larger
@@ -423,9 +418,11 @@ class BlockedAnalyzer (object):
             except ValueError:
                 # try trimming one voxel and repeating
                 print "WARNING: trimming image dimension %d to try to find divisible block size" % d
+                axis_size = self.view_reduction[d]*(desired_block_size[d]/self.view_reduction[d])
+                trimmed_shape = axis_size*(self.image.shape[d]/axis_size)
                 trim_slice = tuple(
                     [ slice(None) for i in range(d) ]
-                    + [ slice(0, (self.image.shape[d]/self.view_reduction[d])*self.view_reduction[d]) ]
+                    + [ slice(0, trimmed_shape) ]
                     + [ slice(None) for i in range(d+1, self.image.ndim) ]
                 )
                 self.image = self.image.lazyget(trim_slice)
@@ -497,42 +494,35 @@ class BlockedAnalyzer (object):
         image = self.image[self.block_slice_src(blockpos)]
         splits.append((datetime.datetime.now(), 'image load'))
 
-        view_image = image[tuple(
-            slice(self.max_border_widths[d], -self.max_border_widths[d])
-            for d in range(3)
-        ) + (slice(None),)]
-        
-        view_image = bin_reduce(view_image, self.view_reduction + (1,))
-        splits.append((datetime.datetime.now(), 'image reduce'))
-        
-        low_channel = self.convNx1d(
-            image[tuple(
-                # trim any border not needed for this convolution
-                map(
-                    lambda mw, kw: slice(mw-kw, mw!=kw and kw-mw or None), 
-                    self.max_border_widths,
-                    self.src_border_widths[0]
-                ) + [0] # and get main signal channel 0
-            )],
-            self.kernels_3x1d[0]
-        )
+        low_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[0])
         splits.append((datetime.datetime.now(), 'image*low'))
-        
+
         max_channel = self.maxNx1d(
             low_channel, 
             tuple([ len(k) for k in self.kernels_3x1d[0] ])
         )
         splits.append((datetime.datetime.now(), 'local maxima'))
 
-        # need to trim border meant for max_channel computation
+        # need to trim borders discarded by max_channel computation
         low_channel = low_channel[
-            tuple(slice(r, -r) for r in self.kernel_radii[0])
+            tuple(slice(k/2, -k/2) for k in map(lambda a, b: b-a, max_channel.shape, low_channel.shape))
         ]
 
         # find syn cores via local maxima test
-        peaks = low_channel * (low_channel == max_channel)
+        assert low_channel.shape == max_channel.shape
+        peaks = low_channel > (max_channel * 0.9999)
+
+        clipbox = tuple(
+            slice(peaks_border, peaks_width-peaks_border)
+            for peaks_width, peaks_border in map(
+                    lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                    image.shape[0:3],
+                    self.max_border_widths,
+                    peaks.shape
+                    )
+        )
         splits.append((datetime.datetime.now(), 'mask peaks'))
-        
+
         label_im, nb_labels = ndimage.label(peaks)
         splits.append((datetime.datetime.now(), 'label peaks'))
         
@@ -562,18 +552,38 @@ class BlockedAnalyzer (object):
                     coords,
                     label_im,
                     nb_labels + 1
-                    )[1:] / sizes).astype(np.int)
+                    )[1:] / sizes)#.astype(np.int32)
                 )
 
         # centroids are in block peaks grid
         centroids = zip(*centroid_components)
-        # image_centroids are in block image grid
-        image_centroids = array(centroids, int32) + array(self.max_border_widths, int32)
-        # global_centroids are in self.image grid
-        global_centroids = (
-            array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
-            + image_centroids
-        )
+
+        if centroids:
+            # discard centroids outside clipbox (we searched slightly
+            # larger to handle peaks at edges
+            filtered_centroids = []
+            for i in range(len(centroids)):
+                clip = False
+                for d in range(3):
+                    if int(centroids[i][d]) < clipbox[d].start or int(centroids[i][d]) >= clipbox[d].stop:
+                        clip = True
+                if not clip:
+                    filtered_centroids.append(centroids[i])
+
+            # centroids are in block core grid
+            centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
+            # image_centroids are in block image grid
+            image_centroids = centroids + array(self.max_border_widths, int32)
+            # global_centroids are in self.image grid
+            global_centroids = (
+                array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
+                + image_centroids
+            )
+
+        else:
+            image_centroids = []
+            global_centroids = []
+            
         splits.append((datetime.datetime.now(), 'centroid coords'))
 
         centroid_measures = [self.convNd_sparse(image[:,:,:,0], self.kernels_3d[0], image_centroids)]
@@ -590,7 +600,14 @@ class BlockedAnalyzer (object):
         splits.append((datetime.datetime.now(), 'zip centroid measures'))
 
         perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
-        
+
+        view_image = image[tuple(
+            slice(self.max_border_widths[d], -self.max_border_widths[d])
+            for d in range(3)
+        ) + (slice(None),)]
+        view_image = bin_reduce(view_image, self.view_reduction + (1,))
+        splits.append((datetime.datetime.now(), 'image reduce'))
+
         return view_image, global_centroids, centroid_measures, perf_vector
 
     def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):

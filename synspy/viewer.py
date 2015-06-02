@@ -122,13 +122,14 @@ class Canvas(base.Canvas):
         print "centroid2 range:", [rinfo(v) for v in [centroids2[0], centroids2[1], centroids2[2]]]
         print "view_image shape:", view_image.shape
         splat_kern = compose_3d_kernel(analyzer.kernels_3x1d[0])
-        splat_kern = splat_kern[tuple([
+        splat_kern = splat_kern[tuple(
             slice(
-                (splat_kern.shape[d]-splat_kern.shape[d]/analyzer.view_reduction[d])/2,
-                -(splat_kern.shape[d]-splat_kern.shape[d]/analyzer.view_reduction[d])/2,
+                (splat_kern.shape[d] - analyzer.kernels_3d[0].shape[d])/2,
+                -((splat_kern.shape[d] - analyzer.kernels_3d[0].shape[d])/2)
             )
             for d in range(3)
-        ])]
+        )]
+        splat_kern = bin_reduce(splat_kern, analyzer.view_reduction)
         splat_kern /= splat_kern.sum()
         print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
         segment_map = assign_voxels_opt(
@@ -197,16 +198,8 @@ class Canvas(base.Canvas):
     def __init__(self, filename1):
         
         # TODO: put these under UI control?
-
-        #self.synapse_diam_microns = (2.3, 1.2, 1.2)
-        #self.vicinity_diam_microns = (4.75, 2.5, 2.5)
-
-        #self.synapse_diam_microns = (2.4, 1.3, 1.3)
-        #self.vicinity_diam_microns = (8.0, 4.0, 4.0)
-
-        # tweak for dataset 19 image 03b exploration...
-        self.synapse_diam_microns = (3.0, 1.5, 1.5)
-        self.vicinity_diam_microns = (6.0, 3.0, 3.0)
+        self.synapse_diam_microns = (2.5, 1.25, 1.25)
+        self.vicinity_diam_microns = (7.0, 4.0, 4.0)
 
         self.redblur_microns = (3.0, 3.0, 3.0)
 

@@ -510,20 +510,54 @@ class BlockedAnalyzer (object):
         low_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[0])
         splits.append((datetime.datetime.now(), 'image*low'))
 
-        max_channel = self.maxNx1d(
-            low_channel, 
-            tuple([ len(k) for k in self.kernels_3x1d[0] ])
-        )
-        splits.append((datetime.datetime.now(), 'local maxima'))
+        scale1_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[2])
+        splits.append((datetime.datetime.now(), 'image*syn'))
+        
+        scale2_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[3])
+        dog = crop_centered(scale1_channel, scale2_channel.shape) - scale2_channel
+        splits.append((datetime.datetime.now(), 'image*vlow'))
 
-        # need to trim borders discarded by max_channel computation
-        low_channel = low_channel[
-            tuple(slice(k/2, -k/2) for k in map(lambda a, b: b-a, max_channel.shape, low_channel.shape))
+        # allow tinkering w/ multiple peak detection fields
+        max_inputs = [
+            low_channel,
+            # dog,
         ]
 
+        if len(max_inputs) > 1:
+            crop_shape = map(min, *[img.shape for img in max_inputs])
+        else:
+            crop_shape = max_inputs[0].shape
+
+        max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
+
+        if False:
+            view_image = crop_centered(
+                image,
+                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+            )
+        else:
+            view_image = crop_centered(
+                dog,
+                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+            )
+            view_image = view_image[:,:,:,None]
+            splits.append((datetime.datetime.now(), 'view image DoG'))
+
+        view_image = bin_reduce(view_image, self.view_reduction + (1,))
+        splits.append((datetime.datetime.now(), 'view image reduce'))
+
+        max_kernel = self.kernels_3d[3].shape
+        max_channels = [self.maxNx1d(img, max_kernel) for img in max_inputs]
+        splits.append((datetime.datetime.now(), 'local maxima'))
+            
+        # need to trim borders discarded by max_channel computation
+        max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
+
         # find syn cores via local maxima test
-        assert low_channel.shape == max_channel.shape
-        peaks = low_channel > (max_channel * 0.9999)
+        peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+        for i in range(len(max_inputs)):
+            assert max_inputs[i].shape == max_channels[i].shape
+            peaks += max_inputs[i] >= (max_channels[i])
 
         clipbox = tuple(
             slice(peaks_border, peaks_width-peaks_border)
@@ -587,6 +621,8 @@ class BlockedAnalyzer (object):
             centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
             # image_centroids are in block image grid
             image_centroids = centroids + array(self.max_border_widths, int32)
+            # dog_centroids are in difference-of-gaussians grid
+            dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
             # global_centroids are in self.image grid
             global_centroids = (
                 array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
@@ -600,10 +636,16 @@ class BlockedAnalyzer (object):
         splits.append((datetime.datetime.now(), 'centroid coords'))
 
         centroid_measures = [self.convNd_sparse(image[:,:,:,0], self.kernels_3d[0], image_centroids)]
-        splits.append((datetime.datetime.now(), 'centroid corevals'))
+        splits.append((datetime.datetime.now(), 'raw corevals'))
 
         centroid_measures.append(self.convNd_sparse(image[:,:,:,0], self.kernels_3d[1], image_centroids))
-        splits.append((datetime.datetime.now(), 'centroid hollowvals'))
+        splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[0], dog_centroids))
+        splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[1], dog_centroids))
+        splits.append((datetime.datetime.now(), 'DoG hollowvals'))
 
         if image.shape[3] > 1:
             centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
@@ -613,14 +655,6 @@ class BlockedAnalyzer (object):
         splits.append((datetime.datetime.now(), 'zip centroid measures'))
 
         perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
-
-        view_image = image[tuple(
-            slice(self.max_border_widths[d], -self.max_border_widths[d])
-            for d in range(3)
-        ) + (slice(None),)]
-        view_image = bin_reduce(view_image, self.view_reduction + (1,))
-        splits.append((datetime.datetime.now(), 'image reduce'))
-
         return view_image, global_centroids, centroid_measures, perf_vector
 
     def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):

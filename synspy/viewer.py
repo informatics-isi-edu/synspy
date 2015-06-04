@@ -180,7 +180,7 @@ class Canvas(base.Canvas):
         result[:,:,:,0] = view_image[:,:,:,0]
         result[:,:,:,1] = syn_val_map
         result[:,:,:,2] = vcn_val_map
-        if centroid_measures.shape[1] > 2:
+        if centroid_measures.shape[1] > 4:
             result[:,:,:,3] = msk_channel + view_image[:,:,:,1] * (segment_map==0)
         splits.append((datetime.datetime.now(), 'segmented volume assemble'))
             
@@ -200,7 +200,7 @@ class Canvas(base.Canvas):
         self.analyzer = analyzer
         self.syn_values = centroid_measures[:,0]
         self.vcn_values = centroid_measures[:,1]
-        if centroid_measures.shape[1] > 2:
+        if centroid_measures.shape[1] > 4:
             self.red_values = centroid_measures[:,2]
         else:
             self.red_values = np.zeros((centroid_measures.shape[0],), dtype=np.float32)

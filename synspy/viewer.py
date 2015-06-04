@@ -97,6 +97,37 @@ _binary1_colorxfer = """
 
 _binary_alpha = ""
 
+def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform)s level set to %(level).5f", tracenorm=True):
+    def helper(origmethod):
+        def wrapper(*args):
+            self = args[0]
+            event = args[1]
+            level = getattr(self, attribute)
+
+            if 'Alt' in event.modifiers:
+                if altstep is not None:
+                    delta = altstep
+                else:
+                    delta = 0.1 * step
+                    
+            if 'Shift' in event.modifiers:
+                level += step
+            else:
+                level -= step
+
+            setattr(self, attribute, level)
+            
+            self.volume_renderer.set_uniform(uniform, level)
+            self.update()
+
+            if trace:
+                if tracenorm:
+                    level = level * (self.data_max - self.data_min) + self.data_min
+                print trace % dict(uniform=uniform, level=level)
+
+        return wrapper
+    return helper
+
 class Canvas(base.Canvas):
 
     _vol_interp = 'nearest'
@@ -208,6 +239,8 @@ class Canvas(base.Canvas):
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
         self.key_press_handlers['T'] = self.adjust_zer_level
+        self.key_press_handlers['U'] = self.adjust_top_level
+        self.key_press_handlers['O'] = self.adjust_transp_level
         self.key_press_handlers['D'] = self.dump_params_or_classified
         self.key_press_handlers['H'] = self.dump_segment_heatmap
         self.key_press_handlers['?'] = self.help
@@ -221,11 +254,15 @@ class Canvas(base.Canvas):
         """Reset UI controls to startup state."""
         self.nuclvl = (1.2*self.vcn_values.mean()-self.data_min) / (self.data_max-self.data_min)
         self.msklvl = (self.red_values.max()-self.data_min) / (self.data_max-self.data_min) or 1.0
-        self.zerlvl = (0.9*self.syn_values.min()-self.data_min) * 0.75 / (self.data_max-self.data_min)
+        self.zerlvl = 0.28
+        self.toplvl = 0.4
+        self.transp = 0.8
 
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
         self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
+        self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
+        self.volume_renderer.set_uniform('u_transp', self.transp)
         base.Canvas.reset_ui(self, event)
         self.floorlvl = (0.9*self.syn_values.mean()-self.data_min) / (self.data_max-self.data_min)
         self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
@@ -241,6 +278,8 @@ small feature threshold: %f
 nuclear feature threshold: %f
 red mask threshold: %f
 zero crossing threshold: %f
+upper clipping threshold: %f
+transparency factor: %f
 """ % (
             self.gain,
             self.zoom,
@@ -249,7 +288,9 @@ zero crossing threshold: %f
             self.floorlvl * (self.data_max - self.data_min) + self.data_min,
             self.nuclvl * (self.data_max - self.data_min) + self.data_min,
             self.msklvl * (self.data_max - self.data_min) + self.data_min,
-            self.zerlvl * (self.data_max - self.data_min) + self.data_min
+            self.zerlvl * (self.data_max - self.data_min) + self.data_min,
+            self.toplvl * (self.data_max - self.data_min) + self.data_min,
+            self.transp
             )
 
     def dump_params_or_classified(self, event):
@@ -410,64 +451,34 @@ zero crossing threshold: %f
 
         tifffile.imsave('heatmap.tiff', heatmap.astype(np.uint8))
         
-
+    
+    @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")
     def adjust_floor_level(self, event):
         """Increase ('F') or decrease ('f') small feature threshold level."""
-        if 'Alt' in event.modifiers:
-            step = 0.00005
-        else:
-            step = 0.0005
-
-        if 'Shift' in event.modifiers:
-            self.floorlvl += step
-        else:
-            self.floorlvl -= step
-        self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
-        self.update()
-        print 'small feature level set to %.5f' % (self.floorlvl * (self.data_max-self.data_min) + self.data_min)
-
+        pass
+    
+    @adjust_level('u_nuclvl', 'nuclvl', trace="negative vicinity threshold set to %(level).5f")
     def adjust_nuc_level(self, event):
         """Increase ('N') or decrease ('n') nuclei-scale feature threshold level."""
-        if 'Alt' in event.modifiers:
-            step = 0.00005
-        else:
-            step = 0.0005
+        pass
 
-        if 'Shift' in event.modifiers:
-            self.nuclvl += step
-        else:
-            self.nuclvl -= step
-        self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
-        self.update()
-        print 'nucleus level set to %.5f' % (self.nuclvl * (self.data_max-self.data_min) + self.data_min)
-
+    @adjust_level('u_msklvl', 'msklvl', trace="red mask level set to %(level).5f")
     def adjust_msk_level(self, event):
         """Increase ('M') or descrease ('m') red-channel mask threshold level."""
-        if 'Alt' in event.modifiers:
-            step = 0.0005
-        else:
-            step = 0.005
+        pass
 
-        if 'Shift' in event.modifiers:
-            self.msklvl += step
-        else:
-            self.msklvl -= step
-        self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
-        self.update()
-        print 'red mask level set to %.5f' % (self.msklvl * (self.data_max-self.data_min) + self.data_min)
-
+    @adjust_level('u_zerlvl', 'zerlvl', trace="zero-crossing level set to %(level).5f")
     def adjust_zer_level(self, event):
         """Increase ('T') or decrease ('t') transparency zero-crossing level."""
-        if 'Alt' in event.modifiers:
-            step = 0.00005
-        else:
-            step = 0.0005
+        pass
 
-        if 'Shift' in event.modifiers:
-            self.zerlvl += step
-        else:
-            self.zerlvl -= step
-        self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
-        self.update()
-        print 'zero-crossing level set to %.5f' % (self.zerlvl * (self.data_max-self.data_min) + self.data_min)
+    @adjust_level('u_toplvl', 'toplvl', trace="upper clipping level set to %(level).5f")
+    def adjust_top_level(self, event):
+        """Increase ('U') or decrease ('u') upper clipping level."""
+        pass
+
+    @adjust_level('u_transp', 'transp', 0.005, trace="opacity factor set to %(level).5f", tracenorm=False)
+    def adjust_transp_level(self, event):
+        """Increase ('O') or decrease ('o') opacity factor."""
+        pass
 

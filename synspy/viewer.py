@@ -26,6 +26,8 @@ uniform float u_floorlvl;
 uniform float u_nuclvl;
 uniform float u_msklvl;
 uniform float u_zerlvl;
+uniform float u_toplvl;
+uniform float u_transp;
 """
 
 # R: raw signal
@@ -35,61 +37,60 @@ uniform float u_zerlvl;
 
 _linear1_colorxfer = """
        if (col_smp.a > u_msklvl) {
+          col_smp.a = (col_smp.a - u_zerlvl) / u_toplvl;
           col_smp.r = 1.0;
-          col_smp.a = col_smp.a - u_zerlvl;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
+       }
+       else if ((col_smp.r - u_zerlvl) > u_toplvl) {
+          col_smp.a = u_transp * 0.1;
+          col_smp.r = 0.5;
+          col_smp.b = 0.5;
+          col_smp.g = 0.0;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
+          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
+          col_smp.r = 0.0;
           col_smp.g = 1.0;
-          col_smp.a = col_smp.r - u_zerlvl;
           col_smp.b = 0.0;
-          col_smp.r = 0.0;
-       }
-       else if (col_smp.r < u_zerlvl) {
-          col_smp.r = 0.0;
-          col_smp.g = 0.0;
-          col_smp.b = 0.0;
-          col_smp.a = 0.0;
        }
        else {
-          col_smp.b = 1.0;
-          col_smp.a = col_smp.r - u_zerlvl;
+          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
           col_smp.r = 0.0;
           col_smp.g = 0.0;
+          col_smp.b = 1.0;
        }
 
        col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
 """
 
 _linear_alpha = """
-       col_smp.a = clamp(col_smp.a, 0.0, 1.0);
 """
 
 _binary1_colorxfer = """
        if (col_smp.a > u_msklvl) {
+          col_smp.a = (col_smp.a - u_zerlvl) / u_toplvl;
           col_smp.r = 1.0;
-          col_smp.a = col_smp.a - u_zerlvl;
           col_smp.g = 0.0;
           col_smp.b = 0.0;
+       }
+       else if ((col_smp.r - u_zerlvl) > u_toplvl) {
+          col_smp.a = u_transp * 0.1;
+          col_smp.r = 0.5;
+          col_smp.b = 0.5;
+          col_smp.g = 0.0;
        }
        else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
-          col_smp.g = 1.0;
           col_smp.a = 1.0;
-          col_smp.b = 0.0;
           col_smp.r = 0.0;
-       }
-       else if (col_smp.r < u_zerlvl) {
-          col_smp.r = 0.0;
-          col_smp.g = 0.0;
+          col_smp.g = 1.0;
           col_smp.b = 0.0;
-          col_smp.a = 0.0;
        }
        else {
-          col_smp.b = 1.0;
-          col_smp.a = col_smp.r - u_zerlvl;
+          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
           col_smp.r = 0.0;
           col_smp.g = 0.0;
+          col_smp.b = 1.0;
        }
 
        col_smp = clamp( u_gain * col_smp, 0.0, 1.0);

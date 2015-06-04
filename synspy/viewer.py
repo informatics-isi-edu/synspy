@@ -228,8 +228,8 @@ class Canvas(base.Canvas):
     def __init__(self, filename1):
         
         # TODO: put these under UI control?
-        self.synapse_diam_microns = (2.5, 1.25, 1.25)
-        self.vicinity_diam_microns = (7.0, 4.0, 4.0)
+        self.synapse_diam_microns = (2.75, 1.5, 1.5)
+        self.vicinity_diam_microns = (4.0, 2.75, 2.75)
 
         self.redblur_microns = (3.0, 3.0, 3.0)
 

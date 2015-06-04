@@ -87,6 +87,12 @@ def gaussian_kernel(s):
     kernel = map(lambda x: x / mag, kernel)
     return kernel
 
+def crop_centered(orig, newshape):
+    return orig[tuple(
+        diff and slice(diff/2, -(diff/2)) or slice(None)
+        for diff in map(lambda l, s: l-s, orig.shape, newshape)
+    )]
+
 def pad_centered(orig, newshape, pad=0):
     assert len(newshape) == orig.ndim
     
@@ -175,7 +181,9 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
 
     """
     # these are separated 1d gaussian kernels
-    low_kernels = map(lambda d, s: gaussian_kernel(0.5*d/s/6.), vicinity_diam_microns, gridsize)
+    syn_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
+    low_kernels = map(lambda d, s: gaussian_kernel(0.4*d/s/6.), synapse_diam_microns, gridsize)
+    vlow_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize)
     span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
 
     # TODO: investigate variants?
@@ -183,19 +191,26 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     #  splat an elliptic core instead of a box?
     core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.8*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
     span_kernel = ones(tuple(map(lambda d, s: 2*(int(1.0*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
+    max_kernel = ones(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize), dtype=float32)
     hollow_kernel = span_kernel - pad_centered(core_kernel, span_kernel.shape)
 
     core_kernel /= core_kernel.sum()
     hollow_kernel /= hollow_kernel.sum()
-    
+
     red_kernel = compose_3d_kernel(
         map(lambda d, s: gaussian_kernel(d/s/6.), redblur_microns, gridsize)
     )
 
     return (
-        (low_kernels, span_kernels),
-        (core_kernel, hollow_kernel, red_kernel)
+        (low_kernels, span_kernels, syn_kernels, vlow_kernels),
+        (core_kernel, hollow_kernel, red_kernel, max_kernel)
         )
+
+def radii_3x1d(k3x1d):
+    return np.array([len(k1d)/2 for k1d in k3x1d])
+
+def radii_3d(k3d):
+    return np.array([d/2 for d in k3d.shape])
 
 class BlockedAnalyzer (object):
     """Analyze image using block decomposition for scalability.
@@ -235,35 +250,33 @@ class BlockedAnalyzer (object):
 
         self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.16, 0.15, 0.15)))
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
-        
-        self.kernel_radii = [
-            tuple(len(k1d)/2 for k1d in k3x1d)
-            for k3x1d in self.kernels_3x1d
-        ] + [
-            tuple(map(lambda d: d/2, k3d.shape))
-            for k3d in self.kernels_3d
-        ]
-        
-        self.src_border_widths = list(self.kernel_radii)
 
-        # low_kernel convolution result feeds into a regional box
-        # filter with same kernel width so twice as much border is required
-        self.src_border_widths[0] = tuple(map(lambda w: 2*w, self.src_border_widths[0]))
-
-        # this is how much border we trim at image boundaries to find
-        # valid results, rounding up to multiple of reduction step size
-        # and adding a bit more padding to locate centroids near block boundaries
-        self.max_border_widths = tuple(map(
-            lambda w, r: ((w%r) and (w+r-w%r) or w) + (r>=3 and r or 2*r),
-            map(max, *self.src_border_widths),
-            self.view_reduction
-        ))
-
-        print "Kernel radii %s implies max border width %s" % (
-            self.kernel_radii,
-            self.max_border_widths
+        # maximum dependency chain of filters trims this much invalid border data
+        self.max_border_widths = (
+            # DoG is largest separated filter
+            radii_3x1d(self.kernels_3x1d[3])
+            # sparse measures consume DoG output
+            + reduce(
+                lambda a, b: np.maximum(a, b),
+                [radii_3d(k) for k in self.kernels_3d]
             )
+            # add some padding for peak detection at block borders
+            + radii_3x1d(self.kernels_3x1d[3])
+        )
 
+        # round up to multiple of reduction size
+        self.max_border_widths += np.where(
+            (self.max_border_widths % np.array(self.view_reduction)),
+            np.array(self.view_reduction) - self.max_border_widths % np.array(self.view_reduction),
+            np.zeros((3,))
+        )
+
+        print "Kernel radii %s, %s implies max-border %s" % (
+            [tuple(radii_3x1d(k)) for k in self.kernels_3x1d],
+            [tuple(radii_3d(k)) for k in self.kernels_3d],
+            self.max_border_widths
+        )
+        
         self.block_size, self.num_blocks = self.find_blocking(desired_block_size)
         
         for d in range(3):

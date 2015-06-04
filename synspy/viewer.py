@@ -136,7 +136,7 @@ class Canvas(base.Canvas):
     
     def _reform_image(self, I, meta):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
-        self.raw_shape = I.shape
+        self.raw_image = I
 
         splits = [(datetime.datetime.now(), None)]
         
@@ -205,6 +205,7 @@ class Canvas(base.Canvas):
         else:
             self.red_values = np.zeros((centroid_measures.shape[0],), dtype=np.float32)
         self.centroids = centroids
+        self.centroid_measures = centroid_measures
         #self.widths = widths
 
         return result, analyzer.view_reduction
@@ -299,62 +300,35 @@ transparency factor: %f
             self.dump_parameters(event)
 
     def dump_classified_voxels(self, event):
-        """Dump a volume image with classified voxels at current thresholds."""
-        syn_lvl = self.floorlvl * (self.data_max - self.data_min)
-        vcn_lvl = self.nuclvl * (self.data_max - self.data_min)
-        msk_lvl = self.msklvl * (self.data_max - self.data_min)
-
-        data = self.vol_cropper.pyramid[0]
-
+        """Dump a volume image with centroid markers."""
         dtype = np.uint16
-        dmax = 1./data.max() * (2**16-1)
+        dmax = 1./self.raw_image.max() * (2**16-1)
 
-        print data.min(), data.max()
+        result = np.zeros( self.raw_image.shape[0:3] + (3,), dtype ) # RGB debug image
+        result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
 
-        print "raw shape: %s" % (self.raw_shape,)
-        print "processed shape: %s" % (data.shape,)
+        for centroid in self.centroids:
+            result[tuple(
+                slice(c, c+1)
+                for c in centroid
+            ) + (1,)] = (2**16-1)
 
-        result = np.empty( self.raw_shape[0:3] + (3,), dtype ) # RGB debug image
-
-        zpad = (self.raw_shape[0] - data.shape[0])/2
-        ypad = (self.raw_shape[1] - data.shape[1])/2
-        xpad = (self.raw_shape[2] - data.shape[2])/2
-
-        print "analysis results padded by (%s,%s,%s) in (Z,Y,X)" % (zpad,ypad,xpad)
-
-        zslc = slice(zpad,-zpad)
-        yslc = slice(ypad,-ypad)
-        xslc = slice(xpad,-xpad)
-
-        result[zslc,yslc,xslc,0] = (data[:,:,:,3] * dmax) * (data[:,:,:,3] > msk_lvl)
-
-        result[zslc,yslc,xslc,1] = (data[:,:,:,0] * dmax) * (
-            (data[:,:,:,3] <= msk_lvl)
-            & (data[:,:,:,1] >= syn_lvl) 
-            & (data[:,:,:,2] <= vcn_lvl)
-        )
-
-        result[zslc,yslc,xslc,2] = (data[:,:,:,0] * dmax) * (
-            (data[:,:,:,3] > msk_lvl)
-            | (data[:,:,:,1] < syn_lvl) 
-            | (data[:,:,:,2] > vcn_lvl)
-        )
-
+        result = np.sqrt(result)
+        result = (result * ((2**8-1)/result.max())).astype(np.uint8)
+            
         tifffile.imsave('/scratch/debug.tiff', result)
         print "/scratch/debug.tiff dumped"
 
         csvfile = open('/scratch/segments.csv', 'w')
         writer = csv.writer(csvfile)
-        writer.writerow( ('Z', 'Y', 'X', 'D', 'H', 'W', 'central value', 'vicinity value', 'red value') )
-        for i in range(len(self.syn_values)):
+        writer.writerow(
+            ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
+            + ((self.centroid_measures.shape[1] == 5) and ('red',) or ())
+        )
+        for i in range(self.centroid_measures.shape[0]):
             Z, Y, X = self.centroids[i]
-            D, H, W = self.widths[i]
-            red = data[Z,Y,X,3]
-            Z += zpad
-            Y += ypad
-            X += xpad
             writer.writerow( 
-                (Z, Y, X, D, H, W, self.syn_values[i], self.vcn_values[i], red) 
+                (Z, Y, X) + tuple(self.centroid_measures[i,m] for m in range(self.centroid_measures.shape[1]))
             )
         del writer
         csvfile.close()

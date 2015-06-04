@@ -248,7 +248,7 @@ class BlockedAnalyzer (object):
 
         self.image = image
 
-        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.16, 0.15, 0.15)))
+        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.75, 0.5, 0.5)))
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
         # maximum dependency chain of filters trims this much invalid border data
@@ -431,7 +431,7 @@ class BlockedAnalyzer (object):
             except ValueError:
                 # try trimming one voxel and repeating
                 print "WARNING: trimming image dimension %d to try to find divisible block size" % d
-                axis_size = self.view_reduction[d]*(desired_block_size[d]/self.view_reduction[d])
+                axis_size = self.view_reduction[d]*(min(desired_block_size[d], self.image.shape[d])/self.view_reduction[d])
                 trimmed_shape = axis_size*(self.image.shape[d]/axis_size)
                 trim_slice = tuple(
                     [ slice(None) for i in range(d) ]

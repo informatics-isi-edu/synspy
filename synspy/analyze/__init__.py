@@ -756,8 +756,8 @@ try:
         def maxNx1d(self, *args):
             return opencllib.maxNx1d(*args)
 
-        def sum_labeled(self, src, labels, n):
-            return opencllib.sum_labeled(src, labels, n)
+        def sum_labeled(self, src, labels, n, clq=None):
+            return opencllib.sum_labeled(src, labels, n, clq=clq)
 
         def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
             return opencllib.fwhm_estimate(

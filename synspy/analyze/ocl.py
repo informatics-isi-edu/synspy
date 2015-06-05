@@ -288,23 +288,24 @@ def filterNx1d(src, kernels, reducer="ADDER", clq=None):
        host.
 
     """
-    assert len(kernels) == src.ndim
+    assert len(kernels) == len(src.shape)
 
     if clq is None:
         return_dev = False
         clq = cl.CommandQueue(ctx)
+        
+        if True:
+            src = src.astype(float32, copy=False)
+            src_dev = cl_array.empty( clq, src.shape, float32 )
+            src_tmp = src_dev.map_to_host()
+            src_tmp[...] = src[...] # reforms as contiguous
+            del src_tmp
+        else:
+            src = src.astype(float32, copy=True)
+            src_dev = cl_array.to_device(clq, src)
     else:
         return_dev = True
-
-    if True:
-        src = src.astype(float32, copy=False)    
-        src_dev = cl_array.empty( clq, src.shape, float32 )
-        src_tmp = src_dev.map_to_host()
-        src_tmp[...] = src[...] # reforms as contiguous
-        del src_tmp
-    else:
-        src = src.astype(float32, copy=True)
-        src_dev = cl_array.to_device(clq, src)
+        src_dev = src
 
     for d in range(len(kernels)-1, -1, -1):
         kernel = array(kernels[d], dtype=float32)
@@ -448,24 +449,32 @@ def sum_labeled_dev(clq, src_dev, labels_dev, tmp_dev, dst_dev, min_label=1):
 TOTAL_ITEMS=2000
 
 
-def sum_labeled(src, labels, n=None):
-    clq = cl.CommandQueue(ctx)
-
-    if src.dtype == numpy.bool:
-        src = src.astype(numpy.uint8)
-
-    src_dev = cl_array.to_device(clq, src)
-    labels_dev = cl_array.to_device(clq, labels)
+def sum_labeled(src, labels, n=None, clq=None):
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        return_dev = False
+        if src.dtype == numpy.bool:
+            src = src.astype(numpy.uint8)
+        src_dev = cl_array.to_device(clq, src)
+        labels_dev = cl_array.to_device(clq, labels)
+    else:
+        return_dev = True
+        src_dev = src
+        labels_dev = labels
+        
     if n is None:
-        n = labels.max() + 1
+        n = labels_dev.max() + 1
     tmp_dev = cl_array.zeros(clq, (TOTAL_ITEMS, n), float32)
     dst_dev = cl_array.zeros(clq, (n,), float32)
 
     sum_labeled_dev(clq, src_dev, labels_dev, tmp_dev, dst_dev)
-    result = dst_dev.map_to_host()
-    clq.finish()
-    return result
 
+    if return_dev:
+        return dst_dev
+    else:
+        result = dst_dev.map_to_host()
+        clq.finish()
+        return result
 
 def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, labeled_dev):
     
@@ -868,29 +877,31 @@ def weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
 
     clq.flush()
 
-def weighted_measure(data, centroids, kernel):
-
-    assert data.ndim == 3
-    assert kernel.ndim == 3
-    
-    data = numpy.array(data, float32)
-    centroids = numpy.array(centroids, int32)
-    kernel = numpy.array(kernel, float32)
-
-    assert centroids.ndim == 2
+def weighted_measure(data, centroids, kernel, clq=None):
+    assert len(data.shape) == 3
+    assert len(kernel.shape) == 3
+    assert len(centroids.shape) == 2
     assert centroids.shape[1] == 3
 
-    clq = cl.CommandQueue(ctx)
-
-    data_dev = cl_array.to_device(clq, data)
-    centroids_dev = cl_array.to_device(clq, centroids)
-    kernel_dev = cl_array.to_device(clq, kernel)
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        data_dev = cl_array.to_device(clq, data)
+        centroids_dev = cl_array.to_device(clq, centroids)
+        kernel_dev = cl_array.to_device(clq, kernel)
+        return_dev = False
+    else:
+        data_dev = data
+        centroids_dev = centroids
+        kernel_dev = kernel
+        return_dev = True
+        
     measures_dev = cl_array.zeros(clq, (centroids.shape[0],), float32)
-
     weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
 
-    measures = measures_dev.map_to_host()
-    clq.finish()
-
-    return measures
+    if return_dev:
+        return measures_dev
+    else:
+        measures = measures_dev.map_to_host()
+        clq.finish()
+        return measures
 

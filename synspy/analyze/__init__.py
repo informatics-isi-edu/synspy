@@ -765,9 +765,12 @@ try:
                 (self.image_meta.z_microns, self.image_meta.y_microns, self.image_meta.x_microns)
             )
 
-        # This is actually slower due to data input bottleneck!
-        #def convNd_sparse(self, data, kernel, centroids):
-        #    return opencllib.weighted_measure(data, centroids, kernel)
+        def convNd_sparse(self, data, kernel, centroids, clq=None):
+            if clq is None:
+                # CL would actually slower due to data input bottleneck!
+                return BlockedAnalyzer.convNd_sparse(self, data, kernel, centroids)
+            else:
+                return opencllib.weighted_measure(data, centroids, kernel, clq=clq)
         
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels

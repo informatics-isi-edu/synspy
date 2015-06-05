@@ -772,6 +772,204 @@ try:
             else:
                 return opencllib.weighted_measure(data, centroids, kernel, clq=clq)
         
+        def block_process(self, blockpos):
+            """Process block data to return convolved results.
+            """
+            clq = opencllib.cl.CommandQueue(opencllib.ctx)
+            
+            splits = [(datetime.datetime.now(), None)]
+
+            image = self.image[self.block_slice_src(blockpos)]
+            splits.append((datetime.datetime.now(), 'image load'))
+
+            image0_dev = opencllib.cl_array.to_device(clq, image[:,:,:,0])
+            splits.append((datetime.datetime.now(), 'image to dev'))
+            
+            low_channel = self.convNx1d(image0_dev, self.kernels_3x1d[0], clq).map_to_host()
+            splits.append((datetime.datetime.now(), 'image*low'))
+
+            scale1_channel = self.convNx1d(image0_dev, self.kernels_3x1d[2], clq).map_to_host()
+            splits.append((datetime.datetime.now(), 'image*syn'))
+
+            scale2_channel = self.convNx1d(image0_dev, self.kernels_3x1d[3], clq).map_to_host()
+            clq.finish()
+            dog = crop_centered(scale1_channel, scale2_channel.shape) - scale2_channel
+            splits.append((datetime.datetime.now(), 'image*vlow'))
+
+            # allow tinkering w/ multiple peak detection fields
+            max_inputs = [
+                low_channel,
+                # dog,
+            ]
+
+            if len(max_inputs) > 1:
+                crop_shape = map(min, *[img.shape for img in max_inputs])
+            else:
+                crop_shape = max_inputs[0].shape
+
+            max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
+
+            if False:
+                view_image = crop_centered(
+                    image,
+                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+                )
+            else:
+                view_image = crop_centered(
+                    dog,
+                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+                )
+                view_image = view_image[:,:,:,None]
+                splits.append((datetime.datetime.now(), 'view image DoG'))
+
+            view_image = bin_reduce(view_image, self.view_reduction + (1,))
+            splits.append((datetime.datetime.now(), 'view image reduce'))
+
+            max_kernel = self.kernels_3d[3].shape
+            max_channels = [self.maxNx1d(img, max_kernel) for img in max_inputs]
+            splits.append((datetime.datetime.now(), 'local maxima'))
+
+            # need to trim borders discarded by max_channel computation
+            max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
+
+            # find syn cores via local maxima test
+            peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+            for i in range(len(max_inputs)):
+                assert max_inputs[i].shape == max_channels[i].shape
+                peaks += max_inputs[i] >= (max_channels[i])
+
+            clipbox = tuple(
+                slice(peaks_border, peaks_width-peaks_border)
+                for peaks_width, peaks_border in map(
+                        lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                        image.shape[0:3],
+                        self.max_border_widths,
+                        peaks.shape
+                        )
+            )
+            splits.append((datetime.datetime.now(), 'mask peaks'))
+
+            label_im, nb_labels = ndimage.label(peaks)
+            label_im_dev = opencllib.cl_array.to_device(clq, label_im)
+            splits.append((datetime.datetime.now(), 'label peaks'))
+
+            sizes = self.sum_labeled(
+                label_im_dev > 0,
+                label_im_dev,
+                nb_labels + 1,
+                clq=clq
+            )[1:].map_to_host()
+            splits.append((datetime.datetime.now(), 'centroid sizes'))
+
+            centroid_components = [ ]
+
+            for d in range(3):
+                coords = np.arange(peaks.shape[d], dtype=np.float32)
+                coords = coords[
+                        tuple(None for a in range(d))
+                        + (slice(None),)
+                        + tuple(None for a in range(d+1, peaks.ndim))
+                ] * np.ones(peaks.shape, dtype=np.float32)
+                coords_dev = opencllib.cl_array.to_device(clq, coords)
+                centroid_components.append(
+                    (self.sum_labeled(
+                        coords_dev,
+                        label_im_dev,
+                        nb_labels + 1,
+                        clq=clq
+                        )[1:].map_to_host()/sizes)#.astype(np.int32)
+                    )
+
+            # centroids are in block peaks grid
+            centroids = zip(*centroid_components)
+
+            if centroids:
+                # discard centroids outside clipbox (we searched slightly
+                # larger to handle peaks at edges
+                filtered_centroids = []
+                for i in range(len(centroids)):
+                    clip = False
+                    for d in range(3):
+                        if int(centroids[i][d]) < clipbox[d].start or int(centroids[i][d]) >= clipbox[d].stop:
+                            clip = True
+                    if not clip:
+                        filtered_centroids.append(centroids[i])
+
+                # centroids are in block core grid
+                centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
+                # image_centroids are in block image grid
+                image_centroids = centroids + array(self.max_border_widths, int32)
+                # dog_centroids are in difference-of-gaussians grid
+                dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
+                # global_centroids are in self.image grid
+                global_centroids = (
+                    array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
+                    + image_centroids
+                )
+
+            else:
+                image_centroids = []
+                global_centroids = []
+
+            splits.append((datetime.datetime.now(), 'centroid coords'))
+
+            image_centroids_dev = opencllib.cl_array.to_device(clq, image_centroids)
+            centroid_measures = [
+                self.convNd_sparse(
+                    image0_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                    image_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            ]
+            splits.append((datetime.datetime.now(), 'raw corevals'))
+
+            centroid_measures.append(
+                self.convNd_sparse(
+                    image0_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                    image_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            del image0_dev
+            del image_centroids_dev
+            splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+            dog_dev = opencllib.cl_array.to_device(clq, dog)
+            dog_centroids_dev = opencllib.cl_array.to_device(clq, dog_centroids)
+            centroid_measures.append(
+                self.convNd_sparse(
+                    dog_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                    dog_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+            centroid_measures.append(
+                self.convNd_sparse(
+                    dog_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                    dog_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            del dog_dev
+            del dog_centroids_dev
+            splits.append((datetime.datetime.now(), 'DoG hollowvals'))
+
+            if image.shape[3] > 1:
+                centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
+                splits.append((datetime.datetime.now(), 'centroid redvals'))
+
+            centroid_measures = zip(*centroid_measures)
+            splits.append((datetime.datetime.now(), 'zip centroid measures'))
+
+            perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+            return view_image, global_centroids, centroid_measures, perf_vector
+
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels
 except:

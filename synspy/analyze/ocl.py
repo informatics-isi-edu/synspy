@@ -905,3 +905,77 @@ def weighted_measure(data, centroids, kernel, clq=None):
         clq.finish()
         return measures
 
+def nd_arange_dev(clq, out_dev, axis, start, step):
+
+    CL = """
+    __kernel void nd_arange(
+       __global       float* dst,
+       __global const int* data_strides,
+       const int  axis,
+       const float start,
+       const float step,
+       const int  n_steps)
+    {
+       int a;
+       int dpos = 0;
+       int i;
+       float x = start;
+       
+       for (i=0; i<%(NDIM)d; i++) {
+          dpos += data_strides[i] * get_global_id(i);
+       }
+
+       for (i=0; i<n_steps; i++) {
+          dst[dpos] = x;
+          x += step;
+          dpos += data_strides[axis];
+       }
+    }
+    """ % dict(NDIM=len(out_dev.shape))
+
+    program = cl.Program(ctx, CL).build()
+
+    work_shape = (
+        tuple(out_dev.shape[i] for i in range(axis)) 
+        + (1,)
+        + tuple(out_dev.shape[i] for i in range(axis+1, len(out_dev.shape)))
+    )
+    strides = array([s/out_dev.dtype.itemsize for s in out_dev.strides], dtype=int32)
+    program.nd_arange(
+        clq, work_shape, None,
+        out_dev.data, cl_array.to_device(clq, strides).data, uint32(axis),
+        float32(start), float32(step), uint32(out_dev.shape[axis])
+    )
+    clq.flush()
+
+def nd_arange(shape, axis=0, start=0, step=1, clq=None):
+    """Fill an ND-array along one axis with a stepped range.
+
+       nd_arange((Z, Y, X), axis=2, start=A, step=B) is functionally
+       equivalent to:
+
+         np.arange(A, A+X*B, B)[None,None,:] * np.ones((Z, Y, X), np.float32)
+
+       but does the work on the OpenCL device and without relying on
+       array-broadcasting which is not supported in PyOpenCL.
+
+    """
+    assert axis >=0
+    assert axis < len(shape)
+    
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        return_dev = False
+    else:
+        return_dev = True
+
+    out_dev = cl_array.empty(clq, shape, float32)
+    nd_arange_dev(clq, out_dev, axis, start, step)
+    
+    if return_dev:
+        return out_dev
+    else:
+        out = out_dev.map_to_host()
+        clq.finish()
+        return out
+

@@ -864,13 +864,7 @@ try:
             centroid_components = [ ]
 
             for d in range(3):
-                coords = np.arange(peaks.shape[d], dtype=np.float32)
-                coords = coords[
-                        tuple(None for a in range(d))
-                        + (slice(None),)
-                        + tuple(None for a in range(d+1, peaks.ndim))
-                ] * np.ones(peaks.shape, dtype=np.float32)
-                coords_dev = opencllib.cl_array.to_device(clq, coords)
+                coords_dev = opencllib.nd_arange(peaks.shape, d, 0, 1, clq)
                 centroid_components.append(
                     (self.sum_labeled(
                         coords_dev,

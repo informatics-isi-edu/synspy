@@ -248,7 +248,7 @@ class BlockedAnalyzer (object):
 
         self.image = image
 
-        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.75, 0.5, 0.5)))
+        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.5, 0.5, 0.5)))
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
         # maximum dependency chain of filters trims this much invalid border data

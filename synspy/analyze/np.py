@@ -175,7 +175,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
     D, H, W = body_shape
     center_val = syn_kernel_3d[D/2,H/2,W/2]
     edge_val = syn_kernel_3d[D/2,0,W/2]
-    limit = edgeval # + (center_val - edge_val) * 0.1
+    limit = edge_val # + (center_val - edge_val) * 0.1
     mask_3d = syn_kernel_3d >= limit
     mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
     weights = syn_kernel_3d * mask_3d

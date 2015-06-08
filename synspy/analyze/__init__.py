@@ -60,6 +60,7 @@ import np as numpylib
 
 import datetime
 import sys
+import os
 import random
 import numpy as np
 from numpy import array, float32, int32, empty, newaxis, dot, cross, zeros, ones
@@ -244,11 +245,24 @@ class BlockedAnalyzer (object):
     def sum_labeled(self, src, labels, n):
         return ndimage.sum(src, labels, range(n))
 
-    def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(384,384,450)):
-
+    def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, view_reduction, desired_block_size=None):
+        if desired_block_size is None:
+            try:
+                desired_block_size = tuple(map(int, os.getenv('ZYX_BLOCK_SIZE').split(",")))
+                assert len(desired_block_size) == 3
+            except:
+                desired_block_size = (384,384,450)
+            print "Using %s voxel preferred sub-block size. Override with ZYX_BLOCK_SIZE='int,int,int'" % (desired_block_size,)
+            
+        try:
+            self.view_raw = os.getenv('VIEW_MODE') == 'raw'
+        except:
+            self.view_raw = False
+        print "Using %s viewing mode. Override with VIEW_MODE=raw or VIEW_MODE=dog." % (self.view_raw and 'raw' or 'dog')
+        
         self.image = image
-
-        self.view_reduction = tuple(map(lambda vs, ps: max(int(ps/vs), 1), self.image.micron_spacing, (0.5, 0.5, 0.5)))
+        self.view_reduction = view_reduction
+        
         self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
         # maximum dependency chain of filters trims this much invalid border data
@@ -533,7 +547,7 @@ class BlockedAnalyzer (object):
 
         max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
 
-        if False:
+        if self.view_raw:
             view_image = crop_centered(
                 image,
                 map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
@@ -821,7 +835,7 @@ try:
 
             max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
 
-            if False:
+            if self.view_raw:
                 view_image = crop_centered(
                     image,
                     map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]

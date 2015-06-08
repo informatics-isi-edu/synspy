@@ -134,8 +134,8 @@ class Canvas(base.Canvas):
     _vol_interp = 'nearest'
     #_vol_interp = 'linear'
     
-    def _reform_image(self, I, meta):
-        analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns)
+    def _reform_image(self, I, meta, view_reduction):
+        analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
         self.raw_image = I
 
         splits = [(datetime.datetime.now(), None)]
@@ -208,7 +208,7 @@ class Canvas(base.Canvas):
         self.centroid_measures = centroid_measures
         #self.widths = widths
 
-        return result, analyzer.view_reduction
+        return result
 
     _frag_glsl_dicts = [
         dict(

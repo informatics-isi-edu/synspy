@@ -782,7 +782,19 @@ try:
             image = self.image[self.block_slice_src(blockpos)]
             splits.append((datetime.datetime.now(), 'image load'))
 
-            image0_dev = opencllib.cl_array.to_device(clq, image[:,:,:,0])
+            # PyOpenCL complains about discontiguous arrays when we project C dimension
+            if image.strides[3] == 0:
+                # but, a volspy.util TiffLazyNDArray slice repacks implicitly
+                image0_dev = opencllib.cl_array.to_device(clq, image[:,:,:,0])
+            else:
+                # while a regular ndarray needs repacking here
+                # this happens with the VOLSPY_ZNOISE_PERCENTILE pre-filtering hack
+                image0_dev = opencllib.cl_array.empty(clq, image.shape[0:3], image.dtype)
+                image0_tmp = image0_dev.map_to_host()
+                image0_tmp[...] = image[:,:,:,0]
+                del image0_tmp
+                
+            clq.finish()
             splits.append((datetime.datetime.now(), 'image to dev'))
             
             low_channel = self.convNx1d(image0_dev, self.kernels_3x1d[0], clq).map_to_host()

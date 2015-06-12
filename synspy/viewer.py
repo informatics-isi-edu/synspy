@@ -340,7 +340,10 @@ transparency factor: %f
         IMAGE_SIZE = 1024
         HM_GAIN = 64
 
-        MAX_VAL = max(self._all_segments[0].max(), self._all_segments[1].max())
+        MAX_VAL = max(
+            self.syn_values.max(),
+            self.vcn_values.max()
+        )
         MAX_SYN = 80000
         MAX_VCN = 80000
 
@@ -351,13 +354,15 @@ transparency factor: %f
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.float32)
 
         def reanalyze():
-            return self.analyzer.analyze(
-                self._all_segments[0],
-                self._all_segments[1],
-                syn_lvl,
-                vcn_lvl
-            )
-
+            syn_vals = []
+            vcn_vals = []
+            for i in range(self.syn_values.shape[0]):
+                if self.syn_values[i] >= syn_lvl \
+                   and self.vcn_values[i] <= vcn_lvl:
+                    syn_vals.append(self.syn_values[i])
+                    vcn_vals.append(self.vcn_values[i])
+            return syn_vals, vcn_vals
+        
         def render(syn_vals, vcn_vals, ch):
             print "rendering %d segments to heatmap" % len(syn_vals)
             for i in range(len(syn_vals)):
@@ -412,7 +417,7 @@ transparency factor: %f
         render(self.syn_values, self.vcn_values, 0)
 
         # render matching centroids
-        syn_values, vcn_values, centroids = reanalyze()
+        syn_values, vcn_values = reanalyze()
         render(syn_values, vcn_values, 1)
 
         #heatmap = np.log(heatmap)
@@ -421,7 +426,7 @@ transparency factor: %f
         heatmap = heatmap * HM_GAIN
         heatmap = heatmap * (heatmap <= 255.0) + 255.0 * (heatmap > 255.0)
 
-        tifffile.imsave('heatmap.tiff', heatmap.astype(np.uint8))
+        tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8))
         
     
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")

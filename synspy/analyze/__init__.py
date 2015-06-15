@@ -121,7 +121,15 @@ def compose_3d_kernel(klist):
         )
     result = mult(zk, mult(yk, xk))
     return result
-            
+
+def clamp_center_edge(orig, axis=0):
+    return orig * (orig >= orig[
+        tuple(
+            orig.shape[d]/2 for d in range(axis)
+        ) + (0,) + tuple(
+            orig.shape[d]/2 for d in range(axis+1, 3)
+        )
+    ])
 
 def numstr(x):
     s = "%f" % x
@@ -189,11 +197,17 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
 
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
-    #  splat an elliptic core instead of a box?
-    core_kernel = ones(tuple(map(lambda d, s: 2*(int(0.8*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
-    span_kernel = ones(tuple(map(lambda d, s: 2*(int(1.0*d/s)/2)+1, vicinity_diam_microns, gridsize)), dtype=float32)
+    core_kernel = compose_3d_kernel(syn_kernels)
+    span_kernel = compose_3d_kernel(vlow_kernels)
+
+    if True:
+        # truncate to ellipsoid region
+        core_kernel = clamp_center_edge(core_kernel)
+        span_kernel = clamp_center_edge(span_kernel)
+
+    hollow_kernel = span_kernel * (pad_centered(core_kernel, span_kernel.shape) <= 0)
+        
     max_kernel = ones(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize), dtype=float32)
-    hollow_kernel = span_kernel - pad_centered(core_kernel, span_kernel.shape)
 
     core_kernel /= core_kernel.sum()
     hollow_kernel /= hollow_kernel.sum()

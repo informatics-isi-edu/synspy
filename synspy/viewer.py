@@ -147,7 +147,7 @@ class Canvas(base.Canvas):
             return (a.min(), a.mean(), a.max())
         
         # get labeled voxels
-        centroid_measures = np.array(centroid_measures, dtype=np.float32)
+        assert np.isnan(centroid_measures).sum() == 0
         print "core range:", rinfo(centroid_measures[:,0])
         print "hollow range:", rinfo(centroid_measures[:,1])
         centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)

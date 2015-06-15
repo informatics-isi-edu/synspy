@@ -837,7 +837,7 @@ def weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
        unsigned int seg_id = get_global_id(0);
        int3 centroid, kstride, dstride, D0, D1, K0;
        int x,y,z, i,j,k;
-       float measure = 0.0, weight = 0.0;
+       float measure = 0.0;
        
        dstride = (int3) (data_shape.s1 * data_shape.s2, data_shape.s2, 1);
        kstride = (int3) (kern_shape.s1 * kern_shape.s2, kern_shape.s2, 1);
@@ -856,12 +856,11 @@ def weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
              for (x=D0.s2, i=K0.s2; x<D1.s2; x++, i++) {
                 float s = kern[kstride.s0 * k + kstride.s1 * j + i];
                 measure += data[dstride.s0 * z + dstride.s1 * y + x] * s;
-                weight += s;
              }
           }
        }
 
-       measures_dst[seg_id] = measure / weight;
+       measures_dst[seg_id] = measure;
     }
     """
     

@@ -482,8 +482,8 @@ class BlockedAnalyzer (object):
 
         print "Allocated %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction), self.view_reduction, self.image.shape, self.image.micron_spacing)
 
-        centroids = []
-        centroid_measures = []
+        centroids = None
+        centroid_measures = None
         perf_vector = None
 
         total_blocks = reduce(lambda a, b: a*b, self.num_blocks, 1)
@@ -495,11 +495,13 @@ class BlockedAnalyzer (object):
         for blockpos in self.block_iter():
             view, cent, meas, perf = self.block_process(blockpos)
             view_image[self.block_slice_viewdst(blockpos)] = view
-            centroids.extend(cent)
-            centroid_measures.extend(meas)
-            if perf_vector is None:
+            if centroids is None:
+                centroids = cent
+                centroid_measures = meas
                 perf_vector = perf
             else:
+                centroids = np.concatenate((centroids, cent))
+                centroid_measures = np.concatenate((centroid_measures, meas))
                 perf_vector = map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf)
             done_blocks += 1
             progress = int(100 * done_blocks / total_blocks)
@@ -682,8 +684,8 @@ class BlockedAnalyzer (object):
             centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
             splits.append((datetime.datetime.now(), 'centroid redvals'))
 
-        centroid_measures = zip(*centroid_measures)
-        splits.append((datetime.datetime.now(), 'zip centroid measures'))
+        centroid_measures = np.column_stack(tuple(centroid_measures))
+        splits.append((datetime.datetime.now(), 'stack centroid measures'))
 
         perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
         return view_image, global_centroids, centroid_measures, perf_vector
@@ -998,8 +1000,8 @@ try:
                 centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
                 splits.append((datetime.datetime.now(), 'centroid redvals'))
 
-            centroid_measures = zip(*centroid_measures)
-            splits.append((datetime.datetime.now(), 'zip centroid measures'))
+            centroid_measures = np.column_stack(tuple(centroid_measures))
+            splits.append((datetime.datetime.now(), 'stack centroid measures'))
 
             perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
             return view_image, global_centroids, centroid_measures, perf_vector

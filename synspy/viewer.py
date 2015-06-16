@@ -337,96 +337,39 @@ transparency factor: %f
     def dump_segment_heatmap(self, event):
         """Dump a heatmap image with current thresholds."""
 
-        IMAGE_SIZE = 1024
-        HM_GAIN = 64
-
-        MAX_VAL = max(
-            self.syn_values.max(),
-            self.vcn_values.max()
-        )
-        MAX_SYN = 80000
-        MAX_VCN = 80000
-
-        # correct for OpenGL texel normalization
-        syn_lvl = self.floorlvl * (self.data_max - self.data_min) + self.data_min
-        vcn_lvl = self.nuclvl * (self.data_max - self.data_min) + self.data_min
-
+        IMAGE_SIZE = 512
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.float32)
 
-        def reanalyze():
-            syn_vals = []
-            vcn_vals = []
-            for i in range(self.syn_values.shape[0]):
-                if self.syn_values[i] >= syn_lvl \
-                   and self.vcn_values[i] <= vcn_lvl:
-                    syn_vals.append(self.syn_values[i])
-                    vcn_vals.append(self.vcn_values[i])
-            return syn_vals, vcn_vals
-        
-        def render(syn_vals, vcn_vals, ch):
-            print "rendering %d segments to heatmap" % len(syn_vals)
-            for i in range(len(syn_vals)):
-                if syn_vals[i] > 0:
-                    x = min(IMAGE_SIZE-1,math.log(syn_vals[i]) * IMAGE_SIZE / math.log(MAX_SYN))
-                    #x = min(IMAGE_SIZE-1,syn_vals[i] * IMAGE_SIZE / MAX_SYN)
-                    if vcn_vals[i] > 0:
-                        y = min(IMAGE_SIZE-1,math.log(vcn_vals[i]) * IMAGE_SIZE / math.log(MAX_VCN))
-                        #y = min(IMAGE_SIZE-1,vcn_vals[i] * IMAGE_SIZE / MAX_VCN)
-                    else:
-                        y = 0
-                    heatmap[y,x,ch] += 1
-                    #heatmap = np.sqrt(heatmap)
-
-            histo = []
-            hmax = heatmap.max()
-            print "heatmap max:", hmax
-            for i in range(hmax):
-                s = np.sum((heatmap > i) & (heatmap <= (i+1)))
-                histo.append(s)
-
-            max_bins = []
-            for j in range(IMAGE_SIZE):
-                for i in range(IMAGE_SIZE):
-                    if heatmap[j,i,0] == hmax:
-                        max_bins.append( (i, j) )
-
-            print "heatmap max %s at XY bins %s" % (hmax, max_bins)
-            print "heatmap max %s at syn,vcn bins %s" % (
-                hmax, 
-                map(
-                    lambda p: (
-                        math.exp(p[0] * math.log(MAX_SYN) / IMAGE_SIZE), 
-                        math.exp(p[1] * math.log(MAX_SYN) / IMAGE_SIZE)
-                    ), 
-                    max_bins
-                )
+        def render(v0, v1, ch):
+            print "rendering %d points to heatmap ch%d (%f ... %f) x (%f ... %f)" % (
+                len(v0), ch,
+                np.nanmin(v0), np.nanmax(v0),
+                np.nanmin(v1), np.nanmax(v1)
             )
-                
-            syn_vals = list(syn_vals)
-            vcn_vals = list(vcn_vals)
-            syn_vals.sort()
-            vcn_vals.sort()
-            try:
-                print "median syn %s vcn %s" % (syn_vals[len(syn_vals)/2], vcn_vals[len(vcn_vals)/2])
-            except:
-                pass
+            for i in range(len(v0)):
+                x = (IMAGE_SIZE-1) * v0[i]
+                y = (IMAGE_SIZE-1) * v1[i]
+                assert x < IMAGE_SIZE and x >= 0 and y < IMAGE_SIZE and y >= 0, 'x,y = %s,%s' % (x, y)
+                heatmap[y,x,ch] += 1
 
-            print "histo: %s" % histo
+            hmax = heatmap[:,:,ch].max()
+            max_bins = np.argwhere(heatmap[:,:,ch] == hmax)[0:20]
+            print "heatmap ch%d max: %s" % (ch, hmax)
+            print "heatmap max %s at XY bins %s" % (hmax, max_bins)
 
-        # render all centroids
-        render(self.syn_values, self.vcn_values, 0)
+        m = self.centroid_measures[self.centroid_measures[:,2] >= 0]
+        m = np.clip(m, 0, np.inf)
+        m = np.log1p(m)
+        m /= m.max()
 
-        # render matching centroids
-        syn_values, vcn_values = reanalyze()
-        render(syn_values, vcn_values, 1)
+        render(m[:,1], m[:,0], 0)
+        render(m[:,1], m[:,2], 1)
+        render(m[:,1], m[:,3], 2)
+            
+        heatmap = np.log1p(heatmap)
+        heatmap = np.clip(255.0 * 3 * heatmap / heatmap.max(), 0, 255)
 
-        #heatmap = np.log(heatmap)
-        #heatmap = 255.0 * heatmap / heatmap.max()
-        
-        heatmap = heatmap * HM_GAIN
-        heatmap = heatmap * (heatmap <= 255.0) + 255.0 * (heatmap > 255.0)
-
-        tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8))
+        tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
         
     
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")

@@ -158,6 +158,10 @@ class Canvas(base.Canvas):
         print "centroids:", centroids.min(axis=0), centroids.max(axis=0)
         print "centroids2:", centroids2.min(axis=0), centroids2.max(axis=0)
         print "view_image shape:", view_image.shape
+
+        # texture dimensions need to be even length?
+        result_shape = [s + s%2 for s in view_image.shape[0:3]] + [3]
+
         splat_kern = compose_3d_kernel(map(
             lambda d, s, r: gaussian_kernel(d/s/6./r),
             self.synapse_diam_microns,
@@ -169,23 +173,22 @@ class Canvas(base.Canvas):
         segment_map = assign_voxels_opt(
             centroid_measures[:,0],
             centroids2,
-            view_image.shape[0:3],
+            result_shape[0:3],
             splat_kern
         )
 
-        # pack into R, RG, RGB, or RGBA uint8 texture
-        fmt, ifmt = None, None
         if centroid_measures.shape[0] <= (2**8-1):
             nb = 1
-            fmt = 'red'
         elif centroid_measures.shape[0] <= (2**16-1):
             nb = 2
         else:
             assert centroid_measures.shape[0] <= (2**24-1), "too many segment IDs to RGB-pack"
             nb = 3
 
-        if fmt is None:
-            fmt = 'rgba'[0:nb]
+        if nb == 1:
+            fmt = 'red'
+        else:
+            fmt = 'rgb'[0:nb]
 
         print "voxel_class_texture %d segments, %d bytes, %s format" % (centroid_measures.shape[0], nb, fmt)
             
@@ -240,14 +243,16 @@ class Canvas(base.Canvas):
         self.measures_texture.wrapping = 'clamp_to_edge'
         splits.append((datetime.datetime.now(), 'segment measures texture'))
 
-        result = np.zeros( view_image.shape[0:3] + (min(view_image.shape[3], 2),), dtype=I.dtype )
+        result = np.zeros(result_shape, dtype=I.dtype)
         result[0,0,0,0] = self.data_min
         result[0,0,1,0] = self.data_max
-        if view_image.shape[3] > 1:
-            result[:,:,:,0] = view_image[:,:,:,1]
-            result[:,:,:,1] = view_image[:,:,:,0]
-        else:
-            result[:,:,:,0] = view_image[:,:,:,0]
+        result_box = result[
+            0:view_image.shape[0],
+            0:view_image.shape[1],
+            0:view_image.shape[2],
+            :
+        ]
+        result_box[:,:,:,0] = view_image[:,:,:,0]
             
         splits.append((datetime.datetime.now(), 'scalar volume'))
             

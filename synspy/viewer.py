@@ -250,7 +250,6 @@ class Canvas(base.Canvas):
             result[:,:,:,1] = view_image[:,:,:,0]
         else:
             result[:,:,:,0] = view_image[:,:,:,0]
-            result[:,:,:,1] = view_image[:,:,:,1]
             
         splits.append((datetime.datetime.now(), 'scalar volume'))
             

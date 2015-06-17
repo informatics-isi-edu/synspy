@@ -569,11 +569,15 @@ class BlockedAnalyzer (object):
                 map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
             )
         else:
-            view_image = crop_centered(
+            # caller expects view_image to have same number of channels as raw image
+            view_image = zeros(
+                tuple(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]),
+                dtype=dog.dtype
+            )
+            view_image[:,:,:,0] = crop_centered(
                 dog,
                 map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
             )
-            view_image = view_image[:,:,:,None]
             splits.append((datetime.datetime.now(), 'view image DoG'))
 
         view_image = bin_reduce(view_image, self.view_reduction + (1,))

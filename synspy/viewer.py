@@ -16,7 +16,6 @@ import volspy.viewer as base
 from vispy import gloo
 
 from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel
-from volspy.util import bin_reduce
 
 import tifffile
         

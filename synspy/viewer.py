@@ -13,6 +13,7 @@ import math
 import csv
 
 import volspy.viewer as base
+from vispy import gloo
 
 from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel
 from volspy.util import bin_reduce
@@ -20,6 +21,8 @@ from volspy.util import bin_reduce
 import tifffile
         
 _color_uniforms = """
+uniform sampler3D u_voxel_class_texture;
+uniform sampler3D u_measures_texture;
 uniform int u_numchannels;
 uniform float u_gain;
 uniform float u_floorlvl;
@@ -36,67 +39,73 @@ uniform float u_transp;
 # A: auto-fluorescence signal and synapse mask sample
 
 _linear1_colorxfer = """
-       if (col_smp.a > u_msklvl) {
-          col_smp.a = (col_smp.a - u_zerlvl) / u_toplvl;
-          col_smp.r = 1.0;
-          col_smp.g = 0.0;
-          col_smp.b = 0.0;
-       }
-       else if ((col_smp.r - u_zerlvl) > u_toplvl) {
-          col_smp.a = u_transp * 0.1;
-          col_smp.r = 0.5;
-          col_smp.b = 0.5;
-          col_smp.g = 0.0;
-       }
-       else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
-          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
-          col_smp.r = 0.0;
-          col_smp.g = 1.0;
-          col_smp.b = 0.0;
+    col_smp.b = col_smp.r;
+    col_smp.r = 0;
+    col_smp.g = 0;
+
+    // lookup voxel's packed segment ID
+    col_packed_smp = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    
+    if ( any(greaterThan(col_packed_smp.rgb, vec3(0))) )  {
+       // measures are packed as R=syn, G=vcn, B=redmask
+       col_packed_smp = texture3D(u_measures_texture, col_packed_smp.rgb);
+
+       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
+       else if (col_packed_smp.b > u_msklvl) {
+          // segment red over threshold so mark as red
+          col_smp.r = col_smp.b;
+          col_smp.b = 0;
        }
        else {
-          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
-          col_smp.r = 0.0;
-          col_smp.g = 0.0;
-          col_smp.b = 1.0;
+          // segment syn and vcn within range so mark as cyan
+          col_smp.g = col_smp.b;
+          col_smp.b = 0;
        }
+    }
 
-       col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+    // apply interactive range clipping  [zerlvl, toplvl]
+    col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
+    col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
 """
 
 _linear_alpha = """
+   col_smp.a = max(max(col_smp.r, col_smp.g), col_smp.b) * u_transp;
 """
 
 _binary1_colorxfer = """
-       if (col_smp.a > u_msklvl) {
-          col_smp.a = (col_smp.a - u_zerlvl) / u_toplvl;
-          col_smp.r = 1.0;
-          col_smp.g = 0.0;
-          col_smp.b = 0.0;
-       }
-       else if ((col_smp.r - u_zerlvl) > u_toplvl) {
-          col_smp.a = u_transp * 0.1;
-          col_smp.r = 0.5;
-          col_smp.b = 0.5;
-          col_smp.g = 0.0;
-       }
-       else if (col_smp.b < u_nuclvl && col_smp.g > u_floorlvl) {
-          col_smp.a = 1.0;
-          col_smp.r = 0.0;
-          col_smp.g = 1.0;
-          col_smp.b = 0.0;
+    col_smp.b = col_smp.r;
+    col_smp.r = 0;
+    col_smp.g = 0;
+
+    // lookup voxel's packed segment ID
+    col_packed_smp = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    
+    if ( any(greaterThan(col_packed_smp.rgb, vec3(0))) )  {
+       // measures are packed as R=syn, G=vcn, B=redmask
+       col_packed_smp = texture3D(u_measures_texture, col_packed_smp.rgb);
+
+       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
+       else if (col_packed_smp.b > u_msklvl) {
+          // segment red over threshold so mark as red
+          col_smp.r = 1;
+          col_smp.b = 0;
        }
        else {
-          col_smp.a = u_transp * (col_smp.r - u_zerlvl) / (u_toplvl - u_zerlvl);
-          col_smp.r = 0.0;
-          col_smp.g = 0.0;
-          col_smp.b = 1.0;
+          // segment syn and vcn within range so mark as cyan
+          col_smp.g = 1;
+          col_smp.b = 0;
        }
+    }
 
-       col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+    // apply interactive range clipping  [zerlvl, toplvl]
+    col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
+    col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+
 """
 
-_binary_alpha = ""
+_binary_alpha = _linear_alpha
 
 def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform)s level set to %(level).5f", tracenorm=True):
     def helper(origmethod):
@@ -167,35 +176,90 @@ class Canvas(base.Canvas):
             view_image.shape[0:3],
             splat_kern
         )
-        splits.append((datetime.datetime.now(), 'segment map'))
 
-        # fill segmented voxels w/ per-segment measurements
-        syn_val_map = np.array([0] + list(centroid_measures[:,0])).astype(I.dtype)[segment_map]
-        vcn_val_map = np.array([0] + list(centroid_measures[:,1])).astype(I.dtype)[segment_map]
-        if centroid_measures.shape[1] > 2:
-            msk_channel = np.array([0] + list(centroid_measures[:,2])).astype(I.dtype)[segment_map]
-        splits.append((datetime.datetime.now(), 'segment measures splat'))
+        # pack into R, RG, RGB, or RGBA uint8 texture
+        fmt, ifmt = None, None
+        if centroid_measures.shape[0] <= (2**8-1):
+            nb = 1
+            fmt = 'red'
+        elif centroid_measures.shape[0] <= (2**16-1):
+            nb = 2
+        else:
+            assert centroid_measures.shape[0] <= (2**24-1), "too many segment IDs to RGB-pack"
+            nb = 3
 
-        result = np.zeros( view_image.shape[0:3] + (4,), dtype=I.dtype )
-        result[:,:,:,0] = view_image[:,:,:,0]
-        result[:,:,:,1] = syn_val_map
-        result[:,:,:,2] = vcn_val_map
+        if fmt is None:
+            fmt = 'rgba'[0:nb]
+
+        # pack least significant byte as R, then G, etc.
+        segment_map_uint8 = np.zeros(segment_map.shape + (nb,), dtype=np.uint8)
+        for i in range(nb):
+            segment_map_uint8[:,:,:,i] = (segment_map[:,:,:] / (2**(i*8))) % 2**8
+
+        del segment_map
+        self.voxel_class_texture = gloo.Texture3D(segment_map_uint8.shape, format=fmt)
+        self.voxel_class_texture.set_data(segment_map_uint8)
+        self.voxel_class_texture.interpolation = 'nearest'
+        self.voxel_class_texture.wrapping = 'clamp_to_edge'
+        del segment_map_uint8
+        splits.append((datetime.datetime.now(), 'segment texture'))
+
+        self.data_max = max(
+            view_image[:,:,:,0].max(),
+            centroid_measures[:,0:2].max()
+        )
+        self.data_min = min(
+            view_image[:,:,:,0].min(),
+            centroid_measures[:,0:2].min()
+        )
+
+        if view_image.shape[3] > 1:
+            self.data_max = max(
+                self.data_max,
+                view_image[:,:,:,1].max(),
+                centroid_measures[:,4].max()
+            )
+            self.data_min = min(
+                self.data_min,
+                view_image[:,:,:,1].min(),
+                centroid_measures[:,4].min()
+            )
+        
+        # pack segment measures into a 3D grid
+        max_classid = centroid_measures.shape[0] + 1
+        W = 256
+        seg_meas = np.zeros((W, W, W, 3), dtype=np.float32)
+        seg_meas_flat = seg_meas.reshape((W**3, 3))
+        seg_meas_flat[1:max_classid,0:2] = centroid_measures[:,0:2]
         if centroid_measures.shape[1] > 4:
-            result[:,:,:,3] = msk_channel + view_image[:,:,:,1] * (segment_map==0)
-        splits.append((datetime.datetime.now(), 'segmented volume assemble'))
-            
-        self.data_max = result.max()
-        self.data_min = result.min()
+            seg_meas_flat[1:max_classid,2] = centroid_measures[:,4]
 
+        seg_meas = (seg_meas - self.data_min) / (self.data_max - self.data_min)
+
+        self.measures_texture = gloo.Texture3D(seg_meas.shape, format='rgb', internalformat='rgb16f')
+        self.measures_texture.set_data(seg_meas)
+        self.measures_texture.interpolation = 'nearest'
+        self.measures_texture.wrapping = 'clamp_to_edge'
+        splits.append((datetime.datetime.now(), 'segment measures texture'))
+
+        result = np.zeros( view_image.shape[0:3] + (min(view_image.shape[3], 2),), dtype=I.dtype )
+        result[0,0,0,0] = self.data_min
+        result[0,0,1,0] = self.data_max
+        if view_image.shape[3] > 1:
+            result[:,:,:,0] = view_image[:,:,:,1]
+            result[:,:,:,1] = view_image[:,:,:,0]
+        else:
+            result[:,:,:,0] = view_image[:,:,:,0]
+            result[:,:,:,1] = view_image[:,:,:,1]
+            
+        splits.append((datetime.datetime.now(), 'scalar volume'))
+            
         perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
         for elapsed, desc in perf_vector:
             print "%8.2fs %s task time" % (elapsed, desc)
         
         print "measure counts:", centroid_measures.shape
-        print "map range:", segment_map.min(), segment_map.max()
         print "packed data range: ", self.data_min, self.data_max
-
-        segment_map = None
 
         self.analyzer = analyzer
         self.syn_values = centroid_measures[:,0]
@@ -234,6 +298,9 @@ class Canvas(base.Canvas):
         self.redblur_microns = (3.0, 3.0, 3.0)
 
         base.Canvas.__init__(self, filename1)
+        # textures prepared by self._reform_image() during base init above...
+        self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
+        self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
 
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
@@ -382,7 +449,7 @@ transparency factor: %f
         """Increase ('N') or decrease ('n') nuclei-scale feature threshold level."""
         pass
 
-    @adjust_level('u_msklvl', 'msklvl', trace="red mask level set to %(level).5f")
+    @adjust_level('u_msklvl', 'msklvl', 0.005, trace="red mask level set to %(level).5f")
     def adjust_msk_level(self, event):
         """Increase ('M') or descrease ('m') red-channel mask threshold level."""
         pass

@@ -159,9 +159,14 @@ class Canvas(base.Canvas):
         print "centroids2:", centroids2.min(axis=0), centroids2.max(axis=0)
         print "view_image shape:", view_image.shape
 
-        # texture dimensions need to be even length?
-        result_shape = [s + s%2 for s in view_image.shape[0:3]] + [3]
-
+        # align 3D textures for opengl?
+        result_shape = tuple(map(
+            lambda s, m: s + s%m,
+            view_image.shape[0:3],
+            [1, 1, 4]
+        ) + [3])
+        print "results shape:", result_shape
+        
         splat_kern = compose_3d_kernel(map(
             lambda d, s, r: gaussian_kernel(d/s/6./r),
             self.synapse_diam_microns,

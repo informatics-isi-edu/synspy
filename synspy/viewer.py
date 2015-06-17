@@ -151,15 +151,12 @@ class Canvas(base.Canvas):
         view_image, centroids, centroid_measures = analyzer.volume_process()
         splits.append((datetime.datetime.now(), 'volume process'))
 
-        def rinfo(a):
-            return (a.min(), a.mean(), a.max())
-        
         # get labeled voxels
         assert np.isnan(centroid_measures).sum() == 0
-        print "core range:", rinfo(centroid_measures[:,0])
-        print "hollow range:", rinfo(centroid_measures[:,1])
+        print "measures range", centroid_measures.min(axis=0), centroid_measures.max(axis=0)
         centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)
-        print "centroid2 range:", [rinfo(v) for v in [centroids2[0], centroids2[1], centroids2[2]]]
+        print "centroids:", centroids.min(axis=0), centroids.max(axis=0)
+        print "centroids2:", centroids2.min(axis=0), centroids2.max(axis=0)
         print "view_image shape:", view_image.shape
         splat_kern = compose_3d_kernel(map(
             lambda d, s, r: gaussian_kernel(d/s/6./r),
@@ -190,6 +187,8 @@ class Canvas(base.Canvas):
         if fmt is None:
             fmt = 'rgba'[0:nb]
 
+        print "voxel_class_texture %d segments, %d bytes, %s format" % (centroid_measures.shape[0], nb, fmt)
+            
         # pack least significant byte as R, then G, etc.
         segment_map_uint8 = np.zeros(segment_map.shape + (nb,), dtype=np.uint8)
         for i in range(nb):

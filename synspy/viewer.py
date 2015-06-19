@@ -402,12 +402,12 @@ transparency factor: %f
         writer = csv.writer(csvfile)
         writer.writerow(
             ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
-            + ((self.centroid_measures.shape[1] == 5) and ('red',) or ())
+            + ((measures.shape[1] == 5) and ('red',) or ())
         )
-        for i in range(self.centroid_measures.shape[0]):
-            Z, Y, X = self.centroids[i]
+        for i in range(measures.shape[0]):
+            Z, Y, X = centroids[i]
             writer.writerow( 
-                (Z, Y, X) + tuple(self.centroid_measures[i,m] for m in range(self.centroid_measures.shape[1]))
+                (Z, Y, X) + tuple(measures[i,m] for m in range(measures.shape[1]))
             )
         del writer
         csvfile.close()

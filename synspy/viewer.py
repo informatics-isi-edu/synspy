@@ -139,8 +139,8 @@ def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform
 
 class Canvas(base.Canvas):
 
-    _vol_interp = 'nearest'
-    #_vol_interp = 'linear'
+    #_vol_interp = 'nearest'
+    _vol_interp = 'linear'
     
     def _reform_image(self, I, meta, view_reduction):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)

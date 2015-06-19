@@ -450,17 +450,31 @@ transparency factor: %f
             print "heatmap ch%d max: %s" % (ch, hmax)
             print "heatmap max %s at XY bins %s" % (hmax, max_bins)
 
-        m = self.centroid_measures[self.centroid_measures[:,2] >= 0]
-        m = np.clip(m, 0, np.inf)
-        m = np.log1p(m)
-        m /= m.max()
+        def normalize(m):
+            m = np.clip(m, 0, np.inf)
+            m = np.log1p(m)
+            return m
+            
+        # render all peaks
+        m = normalize(self.centroid_measures[self.centroid_measures[:,2] >= 0])
+        hmax = m.max()
+        m /= hmax
+        render(m[:,0], m[:,1], 0)
 
-        render(m[:,1], m[:,0], 0)
-        render(m[:,1], m[:,2], 1)
-        render(m[:,1], m[:,3], 2)
+        # render thresholded peaks
+        c, m = self.thresholded_segments()
+        print c.shape, m.shape
+        m = normalize(m)
+        m /= hmax
+        render(m[:,0], m[:,1], 1)
+        
+        render(m[:,2], m[:,1], 1)
+
+        render(m[:,0], m[:,3], 1)
+        render(m[:,0], m[:,3], 2)
             
         heatmap = np.log1p(heatmap)
-        heatmap = np.clip(255.0 * 3 * heatmap / heatmap.max(), 0, 255)
+        heatmap = np.clip(255.0 * 4 * heatmap / heatmap.max(), 0, 255)
 
         tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
         

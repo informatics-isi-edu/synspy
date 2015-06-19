@@ -384,12 +384,14 @@ transparency factor: %f
         result = np.zeros( self.raw_image.shape[0:3] + (3,), dtype ) # RGB debug image
         result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
 
-        for centroid in self.centroids:
-            result[tuple(
-                slice(c, c+1)
-                for c in centroid
-            ) + (1,)] = (2**16-1)
+        # splat classified centroids
+        centroids, measures = self.thresholded_segments()
+        segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
 
+        # shift blue to green for segmented voxels
+        result[:,:,:,1] = result[:,:,:,2] * (segment_map > 0)
+        result[:,:,:,2] -= result[:,:,:,2] * (segment_map > 0)
+        
         result = np.sqrt(result)
         result = (result * ((2**8-1)/result.max())).astype(np.uint8)
             

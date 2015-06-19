@@ -160,11 +160,12 @@ class Canvas(base.Canvas):
         print "view_image shape:", view_image.shape
 
         # align 3D textures for opengl?
+        assert view_image.shape[3] < 4
         result_shape = tuple(map(
             lambda s, m: s + s%m,
             view_image.shape[0:3],
             [1, 1, 4]
-        ) + [3])
+        ) + [view_image.shape[3] >= 2 and 3 or 1])
         print "results shape:", result_shape
         
         splat_kern = compose_3d_kernel(map(

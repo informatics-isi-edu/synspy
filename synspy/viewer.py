@@ -141,7 +141,24 @@ class Canvas(base.Canvas):
 
     #_vol_interp = 'nearest'
     _vol_interp = 'linear'
-    
+
+    def splat_centroids(self, reduction, shape, centroids, centroid_measures):
+        splat_kern = compose_3d_kernel(map(
+            lambda d, s, r: gaussian_kernel(d/s/6./r),
+            self.synapse_diam_microns,
+            self.raw_image.micron_spacing,
+            reduction
+        ))
+        splat_kern /= splat_kern.sum()
+        print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
+        segment_map = assign_voxels_opt(
+            centroid_measures[:,0],
+            np.array(centroids, dtype=np.int32) / np.array(reduction, dtype=np.int32),
+            shape,
+            splat_kern
+        )
+        return segment_map
+        
     def _reform_image(self, I, meta, view_reduction):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
         self.raw_image = I
@@ -154,9 +171,7 @@ class Canvas(base.Canvas):
         # get labeled voxels
         assert np.isnan(centroid_measures).sum() == 0
         print "measures range", centroid_measures.min(axis=0), centroid_measures.max(axis=0)
-        centroids2 = np.array(centroids, dtype=np.int32) / np.array(analyzer.view_reduction, dtype=np.int32)
         print "centroids:", centroids.min(axis=0), centroids.max(axis=0)
-        print "centroids2:", centroids2.min(axis=0), centroids2.max(axis=0)
         print "view_image shape:", view_image.shape
 
         # align 3D textures for opengl?
@@ -167,22 +182,9 @@ class Canvas(base.Canvas):
             [1, 1, 4]
         ) + [view_image.shape[3] >= 2 and 3 or 1])
         print "results shape:", result_shape
-        
-        splat_kern = compose_3d_kernel(map(
-            lambda d, s, r: gaussian_kernel(d/s/6./r),
-            self.synapse_diam_microns,
-            I.micron_spacing,
-            analyzer.view_reduction
-        ))
-        splat_kern /= splat_kern.sum()
-        print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
-        segment_map = assign_voxels_opt(
-            centroid_measures[:,0],
-            centroids2,
-            result_shape[0:3],
-            splat_kern
-        )
 
+        segment_map = self.splat_centroids(view_reduction, result_shape[0:3], centroids, centroid_measures)
+        
         if centroid_measures.shape[0] <= (2**8-1):
             nb = 1
         elif centroid_measures.shape[0] <= (2**16-1):

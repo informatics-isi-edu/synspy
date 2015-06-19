@@ -409,6 +409,24 @@ transparency factor: %f
         csvfile.close()
         print "/scratch/segments.csv dumped"
 
+    def thresholded_segments(self):
+        """Return subset of centroid data where centroids match thresholds."""
+        # get thresholds from OpenGL back to absolute values
+        floorlvl, nuclvl, msklvl = map(
+            lambda x: x * (self.data_max - self.data_min) + self.data_min,
+            [self.floorlvl, self.nuclvl, self.msklvl]
+        )
+
+        # a 1D list of centroid indices
+        matches = (
+            (self.centroid_measures[:,0] >= floorlvl)
+            * (self.centroid_measures[:,1] <= nuclvl)
+        )
+        if self.centroid_measures.shape[1] > 4:
+            matches *= self.centroid_measures[:,4] <= msklvl
+
+        return self.centroids[matches], self.centroid_measures[matches]
+        
     def dump_segment_heatmap(self, event):
         """Dump a heatmap image with current thresholds."""
 

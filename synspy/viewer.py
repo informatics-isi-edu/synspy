@@ -13,7 +13,7 @@ import math
 import csv
 
 import volspy.viewer as base
-from vispy import gloo
+from vispy import gloo, visuals
 
 from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel
 
@@ -37,19 +37,57 @@ uniform float u_transp;
 # B: synapse vicinity samples
 # A: auto-fluorescence signal and synapse mask sample
 
+_segment_colorxfer = """
+{
+    vec4 segment_id;
+
+    col_smp = vec4(0,0,0,0);
+
+    // lookup voxel's packed segment ID
+    segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    
+    if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
+       // measures are packed as R=syn, G=vcn, B=redmask
+       col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
+
+       if (all(equal(u_picked, segment_id))) {
+          col_smp = vec4(1);
+       }
+       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
+       else if (col_packed_smp.b > u_msklvl) { /* pass */ }
+       else {
+          // segment syn and vcn within range
+          col_smp = segment_id;
+       }
+    }
+}
+
+"""
+
+_segment_alpha = """
+"""
+
 _linear1_colorxfer = """
+{
+    vec4 segment_id;
+
     col_smp.b = col_smp.r;
     col_smp.r = 0;
     col_smp.g = 0;
 
     // lookup voxel's packed segment ID
-    col_packed_smp = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
     
-    if ( any(greaterThan(col_packed_smp.rgb, vec3(0))) )  {
+    if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
        // measures are packed as R=syn, G=vcn, B=redmask
-       col_packed_smp = texture3D(u_measures_texture, col_packed_smp.rgb);
+       col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
 
-       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       if (all(equal(u_picked, segment_id))) {
+          // segment was picked so mark as whitish
+          col_smp.rg = vec2(col_smp.b);
+       }
+       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) {
           // segment red over threshold so mark as red
@@ -57,7 +95,7 @@ _linear1_colorxfer = """
           col_smp.b = 0;
        }
        else {
-          // segment syn and vcn within range so mark as cyan
+          // segment syn and vcn within range so mark as green
           col_smp.g = col_smp.b;
           col_smp.b = 0;
        }
@@ -66,6 +104,7 @@ _linear1_colorxfer = """
     // apply interactive range clipping  [zerlvl, toplvl]
     col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
     col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+}
 """
 
 _linear_alpha = """
@@ -73,18 +112,25 @@ _linear_alpha = """
 """
 
 _binary1_colorxfer = """
+{
+    vec4 segment_id;
+
     col_smp.b = col_smp.r;
     col_smp.r = 0;
     col_smp.g = 0;
 
     // lookup voxel's packed segment ID
-    col_packed_smp = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
     
-    if ( any(greaterThan(col_packed_smp.rgb, vec3(0))) )  {
+    if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
        // measures are packed as R=syn, G=vcn, B=redmask
-       col_packed_smp = texture3D(u_measures_texture, col_packed_smp.rgb);
+       col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
 
-       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       if (all(equal(u_picked, segment_id))) {
+          // segment was picked so mark as white
+          col_smp.rgb = vec3(1);
+       }
+       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) {
           // segment red over threshold so mark as red
@@ -92,7 +138,7 @@ _binary1_colorxfer = """
           col_smp.b = 0;
        }
        else {
-          // segment syn and vcn within range so mark as cyan
+          // segment syn and vcn within range so mark as green
           col_smp.g = 1;
           col_smp.b = 0;
        }
@@ -101,7 +147,7 @@ _binary1_colorxfer = """
     // apply interactive range clipping  [zerlvl, toplvl]
     col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
     col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
-
+}
 """
 
 _binary_alpha = _linear_alpha
@@ -290,15 +336,22 @@ class Canvas(base.Canvas):
             colorxfer=_linear1_colorxfer,
             alphastmt=_linear_alpha,
             desc='White-linear segments, blue-linear background, and red-linear mask channel.'
-            ),
+        ),
         dict(
             uniforms=_color_uniforms,
             colorxfer=_binary1_colorxfer,
             alphastmt=_binary_alpha,
             desc='White-boolean segments, blue-linear background, and red-boolean mask channel.'
-            )
+        ),
+        dict(
+            uniforms=_color_uniforms,
+            colorxfer=_segment_colorxfer,
+            alphastmt=_segment_alpha,
+            desc="Voxels colored by RGB-packed segment ID."
+        )
         ]
-
+    _pick_glsl_index = 2
+    
     def __init__(self, filename1):
         
         # TODO: put these under UI control?
@@ -308,6 +361,8 @@ class Canvas(base.Canvas):
         self.redblur_microns = (3.0, 3.0, 3.0)
 
         base.Canvas.__init__(self, filename1)
+        self.pick_pos = None
+        
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
         self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
@@ -323,6 +378,13 @@ class Canvas(base.Canvas):
 
         self.size = 512, 512
 
+        self.text_overlay = visuals.TextVisual('DUMMY', color="white", font_size=12)
+        self.text_overlay_transform = visuals.transforms.TransformSystem(self)
+
+    def on_resize(self, event):
+        base.Canvas.on_resize(self, event)
+        self.text_overlay_transform = visuals.transforms.TransformSystem(self)
+        
     def reload_data(self):
         base.Canvas.reload_data(self)
 
@@ -481,7 +543,29 @@ transparency factor: %f
         heatmap = np.clip(255.0 * 4 * heatmap / heatmap.max(), 0, 255)
 
         tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
-        
+
+    def on_mouse_move(self, event):
+        base.Canvas.on_mouse_move(self, event)
+
+        if not event.is_dragging:
+            X, Y, W, H = self.viewport1
+            
+            self.pick_pos = event.pos
+            pos = np.array(event.pos)
+            pos += np.array((0, -40))
+            border = np.array((50,20))
+            pos = np.minimum(
+                np.array(self.size) - border,
+                np.maximum( border, pos)
+            )
+            self.text_overlay.pos = [
+                pos,
+                pos + np.array((0, 15))
+            ]
+            self.update()
+        else:
+            self.pick_pos = None
+
     
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")
     def adjust_floor_level(self, event):
@@ -512,4 +596,24 @@ transparency factor: %f
     def adjust_transp_level(self, event):
         """Increase ('O') or decrease ('o') opacity factor."""
         pass
+
+    def on_draw(self, event, color_mask=(True, True, True, True)):
+        picked = base.Canvas.on_draw(self, event, color_mask, pick=self.pick_pos)
+        if picked is not None and picked[0:3].max() > 0:
+            segment_id = (
+                picked[0]
+                + picked[1] * 2**8
+                + picked[2] * 2**16
+            ) - 1
+
+            gloo.set_state(cull_face=False)
+            gloo.set_viewport((0, 0)+ self.size)
+            self.text_overlay.text = [
+                ' '.join(map(str, self.centroids[segment_id, :])),
+                '%0.1f %0.1f' % (
+                    self.centroid_measures[segment_id, 0],
+                    self.centroid_measures[segment_id, 1],
+                )
+            ]
+            self.text_overlay.draw(self.text_overlay_transform)
 

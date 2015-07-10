@@ -22,6 +22,7 @@ import tifffile
 _color_uniforms = """
 uniform sampler3D u_voxel_class_texture;
 uniform sampler3D u_measures_texture;
+uniform sampler3D u_status_texture;
 uniform int u_numchannels;
 uniform float u_gain;
 uniform float u_floorlvl;
@@ -68,6 +69,7 @@ _segment_alpha = """
 _linear1_colorxfer = """
 {
     vec4 segment_id;
+    float segment_status;
 
     col_smp.b = col_smp.r;
     col_smp.r = 0;
@@ -79,8 +81,12 @@ _linear1_colorxfer = """
     if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
        // measures are packed as R=syn, G=vcn, B=redmask
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
+       segment_status = texture3D(u_status_texture, segment_id.rgb).r;
 
-       if (all(equal(u_picked, segment_id))) {
+       if (segment_status > 0.5) {
+          col_smp = vec4(1,1,0,1);
+       }
+       else if (all(equal(u_picked, segment_id))) {
           // segment was picked so mark as whitish
           col_smp.rg = vec2(col_smp.b);
        }
@@ -201,7 +207,21 @@ class Canvas(base.Canvas):
             splat_kern
         )
         return segment_map
-        
+
+    def _pick_rgb_to_segment(self, pick, base=0):
+        """Convert (R,G,B) encoding of segment pick to 0 or 1-based segment ID"""
+        return sum([ pick[i] * 2**(8*i) for i in range(3) ], base)
+
+    def _get_centroid_status(self, pick):
+        """Get status byte for centroid pick (R,G,B) """
+        return self.centroid_status[self._pick_rgb_to_segment(pick)]
+
+    def _set_centroid_status(self, pick, b):
+        """Set status byte for centroid pick (R,G,B) """
+        self.centroid_status[self._pick_rgb_to_segment(pick)] = b
+        self.status_texture.set_data(np.array([[[b]]], dtype=np.uint8), offset=tuple(pick[::-1]), copy=True)
+        self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
+
     def _reform_image(self, I, meta, view_reduction):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
         self.raw_image = I
@@ -209,6 +229,7 @@ class Canvas(base.Canvas):
         splits = [(datetime.datetime.now(), None)]
         
         view_image, centroids, centroid_measures = analyzer.volume_process()
+        centroid_status = np.zeros(centroid_measures.shape[0:1], dtype=np.uint8)
         splits.append((datetime.datetime.now(), 'volume process'))
 
         # get labeled voxels
@@ -281,6 +302,7 @@ class Canvas(base.Canvas):
         max_classid = centroid_measures.shape[0] + 1
         W = 256
         seg_meas = np.zeros((W, W, W, 3), dtype=np.float32)
+        seg_stat = np.zeros((W, W, W, 1), dtype=np.uint8) # also introduce 8-bit status psuedo-measure
         seg_meas_flat = seg_meas.reshape((W**3, 3))
         seg_meas_flat[1:max_classid,0:2] = centroid_measures[:,0:2]
         if centroid_measures.shape[1] > 4:
@@ -292,7 +314,11 @@ class Canvas(base.Canvas):
         self.measures_texture.set_data(seg_meas)
         self.measures_texture.interpolation = 'nearest'
         self.measures_texture.wrapping = 'clamp_to_edge'
-        splits.append((datetime.datetime.now(), 'segment measures texture'))
+        self.status_texture = gloo.Texture3D(seg_stat.shape, format='red', internalformat='red')
+        self.status_texture.set_data(seg_stat)
+        self.status_texture.interpolation = 'nearest'
+        self.status_texture.wrapping = 'clamp_to_edge'
+        splits.append((datetime.datetime.now(), 'segment measures and status textures'))
 
         result = np.zeros(result_shape, dtype=I.dtype)
         result[0,0,0,0] = self.data_min
@@ -323,6 +349,7 @@ class Canvas(base.Canvas):
             self.red_values = np.zeros((centroid_measures.shape[0],), dtype=np.float32)
         self.centroids = centroids
         self.centroid_measures = centroid_measures
+        self.centroid_status = centroid_status
         #self.widths = widths
 
         return result
@@ -358,11 +385,11 @@ class Canvas(base.Canvas):
         self.redblur_microns = (3.0, 3.0, 3.0)
 
         base.Canvas.__init__(self, filename1)
-        self.pick_pos = None
         
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
         self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
+        self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
 
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level

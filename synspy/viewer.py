@@ -50,10 +50,7 @@ _segment_colorxfer = """
        // measures are packed as R=syn, G=vcn, B=redmask
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
 
-       if (all(equal(u_picked, segment_id))) {
-          col_smp = vec4(1);
-       }
-       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) { /* pass */ }
        else {

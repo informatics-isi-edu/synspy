@@ -448,6 +448,7 @@ class Canvas(base.Canvas):
         self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
         self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
 
+        self.key_press_handlers['L'] = self.load_classified_segments
         self.key_press_handlers['E'] = self.retire_centroid_batch
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
@@ -562,6 +563,29 @@ transparency factor: %f
         csvfile.close()
         print "/scratch/segments.csv dumped"
 
+    def load_classified_segments(self, event):
+        """Load a segment list with manual override status values."""
+        # assume that dump is ordered subset of current analysis
+        csvfile = open('/scratch/segments.csv', 'r')
+        reader = csv.DictReader(csvfile)
+        i = 0
+        for row in reader:
+            Z = int(row['Z'])
+            Y = int(row['Y'])
+            X = int(row['X'])
+
+            # scan forward until we find same centroid, since CSV is a subset
+            while i < self.centroids.shape[0] and (Z, Y, X) != tuple(self.centroids[i]):
+                i += 1
+
+            assert i < self.centroids.shape[0], "Failed to load CSV that does not match current image analysis!"
+
+            if row['override']:
+                self._set_centroid_status(
+                    self._pick_segment_to_rgb(i+1),
+                    int(row['override'])
+                )
+        
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""
         # get thresholds from OpenGL back to absolute values

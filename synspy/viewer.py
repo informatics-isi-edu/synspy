@@ -266,8 +266,20 @@ class Canvas(base.Canvas):
         """Set status byte for centroid pick (R,G,B) """
         self.centroid_status[self._pick_rgb_to_segment(pick)] = b
         self.status_texture.set_data(np.array([[[b]]], dtype=np.uint8), offset=tuple(pick[::-1]), copy=True)
-        self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
 
+    def retire_centroid_batch(self, event):
+        """Expunge ('E') manually-classified centroids to be non-clickable."""
+        for id in self.centroids_batch:
+            pick = self._pick_segment_to_rgb(id+1)
+            self._set_centroid_status(
+                pick[0:3],
+                # state transitions for clickable centroids only...
+                { 0: 0, 5: 1, 7: 3 }[
+                    self._get_centroid_status(pick[0:3])
+                ]
+            )
+        self.centroids_batch.clear()
+        
     def _reform_image(self, I, meta, view_reduction):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
         self.raw_image = I
@@ -436,6 +448,7 @@ class Canvas(base.Canvas):
         self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
         self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
 
+        self.key_press_handlers['E'] = self.retire_centroid_batch
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
         self.key_press_handlers['T'] = self.adjust_zer_level

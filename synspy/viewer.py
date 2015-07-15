@@ -512,7 +512,7 @@ transparency factor: %f
             self.dump_parameters(event)
 
     def dump_classified_voxels(self, event):
-        """Dump a volume image with centroid markers."""
+        """Dump a volume image and segment list."""
         dtype = np.uint16
         dmax = 1./self.raw_image.max() * (2**16-1)
 
@@ -520,7 +520,7 @@ transparency factor: %f
         result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
 
         # splat classified centroids
-        centroids, measures = self.thresholded_segments()
+        centroids, measures, status = self.thresholded_segments()
         segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
 
         # shift blue to green for segmented voxels
@@ -538,11 +538,12 @@ transparency factor: %f
         writer.writerow(
             ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
             + ((measures.shape[1] == 5) and ('red',) or ())
+            + ('override',)
         )
         for i in range(measures.shape[0]):
             Z, Y, X = centroids[i]
             writer.writerow( 
-                (Z, Y, X) + tuple(measures[i,m] for m in range(measures.shape[1]))
+                (Z, Y, X) + tuple(measures[i,m] for m in range(measures.shape[1])) + (status[i] or '',)
             )
         del writer
         csvfile.close()
@@ -556,7 +557,7 @@ transparency factor: %f
             [self.floorlvl, self.nuclvl, self.msklvl]
         )
 
-        # a 1D list of centroid indices
+        # a 1D bitmap of centroid inclusion
         matches = (
             (self.centroid_measures[:,0] >= floorlvl)
             * (self.centroid_measures[:,1] <= nuclvl)
@@ -564,7 +565,9 @@ transparency factor: %f
         if self.centroid_measures.shape[1] > 4:
             matches *= self.centroid_measures[:,4] <= msklvl
 
-        return self.centroids[matches], self.centroid_measures[matches]
+        return self.centroids[matches], \
+            self.centroid_measures[matches], \
+            self.centroid_status[1:self.centroid_measures.shape[0]+1][matches]
         
     def dump_segment_heatmap(self, event):
         """Dump a heatmap image with current thresholds."""

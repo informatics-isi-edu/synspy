@@ -208,9 +208,13 @@ class Canvas(base.Canvas):
         )
         return segment_map
 
-    def _pick_rgb_to_segment(self, pick, base=0):
-        """Convert (R,G,B) encoding of segment pick to 0 or 1-based segment ID"""
-        return sum([ pick[i] * 2**(8*i) for i in range(3) ], base)
+    def _pick_rgb_to_segment(self, pick):
+        """Convert (R,G,B) encoding of segment pick to 1-based segment ID"""
+        return sum([ pick[i] * 2**(8*i) for i in range(3) ], 0)
+
+    def _pick_segment_to_rgb(self, index):
+        """Convert 1-based segment ID to (R,G,B) encoding of segment pick"""
+        return np.array([ (index/2**(8*i)) % 256 for i in range(3) ])
 
     def _get_centroid_status(self, pick):
         """Get status byte for centroid pick (R,G,B) """

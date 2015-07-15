@@ -233,7 +233,7 @@ class Canvas(base.Canvas):
         splits = [(datetime.datetime.now(), None)]
         
         view_image, centroids, centroid_measures = analyzer.volume_process()
-        centroid_status = np.zeros(centroid_measures.shape[0:1], dtype=np.uint8)
+        centroid_status = np.zeros((256**3,), dtype=np.uint8)
         splits.append((datetime.datetime.now(), 'volume process'))
 
         # get labeled voxels
@@ -306,7 +306,6 @@ class Canvas(base.Canvas):
         max_classid = centroid_measures.shape[0] + 1
         W = 256
         seg_meas = np.zeros((W, W, W, 3), dtype=np.float32)
-        seg_stat = np.zeros((W, W, W, 1), dtype=np.uint8) # also introduce 8-bit status psuedo-measure
         seg_meas_flat = seg_meas.reshape((W**3, 3))
         seg_meas_flat[1:max_classid,0:2] = centroid_measures[:,0:2]
         if centroid_measures.shape[1] > 4:
@@ -318,8 +317,8 @@ class Canvas(base.Canvas):
         self.measures_texture.set_data(seg_meas)
         self.measures_texture.interpolation = 'nearest'
         self.measures_texture.wrapping = 'clamp_to_edge'
-        self.status_texture = gloo.Texture3D(seg_stat.shape, format='red', internalformat='red')
-        self.status_texture.set_data(seg_stat)
+        self.status_texture = gloo.Texture3D((W,W,W,1), format='red', internalformat='red')
+        self.status_texture.set_data(centroid_status.reshape((W,W,W,1)))
         self.status_texture.interpolation = 'nearest'
         self.status_texture.wrapping = 'clamp_to_edge'
         splits.append((datetime.datetime.now(), 'segment measures and status textures'))
@@ -404,10 +403,13 @@ class Canvas(base.Canvas):
         self.key_press_handlers['H'] = self.dump_segment_heatmap
         self.key_press_handlers['?'] = self.help
 
-        self.size = 512, 512
+        self.pick_click = False
+        self.centroids_batch = set() # store 0-based centroid IDs here...
 
         self.text_overlay = visuals.TextVisual('DUMMY', color="white", font_size=12)
         self.text_overlay_transform = visuals.transforms.TransformSystem(self)
+
+        self.size = 512, 512
 
     def on_resize(self, event):
         base.Canvas.on_resize(self, event)
@@ -423,6 +425,7 @@ class Canvas(base.Canvas):
         self.zerlvl = 0.28
         self.toplvl = 0.4
         self.transp = 0.8
+        self.pick_pos = None
 
         self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
         self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
@@ -572,6 +575,19 @@ transparency factor: %f
 
         tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
 
+    def on_mouse_press(self, event):
+        self.pick_pos = event.pos
+        self.update()
+        
+    def on_mouse_release(self, event):
+        base.Canvas.on_mouse_release(self, event)
+
+        if (event.pos - event.press_event.pos).max() == 0:
+            self.pick_click = True
+        else:
+            self.pick_click = False
+        self.update()
+           
     def on_mouse_move(self, event):
         base.Canvas.on_mouse_move(self, event)
 
@@ -593,6 +609,7 @@ transparency factor: %f
             self.update()
         else:
             self.pick_pos = None
+            self.pick_click = False
 
     
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")
@@ -626,7 +643,24 @@ transparency factor: %f
         pass
 
     def on_draw(self, event, color_mask=(True, True, True, True)):
-        picked = base.Canvas.on_draw(self, event, color_mask, pick=self.pick_pos)
+        def on_pick(picked):
+            """Work to handle segment-click action within multi-pass rendering cycle."""
+            if self.pick_click and picked[0:3].max() > 0:
+                self._set_centroid_status(
+                    picked[0:3],
+                    # state transitions for clickable centroids only...
+                    { 0: 5, 5: 7, 7: 0 }[
+                        self._get_centroid_status(picked[0:3])
+                    ]
+                )
+                self.centroids_batch.add(
+                    # change 1-based to 0-based
+                    self._pick_rgb_to_segment(picked[0:3]) - 1
+                )
+                # UGLY: click has been handled so clear flag!
+                self.pick_click = False
+                
+        picked = base.Canvas.on_draw(self, event, color_mask, pick=self.pick_pos, on_pick=on_pick)
         if picked is not None and picked[0:3].max() > 0:
             segment_id = (
                 picked[0]

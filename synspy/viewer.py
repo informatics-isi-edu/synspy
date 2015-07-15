@@ -38,9 +38,24 @@ uniform float u_transp;
 # B: synapse vicinity samples
 # A: auto-fluorescence signal and synapse mask sample
 
+
+# centroid status values are bit-mapped uint8 using 3 bits
+# bit 0: 1 means override, 0 means default class
+# bit 1: 1 means synapse, 0 means non-synapse
+# bit 2: 1 means clickable, 0 means non-clickable
+#
+# value 0: default class
+# value 1: override non-synapse (non-clickable)
+# value 3: override synapse     (non-clickable)
+# value 5: override non-synapse (clickable)
+# value 7: override synapse     (clickable)
+#
+# click cycle values: 0 -> 5 -> 7 -> 0
+
 _segment_colorxfer = """
 {
     vec4 segment_id;
+    float segment_status;
 
     col_smp = vec4(0,0,0,0);
 
@@ -50,12 +65,14 @@ _segment_colorxfer = """
     if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
        // measures are packed as R=syn, G=vcn, B=redmask
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
+       segment_status = texture3D(u_status_texture, segment_id.rgb).r;
 
        if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) { /* pass */ }
+       else if ( (segment_status*255) == 1 || (segment_status*255) == 3 ) { /* pass */ }
        else {
-          // segment syn and vcn within range
+          // segment is clickable
           col_smp = segment_id;
        }
     }
@@ -83,12 +100,37 @@ _linear1_colorxfer = """
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
        segment_status = texture3D(u_status_texture, segment_id.rgb).r;
 
-       if (segment_status > 0.5) {
-          col_smp = vec4(1,1,0,1);
+       if (all(equal(u_picked, segment_id))) {
+          // segment is picked via mouse-over
+
+          if ((segment_status*255) == 5) {
+             // segment is forced off, clickable
+             col_smp.rb = vec2(1);
+          }
+          else if ((segment_status*255) == 7) {
+             // segment is forced on, clickable
+             col_smp.rgb = vec3(1,1,0);
+          }
+          else {
+             // segment is default, clickable
+             col_smp.gb = vec2(1,0);
+          }
        }
-       else if (all(equal(u_picked, segment_id))) {
-          // segment was picked so mark as whitish
+       else if ((segment_status*255) == 5) {
+          // segment is forced off, clickable
+          col_smp.rb = vec2(col_smp.b);
+       }
+       else if ((segment_status*255) == 7) {
+          // segment is forced on, clickable
           col_smp.rg = vec2(col_smp.b);
+          col_smp.b = 0;
+       }
+       else if ((segment_status*255) == 1) {
+          // segment is forced off, non-clickable
+       }
+       else if ((segment_status*255) == 3) {
+          // segment is forced on, non-clickable
+          col_smp.gb = vec2(col_smp.b);
        }
        else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }

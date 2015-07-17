@@ -159,6 +159,7 @@ _linear_alpha = """
 _binary1_colorxfer = """
 {
     vec4 segment_id;
+    float segment_status;
 
     col_smp.b = col_smp.r;
     col_smp.r = 0;
@@ -170,10 +171,24 @@ _binary1_colorxfer = """
     if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
        // measures are packed as R=syn, G=vcn, B=redmask
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
+       segment_status = texture3D(u_status_texture, segment_id.rgb).r;
 
-       if (all(equal(u_picked, segment_id))) {
-          // segment was picked so mark as white
-          col_smp.rgb = vec3(1);
+       if ((segment_status*255) == 5) {
+          // segment is forced off, clickable
+          col_smp.rb = vec2(1);
+       }
+       else if ((segment_status*255) == 7) {
+          // segment is forced on, clickable
+          col_smp.rg = vec2(1);
+          col_smp.b = 0;
+       }
+       else if ((segment_status*255) == 1) {
+          // segment is forced off, non-clickable
+          col_smp.b = 1;
+       }
+       else if ((segment_status*255) == 3) {
+          // segment is forced on, non-clickable
+          col_smp.gb = vec2(1);
        }
        else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }

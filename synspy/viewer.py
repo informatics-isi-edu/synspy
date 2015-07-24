@@ -83,6 +83,16 @@ _segment_colorxfer = """
 _segment_alpha = """
 """
 
+_linear1_grayxfer = """
+{
+    col_smp.rgb = vec3(col_smp.r);
+
+    // apply interactive range clipping  [zerlvl, toplvl]
+    col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
+    col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+}
+"""
+
 _linear1_colorxfer = """
 {
     vec4 segment_id;
@@ -443,12 +453,18 @@ class Canvas(base.Canvas):
         ),
         dict(
             uniforms=_color_uniforms,
+            colorxfer=_linear1_grayxfer,
+            alphastmt=_linear_alpha,
+            desc="Grayscale signal without classification."
+        ),
+        dict(
+            uniforms=_color_uniforms,
             colorxfer=_segment_colorxfer,
             alphastmt=_segment_alpha,
             desc="Voxels colored by RGB-packed segment ID."
         )
         ]
-    _pick_glsl_index = 2
+    _pick_glsl_index = 3
     
     def __init__(self, filename1):
         

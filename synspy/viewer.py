@@ -127,6 +127,7 @@ _linear1_colorxfer = """
        }
        else if ((segment_status*255) == 1) {
           // segment is forced off, non-clickable
+          col_smp.b = 0;
        }
        else if ((segment_status*255) == 3) {
           // segment is forced on, non-clickable
@@ -184,7 +185,7 @@ _binary1_colorxfer = """
        }
        else if ((segment_status*255) == 1) {
           // segment is forced off, non-clickable
-          col_smp.b = 1;
+          col_smp.b = 0;
        }
        else if ((segment_status*255) == 3) {
           // segment is forced on, non-clickable

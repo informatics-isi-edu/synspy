@@ -240,6 +240,7 @@ def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform
                     level = level * (self.data_max - self.data_min) + self.data_min
                 print trace % dict(uniform=uniform, level=level)
 
+        wrapper.__doc__ = origmethod.__doc__
         return wrapper
     return helper
 

@@ -31,9 +31,9 @@ on Mac OSX. It has several requirements:
 - [Volspy](http://github.com/informatics-isi-edu/volspy) volume
   rendering framework.
 - [Vispy](http://vispy.org) visualization library to access OpenGL
-  GPUs.  A recent development version is needed, including
-  high-precision texture format features merged into the
-  [vispy/master](https://github.com/vispy/vispy) branch on 2015-01-30.
+  GPUs.  A recent development version is needed, and it is tested with
+  the fork [karlcz/vispy](https://github.com/vispy/vispy) which is
+  periodically synchronized with the upstream project.
 - [Numpy](http://www.numpy.org) numerical library to process
   N-dimensional data.
 - [Numexpr](https://github.com/pydata/numexpr) numerical expression
@@ -42,15 +42,6 @@ on Mac OSX. It has several requirements:
   OpenCL parallel computing platforms.
 - [Tifffile](http://www.lfd.uci.edu/~gohlke/code/tifffile.py.html) for
   access to OME-TIFF and LSM microscopy file formats.
-- [NiBabel](http://nipy.org/nibabel) for access to additional
-  neuroimaging file formats such as NifTI.
-
-The image processing part of Synspy can tolerate a missing Numerexpr
-or PyOpenCL library by falling back to slower standard Numpy code
-paths.
-
-The file-reading part of Synspy can tolerate a missing Tifffile or
-NiBabel prerequisite if you do not need to read those types of files.
 
 ### Installation
 
@@ -67,16 +58,30 @@ NiBabel prerequisite if you do not need to read those types of files.
 3. Interact with the viewer:
   - Press `ESC` when you have had enough.
   - Press `?` to print UI help text to console output.
+  - The mouse can be used to control the view or interact with segments.
+	1. Mouse-over on segments will display some pop-up diagnostics.
+	2. Dragging *button 1* will rotate the image
+	3. Dragging *button 2* or *button 3* will enable temporary slicing
+      and cropping modes where the vertical axis controls the depth of
+      a cutting plane.
+	4. Clicking a segment will toggle its manual classification state.
   - The `f` and `F` keys control the minimum *feature* intensity
     threshold for classifying blobs as synapses.
   - The `n` and `N` keys control the maximum *neighborhood* threshold to
-    reject blobs that are not in a dark background.
+    reject blobs with bright background.
   - The `m` and `M` keys control the maximum *mask* threshold to
     reject blobs that are in autofluorescing regions according to the
     red-channel mask.
-  - The number keys `0` to `9` with and without shift modifier control
-    the intensity gain of the on-screen rendering (but do not affect
-    image analysis).
+  - The `z` and `Z` keys control the *zoom* level.
+  - The `g` and `G` keys control the *gain* level.	
+  - The number keys `0` to `9` with and without shift modifier set
+    *gain*.
+  - The `t` and `T` keys control the *transparency* floor, the voxel
+    intensity at which opacity is 0.0.
+  - The `u` and `U` keys control the transparency *upper bound*, the
+    voxel intensity at which opacity is 1.0.
+  - The `o` and `O` keys control the *opacity* factor which is applied
+    after the linear ramp from floor to upper bound.
   - The `b` key cycles through feature blending mode for
     on-screen rendering, where unclassified voxels are rendered in
     blue:
@@ -85,11 +90,16 @@ NiBabel prerequisite if you do not need to read those types of files.
     2. Full intensity fill for voxels within classified segments
       (green for synapses, red for auto-fluorescence).
   - The `d` key *dumps* current parameters to the console output.
-  - The `D` key writes out a *debug* image with classified voxels and
-    also writes out the list of segmented blobs as a CSV file.
+  - The `D` key *dumps* a voxel classification TIFF image and a
+    segment list CSV file.
+  - The `l` key *loads* a previously dumped segment list CSV file to
+    continue making manual classification decisions in a new session.
   - The `h` key writes out a 2D histogram of all blobs using the
     feature intensity and background noise intensity measures as the
     two plotting axes.
+  - The `e` key *expunges* manually classified segments, making those
+    segments unclickable so that other adjacent segments are easier to
+    click.
 
 Do not be alarmed by the copious diagnostic outputs streaming out on
 the console. Did we mention this is experimental code?

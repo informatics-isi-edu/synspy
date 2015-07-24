@@ -602,6 +602,7 @@ transparency factor: %f
         csvfile = open('/scratch/segments.csv', 'r')
         reader = csv.DictReader(csvfile)
         i = 0
+        self.centroids_batch.clear()
         for row in reader:
             Z = int(row['Z'])
             Y = int(row['Y'])
@@ -616,8 +617,9 @@ transparency factor: %f
             if row['override']:
                 self._set_centroid_status(
                     self._pick_segment_to_rgb(i+1),
-                    int(row['override'])
+                    {1: 5, 3: 7, 5: 5, 7: 7}[int(row['override'])]
                 )
+                self.centroids_batch.add(i)
         
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""

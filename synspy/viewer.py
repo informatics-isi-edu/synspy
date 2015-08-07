@@ -260,7 +260,7 @@ class Canvas(base.Canvas):
     _vol_interp = {
         'nearest': 'nearest',
         'linear': 'linear'
-    }.get(os.getenv('VOXEL_SAMPLE').lower(), 'linear')
+    }.get(os.getenv('VOXEL_SAMPLE', '').lower(), 'linear')
 
     def splat_centroids(self, reduction, shape, centroids, centroid_measures):
         splat_kern = compose_3d_kernel(map(

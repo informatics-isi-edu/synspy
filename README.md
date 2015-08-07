@@ -108,6 +108,7 @@ the console. Did we mention this is experimental code?
 
 Several environment variables can be set to modify the behavior of the `synspy-viewer` tool on a run-by-run basis, most of which are in common with the `volspy-viewer`:
 
+- `VOXEL_SAMPLE` selects volume rendering texture sampling modes from `nearest` or `linear` (default for unspecified or unrecognized values).
 - `VIEW_MODE` changes the scalar field that is volume-rendered:
   - `raw` renders the raw data
   - `dog` renders a difference-of-gaussians transform to emphasize synapse-scale changes (default)

@@ -257,8 +257,10 @@ def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform
 
 class Canvas(base.Canvas):
 
-    #_vol_interp = 'nearest'
-    _vol_interp = 'linear'
+    _vol_interp = {
+        'nearest': 'nearest',
+        'linear': 'linear'
+    }.get(os.getenv('VOXEL_SAMPLE').lower(), 'linear')
 
     def splat_centroids(self, reduction, shape, centroids, centroid_measures):
         splat_kern = compose_3d_kernel(map(

@@ -108,6 +108,7 @@ the console. Did we mention this is experimental code?
 
 Several environment variables can be set to modify the behavior of the `synspy-viewer` tool on a run-by-run basis, most of which are in common with the `volspy-viewer`:
 
+- `DUMP_PREFIX` controls how dumped files are named. Defaults to input filename plus a hyphen, e.g. when running on `dir1/image2.ome.tiff` the default behaves as if you specified `DUMP_PREFIX=dir1/image2.ome.tiff-` and will name dump files such as `dir1/image2.ome.tiff-segments.csv`.
 - `VOXEL_SAMPLE` selects volume rendering texture sampling modes from `nearest` or `linear` (default for unspecified or unrecognized values).
 - `VIEW_MODE` changes the scalar field that is volume-rendered:
   - `raw` renders the raw data

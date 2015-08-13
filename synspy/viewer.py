@@ -477,6 +477,7 @@ class Canvas(base.Canvas):
         self.redblur_microns = (3.0, 3.0, 3.0)
 
         base.Canvas.__init__(self, filename1)
+        self.dump_prefix = os.getenv('DUMP_PREFIX', '%s-' % filename1)
         
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
@@ -578,11 +579,13 @@ transparency factor: %f
         
         result = np.sqrt(result)
         result = (result * ((2**8-1)/result.max())).astype(np.uint8)
-            
-        tifffile.imsave('/scratch/debug.tiff', result)
-        print "/scratch/debug.tiff dumped"
 
-        csvfile = open('/scratch/segments.csv', 'w')
+        debug_name = '%sdebug.tiff' % self.dump_prefix
+        csv_name = '%ssegments.csv' % self.dump_prefix
+        tifffile.imsave(debug_name, result)
+        print "%s dumped" % debug_name
+
+        csvfile = open(csv_name, 'w')
         writer = csv.writer(csvfile)
         writer.writerow(
             ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
@@ -596,12 +599,13 @@ transparency factor: %f
             )
         del writer
         csvfile.close()
-        print "/scratch/segments.csv dumped"
+        print "%s dumped" % csv_name
 
     def load_classified_segments(self, event):
         """Load a segment list with manual override status values."""
         # assume that dump is ordered subset of current analysis
-        csvfile = open('/scratch/segments.csv', 'r')
+        csv_name = '%ssegments.csv' % self.dump_prefix
+        csvfile = open(csv_name, 'r')
         reader = csv.DictReader(csvfile)
         i = 0
         self.centroids_batch.clear()
@@ -614,7 +618,7 @@ transparency factor: %f
             while i < self.centroids.shape[0] and (Z, Y, X) != tuple(self.centroids[i]):
                 i += 1
 
-            assert i < self.centroids.shape[0], "Failed to load CSV that does not match current image analysis!"
+            assert i < self.centroids.shape[0], ("CSV dump does not match current image analysis!", csv_name)
 
             if row['override']:
                 self._set_centroid_status(
@@ -622,7 +626,8 @@ transparency factor: %f
                     {1: 5, 3: 7, 5: 5, 7: 7}[int(row['override'])]
                 )
                 self.centroids_batch.add(i)
-        
+        print '%s loaded' % csv_name
+                
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""
         # get thresholds from OpenGL back to absolute values
@@ -692,7 +697,7 @@ transparency factor: %f
         heatmap = np.log1p(heatmap)
         heatmap = np.clip(255.0 * 4 * heatmap / heatmap.max(), 0, 255)
 
-        tifffile.imsave('/scratch/heatmap.tiff', heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
+        tifffile.imsave('%sheatmap.tiff' % self.dump_prefix, heatmap.astype(np.uint8)[slice(None,None,-1),:,:])
 
     def on_mouse_press(self, event):
         self.pick_pos = event.pos

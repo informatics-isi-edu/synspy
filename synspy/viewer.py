@@ -131,6 +131,9 @@ _linear1_grayxfer = """
           col_smp.r = 0.5 * col_smp.b;
        }
     }
+    else {
+       col_smp.rgb = vec3(0);
+    }
 
     // apply interactive range clipping  [zerlvl, toplvl]
     col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
@@ -187,6 +190,9 @@ _linear1_sparse = """
        else {
           col_smp.rgb = vec3(0);
        }
+    }
+    else {
+       col_smp.rgb = vec3(0);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]
@@ -258,6 +264,9 @@ _linear1_colorxfer = """
           col_smp.b = 0;
        }
     }
+    else {
+       col_smp.rgb = vec3(0);
+    }
 
     // apply interactive range clipping  [zerlvl, toplvl]
     col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
@@ -315,6 +324,9 @@ _binary1_colorxfer = """
           col_smp.g = 1;
           col_smp.b = 0;
        }
+    }
+    else {
+       col_smp.rgb = vec3(0);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]

@@ -559,13 +559,13 @@ class Canvas(base.Canvas):
             uniforms=_color_uniforms,
             colorxfer=_linear1_colorxfer,
             alphastmt=_linear_alpha,
-            desc='White-linear segments, blue-linear background, and red-linear mask channel.'
+            desc='Linear segments and background.'
         ),
         dict(
             uniforms=_color_uniforms,
             colorxfer=_binary1_colorxfer,
             alphastmt=_binary_alpha,
-            desc='White-boolean segments, blue-linear background, and red-boolean mask channel.'
+            desc='Boolean segments and linear background.'
         ),
         dict(
             uniforms=_color_uniforms,

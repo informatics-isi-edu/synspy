@@ -137,6 +137,63 @@ _linear1_grayxfer = """
     col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
 }
 """
+_linear1_sparse = """
+{
+    vec4 segment_id;
+    float segment_status;
+
+    col_smp.rgb = vec3(col_smp.r);
+
+    // lookup voxel's packed segment ID
+    segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
+    
+    if ( any(greaterThan(segment_id.rgb, vec3(0))) )  {
+       // measures are packed as R=syn, G=vcn, B=redmask
+       col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
+       segment_status = texture3D(u_status_texture, segment_id.rgb).r;
+
+       if (all(equal(u_picked, segment_id))) {
+          // segment is picked via mouse-over
+
+          if ((segment_status*255) == 5) {
+             // segment is forced off, clickable
+             col_smp.rgb = vec3(1,0,1);
+          }
+          else if ((segment_status*255) == 7) {
+             // segment is forced on, clickable
+             col_smp.rgb = vec3(1,1,0);
+          }
+          else {
+             // segment is default, clickable
+             col_smp.rgb = vec3(1,1,1);
+          }
+       }
+       else if ((segment_status*255) == 5) {
+          // segment is forced off, clickable
+          col_smp.g = 0.5 * col_smp.b;
+       }
+       else if ((segment_status*255) == 7) {
+          // segment is forced on, clickable
+          col_smp.b = 0.5 * col_smp.b;
+       }
+       else if ((segment_status*255) == 1) {
+          // segment is forced off, non-clickable
+          col_smp.rgb = vec3(0);
+       }
+       else if ((segment_status*255) == 3) {
+          // segment is forced on, non-clickable
+          col_smp.r = 0.5 * col_smp.b;
+       }
+       else {
+          col_smp.rgb = vec3(0);
+       }
+    }
+
+    // apply interactive range clipping  [zerlvl, toplvl]
+    col_smp = (col_smp - u_zerlvl) / (u_toplvl - u_zerlvl);
+    col_smp = clamp( u_gain * col_smp, 0.0, 1.0);
+}
+"""
 
 _linear1_colorxfer = """
 {
@@ -502,7 +559,13 @@ class Canvas(base.Canvas):
             uniforms=_color_uniforms,
             colorxfer=_linear1_grayxfer,
             alphastmt=_linear_alpha,
-            desc="Grayscale signal without classification."
+            desc="Linear manually-classified segments and background."
+        ),
+        dict(
+            uniforms=_color_uniforms,
+            colorxfer=_linear1_sparse,
+            alphastmt=_linear_alpha,
+            desc="Linear manually-classified segments and void background."
         ),
         dict(
             uniforms=_color_uniforms,
@@ -511,7 +574,7 @@ class Canvas(base.Canvas):
             desc="Voxels colored by RGB-packed segment ID."
         )
         ]
-    _pick_glsl_index = 3
+    _pick_glsl_index = 4
     
     def __init__(self, filename1):
         

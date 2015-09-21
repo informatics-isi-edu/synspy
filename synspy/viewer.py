@@ -552,7 +552,7 @@ class Canvas(base.Canvas):
             uniforms=_color_uniforms,
             colorxfer=_linear1_colorxfer,
             alphastmt=_linear_alpha,
-            desc='Linear segments and background.'
+            desc='Linear threshold-classified segments and background.'
         ),
         dict(
             uniforms=_color_uniforms,

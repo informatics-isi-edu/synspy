@@ -87,8 +87,9 @@ _linear1_grayxfer = """
 {
     vec4 segment_id;
     float segment_status;
+    float S;
 
-    col_smp.rgb = vec3(col_smp.r);
+    S = col_smp.r;
 
     // lookup voxel's packed segment ID
     segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
@@ -103,37 +104,27 @@ _linear1_grayxfer = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(0,1,0);
+             col_smp.rgb = vec3(0,1,1);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
-             col_smp.rgb = vec3(1,1,1);
+             col_smp.rgb = vec3(1,1,0);
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(1,1,0);
+             col_smp.rgb = vec3(0.25,1,0.25);
           }
        }
-       else if ((segment_status*255) == 5) {
-          // segment is forced off, clickable
-          col_smp.rb = vec2(0);
-       }
-       else if ((segment_status*255) == 7) {
-          // segment is forced on, clickable
-       }
-       else if ((segment_status*255) == 1) {
-          // segment is forced off, non-clickable
-          col_smp.rb = vec2(0);
-       }
-       else if ((segment_status*255) == 3) {
-          // segment is forced on, non-clickable
+       else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
+          // segment is forced on
+          col_smp.rgb = 1.25 * vec3(S,S,0);
        }
        else {
-          col_smp.rb = vec2(0);
+          col_smp.rgb = vec3(S);
        }
     }
     else {
-       col_smp.rb = vec2(0);
+       col_smp.rgb = vec3(S);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]
@@ -145,8 +136,9 @@ _linear1_sparse = """
 {
     vec4 segment_id;
     float segment_status;
+    float S;
 
-    col_smp.rgb = vec3(col_smp.r);
+    S = col_smp.r;
 
     // lookup voxel's packed segment ID
     segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
@@ -161,30 +153,20 @@ _linear1_sparse = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(0,1,0);
+             col_smp.rgb = vec3(0,1,1);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
-             col_smp.rgb = vec3(1,1,1);
+             col_smp.rgb = vec3(1,1,0);
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(1,1,0);
+             col_smp.rgb = vec3(0.25,1,0.25);
           }
        }
-       else if ((segment_status*255) == 5) {
-          // segment is forced off, clickable
-          col_smp.rb = vec2(0);
-       }
-       else if ((segment_status*255) == 7) {
-          // segment is forced on, clickable
-       }
-       else if ((segment_status*255) == 1) {
-          // segment is forced off, non-clickable
-          col_smp.rgb = vec3(0);
-       }
-       else if ((segment_status*255) == 3) {
-          // segment is forced on, non-clickable
+       else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
+          // segment is forced on
+          col_smp.rgb = 1.25 * vec3(S,S,0);
        }
        else {
           col_smp.rgb = vec3(0);
@@ -204,10 +186,9 @@ _linear1_colorxfer = """
 {
     vec4 segment_id;
     float segment_status;
+    float S;
 
-    col_smp.b = col_smp.r;
-    col_smp.r = 0;
-    col_smp.g = 0;
+    S = col_smp.r;
 
     // lookup voxel's packed segment ID
     segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
@@ -222,46 +203,42 @@ _linear1_colorxfer = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rb = vec2(1);
+             col_smp.rgb = vec3(0,0,1);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
-             col_smp.rgb = vec3(1,1,0);
+             col_smp.rgb = vec3(1);
           }
           else {
              // segment is default, clickable
-             col_smp.gb = vec2(1,0);
+             col_smp.rgb = vec3(0,1,0);
           }
        }
-       else if ((segment_status*255) == 5) {
-          // segment is forced off, clickable
-          col_smp.rb = vec2(col_smp.b);
+       else if ((segment_status*255) == 5 || (segment_status*255) == 1) {
+          // segment is forced off
+          col_smp.rgb = vec3(0,S,0);
        }
-       else if ((segment_status*255) == 7) {
-          // segment is forced on, clickable
-          col_smp.rg = vec2(col_smp.b);
-          col_smp.b = 0;
+       else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
+          // segment is forced on
+          col_smp.rgb = vec3(S);
        }
-       else if ((segment_status*255) == 1) {
-          // segment is forced off, non-clickable
-          col_smp.b = 0;
+       else if (col_packed_smp.g > u_nuclvl) { 
+          col_smp.rgb = vec3(0,S,0);
        }
-       else if ((segment_status*255) == 3) {
-          // segment is forced on, non-clickable
-          col_smp.gb = vec2(col_smp.b);
+       else if (col_packed_smp.r < u_floorlvl) { 
+          col_smp.rgb = vec3(0,S,0);
        }
-       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
-       else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) {
-          // segment red over threshold so mark as red
-          col_smp.r = col_smp.b;
-          col_smp.b = 0;
+          // segment red over threshold
+          col_smp.rgb = vec3(S,0,0);
        }
        else {
-          // segment syn and vcn within range so mark as green
-          col_smp.g = col_smp.b;
-          col_smp.b = 0;
+          // segment syn and vcn within range
+          col_smp.rgb = vec3(S,S,0);
        }
+    }
+    else {
+       col_smp.rgb = vec3(0,S,0);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]
@@ -278,10 +255,9 @@ _binary1_colorxfer = """
 {
     vec4 segment_id;
     float segment_status;
+    float S;
 
-    col_smp.b = col_smp.r;
-    col_smp.r = 0;
-    col_smp.g = 0;
+    S = col_smp.r;
 
     // lookup voxel's packed segment ID
     segment_id = texture3D(u_voxel_class_texture, texcoord.xyz / texcoord.w);
@@ -290,36 +266,47 @@ _binary1_colorxfer = """
        // measures are packed as R=syn, G=vcn, B=redmask
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
        segment_status = texture3D(u_status_texture, segment_id.rgb).r;
+       if (all(equal(u_picked, segment_id))) {
+          // segment is picked via mouse-over
 
-       if ((segment_status*255) == 5) {
-          // segment is forced off, clickable
-          col_smp.rb = vec2(1);
+          if ((segment_status*255) == 5) {
+             // segment is forced off, clickable
+             col_smp.rgb = vec3(0,0,1);
+          }
+          else if ((segment_status*255) == 7) {
+             // segment is forced on, clickable
+             col_smp.rgb = vec3(1);
+          }
+          else {
+             // segment is default, clickable
+             col_smp.rgb = vec3(0,1,0);
+          }
        }
-       else if ((segment_status*255) == 7) {
-          // segment is forced on, clickable
-          col_smp.rg = vec2(1);
-          col_smp.b = 0;
+       else if ((segment_status*255) == 5 || (segment_status*255) == 1) {
+          // segment is forced off
+          col_smp.rgb = vec3(0,S,0);
        }
-       else if ((segment_status*255) == 1) {
-          // segment is forced off, non-clickable
-          col_smp.b = 0;
+       else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
+          // segment is forced on
+          col_smp.rgb = vec3(1);
        }
-       else if ((segment_status*255) == 3) {
-          // segment is forced on, non-clickable
-          col_smp.gb = vec2(1);
+       else if (col_packed_smp.g > u_nuclvl) { 
+          col_smp.rgb = vec3(0,S,0);
        }
-       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
-       else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
+       else if (col_packed_smp.r < u_floorlvl) { 
+          col_smp.rgb = vec3(0,S,0);
+       }
        else if (col_packed_smp.b > u_msklvl) {
-          // segment red over threshold so mark as red
-          col_smp.r = 1;
-          col_smp.b = 0;
+          // segment red over threshold
+          col_smp.rgb = vec3(S,0,0);
        }
        else {
-          // segment syn and vcn within range so mark as green
-          col_smp.g = 1;
-          col_smp.b = 0;
+          // segment syn and vcn within range
+          col_smp.rgb = vec3(1,1,0);
        }
+    }
+    else {
+       col_smp.rgb = vec3(0,S,0);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]

@@ -103,33 +103,37 @@ _linear1_grayxfer = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(1,0,1);
+             col_smp.rgb = vec3(0,1,0);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
-             col_smp.rgb = vec3(1,1,0);
+             col_smp.rgb = vec3(1,1,1);
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(1,1,1);
+             col_smp.rgb = vec3(1,1,0);
           }
        }
        else if ((segment_status*255) == 5) {
           // segment is forced off, clickable
-          col_smp.g = 0.5 * col_smp.b;
+          col_smp.rb = vec2(0);
        }
        else if ((segment_status*255) == 7) {
           // segment is forced on, clickable
-          col_smp.b = 0.5 * col_smp.b;
        }
        else if ((segment_status*255) == 1) {
           // segment is forced off, non-clickable
-          col_smp.rgb = vec3(0);
+          col_smp.rb = vec2(0);
        }
        else if ((segment_status*255) == 3) {
           // segment is forced on, non-clickable
-          col_smp.r = 0.5 * col_smp.b;
        }
+       else {
+          col_smp.rb = vec2(0);
+       }
+    }
+    else {
+       col_smp.rb = vec2(0);
     }
 
     // apply interactive range clipping  [zerlvl, toplvl]
@@ -157,24 +161,23 @@ _linear1_sparse = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(1,0,1);
+             col_smp.rgb = vec3(0,1,0);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
-             col_smp.rgb = vec3(1,1,0);
+             col_smp.rgb = vec3(1,1,1);
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(1,1,1);
+             col_smp.rgb = vec3(1,1,0);
           }
        }
        else if ((segment_status*255) == 5) {
           // segment is forced off, clickable
-          col_smp.g = 0.5 * col_smp.b;
+          col_smp.rb = vec2(0);
        }
        else if ((segment_status*255) == 7) {
           // segment is forced on, clickable
-          col_smp.b = 0.5 * col_smp.b;
        }
        else if ((segment_status*255) == 1) {
           // segment is forced off, non-clickable
@@ -182,7 +185,6 @@ _linear1_sparse = """
        }
        else if ((segment_status*255) == 3) {
           // segment is forced on, non-clickable
-          col_smp.r = 0.5 * col_smp.b;
        }
        else {
           col_smp.rgb = vec3(0);

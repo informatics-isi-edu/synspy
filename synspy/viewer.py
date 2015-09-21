@@ -628,7 +628,7 @@ class Canvas(base.Canvas):
         self.nuclvl = (1.2*self.vcn_values.mean()-self.data_min) / (self.data_max-self.data_min)
         self.msklvl = (self.red_values.max()-self.data_min) / (self.data_max-self.data_min) or 1.0
         self.zerlvl = 0.0
-        self.toplvl = 1.0
+        self.toplvl = 0.5
         self.transp = 0.8
         self.pick_pos = None
 

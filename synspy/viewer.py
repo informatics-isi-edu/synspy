@@ -224,7 +224,7 @@ _linear1_colorxfer = """
        }
        else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
           // segment is forced on
-          col_smp.rgb = vec3(S);
+          col_smp.rgb = 0.92 * vec3(S);
        }
        else if (col_packed_smp.g > u_nuclvl) { 
           col_smp.rgb = vec3(0,S,0);
@@ -238,7 +238,7 @@ _linear1_colorxfer = """
        }
        else {
           // segment syn and vcn within range
-          col_smp.rgb = vec3(S,S,0);
+          col_smp.rgb = 0.92 * vec3(S,S,0);
        }
     }
     else {
@@ -292,7 +292,7 @@ _binary1_colorxfer = """
        }
        else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
           // segment is forced on
-          col_smp.rgb = vec3(1);
+          col_smp.rgb = 0.92 * vec3(1);
        }
        else if (col_packed_smp.g > u_nuclvl) { 
           col_smp.rgb = vec3(0,S,0);
@@ -306,7 +306,7 @@ _binary1_colorxfer = """
        }
        else {
           // segment syn and vcn within range
-          col_smp.rgb = vec3(1,1,0);
+          col_smp.rgb = 0.92 * vec3(1,1,0);
        }
     }
     else {

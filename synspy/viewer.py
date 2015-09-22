@@ -215,7 +215,7 @@ _linear1_colorxfer = """
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(0,1,0);
+             col_smp.rgb = vec3(1,1,0);
           }
        }
        else if ((segment_status*255) == 5 || (segment_status*255) == 1) {
@@ -283,7 +283,7 @@ _binary1_colorxfer = """
           }
           else {
              // segment is default, clickable
-             col_smp.rgb = vec3(0,1,0);
+             col_smp.rgb = vec3(1,1,0);
           }
        }
        else if ((segment_status*255) == 5 || (segment_status*255) == 1) {

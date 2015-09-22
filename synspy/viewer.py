@@ -302,7 +302,7 @@ _binary1_colorxfer = """
        }
        else if (col_packed_smp.b > u_msklvl) {
           // segment red over threshold
-          col_smp.rgb = vec3(S,0,0);
+          col_smp.rgb = vec3(1,0,0);
        }
        else {
           // segment syn and vcn within range

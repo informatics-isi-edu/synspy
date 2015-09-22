@@ -207,7 +207,7 @@ _linear1_colorxfer = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(0,0,1);
+             col_smp.rgb = vec3(0,1,1);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
@@ -220,7 +220,7 @@ _linear1_colorxfer = """
        }
        else if ((segment_status*255) == 5 || (segment_status*255) == 1) {
           // segment is forced off
-          col_smp.rgb = vec3(0,S,0);
+          col_smp.rgb = 0.92 * vec3(0,S,S);
        }
        else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
           // segment is forced on
@@ -275,7 +275,7 @@ _binary1_colorxfer = """
 
           if ((segment_status*255) == 5) {
              // segment is forced off, clickable
-             col_smp.rgb = vec3(0,0,1);
+             col_smp.rgb = vec3(0,1,1);
           }
           else if ((segment_status*255) == 7) {
              // segment is forced on, clickable
@@ -288,7 +288,7 @@ _binary1_colorxfer = """
        }
        else if ((segment_status*255) == 5 || (segment_status*255) == 1) {
           // segment is forced off
-          col_smp.rgb = vec3(0,S,0);
+          col_smp.rgb = 0.92 * vec3(0,1,1);
        }
        else if ((segment_status*255) == 7 || (segment_status*255) == 3) {
           // segment is forced on

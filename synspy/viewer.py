@@ -67,12 +67,16 @@ _segment_colorxfer = """
        col_packed_smp = texture3D(u_measures_texture, segment_id.rgb);
        segment_status = texture3D(u_status_texture, segment_id.rgb).r;
 
-       if (col_packed_smp.g > u_nuclvl) { /* pass */ }
+       if ( (segment_status*255) == 5 || (segment_status*255) == 7 ) {
+          // segment is clickable and overridden
+          col_smp = segment_id;
+       }
+       else if (col_packed_smp.g > u_nuclvl) { /* pass */ }
        else if (col_packed_smp.r < u_floorlvl) { /* pass */ }
        else if (col_packed_smp.b > u_msklvl) { /* pass */ }
        else if ( (segment_status*255) == 1 || (segment_status*255) == 3 ) { /* pass */ }
        else {
-          // segment is clickable
+          // segment is clickable default
           col_smp = segment_id;
        }
     }

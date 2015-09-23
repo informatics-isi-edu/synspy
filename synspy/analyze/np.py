@@ -10,7 +10,32 @@ from scipy import ndimage
 
 import numpy as np
 
+def convNd_sparse(src, kernel, centroids):
+    """ND convolution at sparse sampling centroids.
+
+       For input of K N-dimensional centroids which are locations
+       within N-dimensional src image, K scalars are produced as if
+       the convolution src*kernel was sampled at those centroids.
+
+       The coordinates of each centroid MUST lie within the valid
+       sub-region of the src image grid, i.e. at least kernel-radius
+       distance from image edges in each dimension.
+
+    """
+    results = []
+    kernel_radii = map(lambda w: w/2, kernel.shape)
+    for centroid in centroids:
+        slc = tuple(
+            slice(centroid[d] - kernel_radii[d], centroid[d] + kernel_radii[d] + 1)
+            for d in range(len(src.shape))
+        )
+        box = src[slc]
+        results.append((box * kernel).sum())
+
+    return array(results, dtype=src.dtype)
+
 def convNx1d(src, kernels):
+
     """ND convolution using 1D kernels
 
        Trims borders by filter kernel width in each dimension.
@@ -104,7 +129,7 @@ def equitrim(arrays):
             ]
             
 
-def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
+def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=None):
     """Assign voxels to features and fill with segment ID.
 
        Parameters:
@@ -147,10 +172,12 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
 
     # use a slight subset as the splatting body
     body_shape = syn_kernel_3d.shape
-    limit = (syn_kernel_3d[0,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2] \
-             + syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]) \
-            / 2
-    mask_3d = syn_kernel_3d > limit
+    D, H, W = body_shape
+    center_val = syn_kernel_3d[D/2,H/2,W/2]
+    edge_val = syn_kernel_3d[D/2-1,0,W/2-1]
+    limit = edge_val # + (center_val - edge_val) * 0.1
+    mask_3d = syn_kernel_3d >= limit
+    mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
     weights = syn_kernel_3d * mask_3d
 
     def splat_segment(label):
@@ -161,7 +188,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
             # splats are confined to boundaries of valid_shape map
             def helper(d):
                 lower = centroid[d] - body_shape[d]/2
-                upper = centroid[d] + body_shape[d]/2 + 1
+                upper = centroid[d] + body_shape[d]/2 + body_shape[d]%2
                 if lower < 0:
                     lower = 0
                 if upper > valid_shape[d]:
@@ -177,8 +204,8 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
                 upper = body_shape[d]
                 if centroid[d] < body_shape[d]/2:
                     lower = body_shape[d]/2 - centroid[d]
-                if centroid[d] + body_shape[d]/2 + 1 > valid_shape[d]:
-                    upper -= (centroid[d] + body_shape[d]/2 + 1) - valid_shape[d]
+                if (centroid[d] + body_shape[d]/2 + body_shape[d]%2) > valid_shape[d]:
+                    upper -= (centroid[d] + body_shape[d]/2 + body_shape[d]%2) - valid_shape[d]
                 return slice(lower,upper)
 
             return tuple(map(helper, range(3)))
@@ -187,10 +214,12 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
         bslc = body_slice(centroid)
 
         # update maps for assigned voxels
-        segvoxels = gaussian_map[mslc] < weighted[bslc]
-
-        segment_map[mslc] = segment_map[mslc] * (~segvoxels) + (label+1) * segvoxels
-        gaussian_map[mslc] = gaussian_map[mslc] * (~segvoxels) + weighted[bslc] * segvoxels
+        try:
+            segvoxels = gaussian_map[mslc] < weighted[bslc]
+            segment_map[mslc] = segment_map[mslc] * (~segvoxels) + (label+1) * segvoxels
+            gaussian_map[mslc] = gaussian_map[mslc] * (~segvoxels) + weighted[bslc] * segvoxels
+        except:
+            print label, centroid, mslc, bslc, valid_shape, body_shape
 
     for label in range(len(syn_values)):
         splat_segment(label)

@@ -288,23 +288,24 @@ def filterNx1d(src, kernels, reducer="ADDER", clq=None):
        host.
 
     """
-    assert len(kernels) == src.ndim
+    assert len(kernels) == len(src.shape)
 
     if clq is None:
         return_dev = False
         clq = cl.CommandQueue(ctx)
+        
+        if True:
+            src = src.astype(float32, copy=False)
+            src_dev = cl_array.empty( clq, src.shape, float32 )
+            src_tmp = src_dev.map_to_host()
+            src_tmp[...] = src[...] # reforms as contiguous
+            del src_tmp
+        else:
+            src = src.astype(float32, copy=True)
+            src_dev = cl_array.to_device(clq, src)
     else:
         return_dev = True
-
-    if True:
-        src = src.astype(float32, copy=False)    
-        src_dev = cl_array.empty( clq, src.shape, float32 )
-        src_tmp = src_dev.map_to_host()
-        src_tmp[...] = src[...] # reforms as contiguous
-        del src_tmp
-    else:
-        src = src.astype(float32, copy=True)
-        src_dev = cl_array.to_device(clq, src)
+        src_dev = src
 
     for d in range(len(kernels)-1, -1, -1):
         kernel = array(kernels[d], dtype=float32)
@@ -448,24 +449,32 @@ def sum_labeled_dev(clq, src_dev, labels_dev, tmp_dev, dst_dev, min_label=1):
 TOTAL_ITEMS=2000
 
 
-def sum_labeled(src, labels, n=None):
-    clq = cl.CommandQueue(ctx)
-
-    if src.dtype == numpy.bool:
-        src = src.astype(numpy.uint8)
-
-    src_dev = cl_array.to_device(clq, src)
-    labels_dev = cl_array.to_device(clq, labels)
+def sum_labeled(src, labels, n=None, clq=None):
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        return_dev = False
+        if src.dtype == numpy.bool:
+            src = src.astype(numpy.uint8)
+        src_dev = cl_array.to_device(clq, src)
+        labels_dev = cl_array.to_device(clq, labels)
+    else:
+        return_dev = True
+        src_dev = src
+        labels_dev = labels
+        
     if n is None:
-        n = labels.max() + 1
+        n = labels_dev.max() + 1
     tmp_dev = cl_array.zeros(clq, (TOTAL_ITEMS, n), float32)
     dst_dev = cl_array.zeros(clq, (n,), float32)
 
     sum_labeled_dev(clq, src_dev, labels_dev, tmp_dev, dst_dev)
-    result = dst_dev.map_to_host()
-    clq.finish()
-    return result
 
+    if return_dev:
+        return dst_dev
+    else:
+        result = dst_dev.map_to_host()
+        clq.finish()
+        return result
 
 def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, labeled_dev):
     
@@ -623,7 +632,7 @@ def assign_voxels_dev(clq, values_dev, centroids_dev, kernel_dev, weighted_dev, 
     clq.flush()
 
 
-def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
+def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=None):
     assert len(centroids) == len(syn_values)
 
     N = len(syn_values)
@@ -636,10 +645,11 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
 
     # use a slight subset as the splatting body
     body_shape = syn_kernel_3d.shape
-    edge_val = syn_kernel_3d[0,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
+    edge_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2-1,0,syn_kernel_3d.shape[2]/2-1]
     cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
-    limit = edge_val + (cent_val - edge_val) / 2.0
-    mask_3d = syn_kernel_3d > limit
+    limit = edge_val #+ (cent_val - edge_val) * 0.1
+    mask_3d = syn_kernel_3d >= limit
+    mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
     kernel = syn_kernel_3d * mask_3d
 
     # trim off zero-padded border to reduce per-feature work size
@@ -669,6 +679,12 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d):
         return numpy.array(data, dtype=data.dtype)
 
     kernel = trim(kernel)
+    if gridsize:
+        print "assigning voxels with %fx%fx%f micron core bbox" % tuple(map(
+            lambda v, r: v * r,
+            kernel.shape,
+            gridsize
+        ))
     
     assert syn_values.ndim == 1
     assert centroids.ndim == 2
@@ -806,4 +822,159 @@ def fwhm_estimate(synapse, centroids, syn_values, vcn_values, noise, voxel_size)
     clq.finish()
 
     return widths
+
+def weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev):
+    
+    CL = """
+    __kernel void measure(
+       __global const float*  data,
+       const int3             data_shape,
+       __global const int*    centroids,
+       __global const float*  kern,
+       const int3             kern_shape,
+       __global float*        measures_dst)
+    {
+       unsigned int seg_id = get_global_id(0);
+       int3 centroid, kstride, dstride, D0, D1, K0;
+       int x,y,z, i,j,k;
+       float measure = 0.0;
+       
+       dstride = (int3) (data_shape.s1 * data_shape.s2, data_shape.s2, 1);
+       kstride = (int3) (kern_shape.s1 * kern_shape.s2, kern_shape.s2, 1);
+
+       centroid = vload3(seg_id, centroids);
+
+       // data sampling bounding box corners intersect data and kernel
+       D0 = max((int3) (0,0,0), centroid - kern_shape/2);
+       D1 = min(centroid + kern_shape/2 + 1, data_shape);
+
+       // kernel bounding box corner is offset by centroid and kernel radius
+       K0 = D0 + kern_shape/2 - centroid;
+
+       for (z=D0.s0, k=K0.s0; z<D1.s0; z++, k++) {
+          for (y=D0.s1, j=K0.s1; y<D1.s1; y++, j++) {
+             for (x=D0.s2, i=K0.s2; x<D1.s2; x++, i++) {
+                float s = kern[kstride.s0 * k + kstride.s1 * j + i];
+                measure += data[dstride.s0 * z + dstride.s1 * y + x] * s;
+             }
+          }
+       }
+
+       measures_dst[seg_id] = measure;
+    }
+    """
+    
+    program = cl.Program(ctx, CL).build()
+
+    program.measure(
+        clq, (centroids_dev.shape[0],), None,
+        data_dev.data, cl_array.vec.make_int3(*data_dev.shape),
+        centroids_dev.data,
+        kernel_dev.data, cl_array.vec.make_int3(*kernel_dev.shape),
+        measures_dev.data
+    )
+
+    clq.flush()
+
+def weighted_measure(data, centroids, kernel, clq=None):
+    assert len(data.shape) == 3
+    assert len(kernel.shape) == 3
+    assert len(centroids.shape) == 2
+    assert centroids.shape[1] == 3
+
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        data_dev = cl_array.to_device(clq, data)
+        centroids_dev = cl_array.to_device(clq, centroids)
+        kernel_dev = cl_array.to_device(clq, kernel)
+        return_dev = False
+    else:
+        data_dev = data
+        centroids_dev = centroids
+        kernel_dev = kernel
+        return_dev = True
+        
+    measures_dev = cl_array.zeros(clq, (centroids.shape[0],), float32)
+    weighted_measure_dev(clq, data_dev, centroids_dev, kernel_dev, measures_dev)
+
+    if return_dev:
+        return measures_dev
+    else:
+        measures = measures_dev.map_to_host()
+        clq.finish()
+        return measures
+
+def nd_arange_dev(clq, out_dev, axis, start, step):
+
+    CL = """
+    __kernel void nd_arange(
+       __global       float* dst,
+       __global const int* data_strides,
+       const int  axis,
+       const float start,
+       const float step,
+       const int  n_steps)
+    {
+       int a;
+       int dpos = 0;
+       int i;
+       float x = start;
+       
+       for (i=0; i<%(NDIM)d; i++) {
+          dpos += data_strides[i] * get_global_id(i);
+       }
+
+       for (i=0; i<n_steps; i++) {
+          dst[dpos] = x;
+          x += step;
+          dpos += data_strides[axis];
+       }
+    }
+    """ % dict(NDIM=len(out_dev.shape))
+
+    program = cl.Program(ctx, CL).build()
+
+    work_shape = (
+        tuple(out_dev.shape[i] for i in range(axis)) 
+        + (1,)
+        + tuple(out_dev.shape[i] for i in range(axis+1, len(out_dev.shape)))
+    )
+    strides = array([s/out_dev.dtype.itemsize for s in out_dev.strides], dtype=int32)
+    program.nd_arange(
+        clq, work_shape, None,
+        out_dev.data, cl_array.to_device(clq, strides).data, uint32(axis),
+        float32(start), float32(step), uint32(out_dev.shape[axis])
+    )
+    clq.flush()
+
+def nd_arange(shape, axis=0, start=0, step=1, clq=None):
+    """Fill an ND-array along one axis with a stepped range.
+
+       nd_arange((Z, Y, X), axis=2, start=A, step=B) is functionally
+       equivalent to:
+
+         np.arange(A, A+X*B, B)[None,None,:] * np.ones((Z, Y, X), np.float32)
+
+       but does the work on the OpenCL device and without relying on
+       array-broadcasting which is not supported in PyOpenCL.
+
+    """
+    assert axis >=0
+    assert axis < len(shape)
+    
+    if clq is None:
+        clq = cl.CommandQueue(ctx)
+        return_dev = False
+    else:
+        return_dev = True
+
+    out_dev = cl_array.empty(clq, shape, float32)
+    nd_arange_dev(clq, out_dev, axis, start, step)
+    
+    if return_dev:
+        return out_dev
+    else:
+        out = out_dev.map_to_host()
+        clq.finish()
+        return out
 

@@ -6,54 +6,53 @@
 
 """Synapse detection in 3D microscopy images using size-specific blob detection.
 
-This solution uses simple Gaussian distributions to model the signal
-of a fluorescent synapse and its background, using experimentally
-derived feature characteristics.
+The method uses several convolution kernels which have been
+experimentally derived:
 
-The method uses several convolution kernels:
-
-   Core: a guassian distribution approximating a synapse's signal
+   Low: a gaussian distribution approximating a synapse's signal
    distribution
 
-   Vicinity: a larger gaussian distribution approximating a vicinity
-   surrounding (and including a synapse)
+   Red: a gaussian distribution to blur an optional autofluorescence
+   channel
 
-   Hollow: a renormalized difference of gaussians (Hollow - Core)
-   approximating the surrounding background of a synapse.
+   Core: a kernel containing mostly central/high-intensity voxels
+   within synapse signal blobs
+ 
+   Span: a larger kernel containing the entire local region of
+   synapse centroids
 
-The 3D image convolution I*Core is trivially separated into 1D
-convolutions on each axis.
+   Hollow: a difference of (Span - Core) containing mostly
+   peripheral/low-intensity voxels around synapse signal blobs
 
-The 3D image convolution I*Hollow is algebraically decomposed into a
-combination of convolutions which can each be separated into 1D
-convolutions:
+The 3D image convolution I*Low is trivially separated into 1D gaussian
+convolutions on each axis for efficiency.
 
-   I*Hollow = I*(Vicinity - Core + k)/s)
-            = (I*(Vicinity - Core + k))/s
-            = (I*Vicinity - I*Core + I*k)/s
-
-where Vicinity and Core are gaussian kernels as described above, k is
-a constant box filter kernel, and s is a scalar.
-
-Additionally, the method uses a local maxima filter using a box filter
-size related to the Hollow filter size.
-
-Candidate synapses are detected by finding local maxima in the I*Core
+Candidate synapses are detected by finding local maxima in the I*Low
 convoluton result, i.e. voxels where the measured synapse core signal
-is equal to the local maximum of that signal. 
+is equal to the maximum within a local box centered on the same voxel.
 
-Candidate synapses are characterized by the measured synapse core
-signal and the measured surrounding background signal at the same
-location.  These measurements are compared to manually determined
-thresholds to accept synapses that are:
+Additional measures are computed sparsely at each candidate centroid
+location:
 
-   A. bright enough core signal to be considered significant
+   A. I*Core
 
-   B. dark enough background signal to be considered distinctly
-      visible in intercellular space
+   B. I*Hollow
 
-   C. (optional) with dark enough auto-fluorescence channel to not be
-      considered junk
+   C. I*Red
+
+These measures use direct (non-separated) 3D convolution over the
+small image region surrounding the centroid.  Because the set of
+candidate centroids is so small relative to the total volume size,
+this is faster than convolving the entire image even with separated
+kernels.
+
+Centroid classification is based on the computed measures for each
+centroid.
+
+Currently, the Core and Span kernels are simple box kernels, but we
+may vary these empirically to improve our synapse blob classification.
+The sparse measurement setup allows arbitrary 3D kernels since they
+do not need to be separable.
 
 """
 
@@ -61,9 +60,10 @@ import np as numpylib
 
 import datetime
 import sys
+import os
 import random
 import numpy as np
-from numpy import array, float32, empty, newaxis, dot, cross, zeros, ones
+from numpy import array, float32, int32, empty, newaxis, dot, cross, zeros, ones
 from numpy.linalg import norm
 import scipy
 from scipy import ndimage
@@ -71,17 +71,13 @@ import json
 import math
 import re
 import csv
+from volspy.util import bin_reduce
 
 def Gsigma(sigma):
     """Pickle a gaussian function G(x) for given sigma"""
     def G(x):
         return (math.e ** (-(x**2)/(2*sigma**2)))/(2 * math.pi* sigma**2)**0.5
     return G
-
-def sigma_micron_ndim(diam_iter, meta):
-    for d, u in zip(diam_iter, (meta.z_microns, meta.y_microns, meta.x_microns)):
-        #print "sigma_micron_ndim: diam=%s unit=%s" % (d, u)
-        yield (d / u) / 6.
 
 def gaussian_kernel(s):
     G = Gsigma(s) # G(x) gaussian function
@@ -91,6 +87,12 @@ def gaussian_kernel(s):
     mag = sum(kernel)
     kernel = map(lambda x: x / mag, kernel)
     return kernel
+
+def crop_centered(orig, newshape):
+    return orig[tuple(
+        diff and slice(diff/2, -(diff/2)) or slice(None)
+        for diff in map(lambda l, s: l-s, orig.shape, newshape)
+    )]
 
 def pad_centered(orig, newshape, pad=0):
     assert len(newshape) == orig.ndim
@@ -119,7 +121,15 @@ def compose_3d_kernel(klist):
         )
     result = mult(zk, mult(yk, xk))
     return result
-            
+
+def clamp_center_edge(orig, axis=0):
+    return orig * (orig >= orig[
+        tuple(
+            orig.shape[d]/2 for d in range(axis)
+        ) + (0,) + tuple(
+            orig.shape[d]/2 for d in range(axis+1, 3)
+        )
+    ])
 
 def numstr(x):
     s = "%f" % x
@@ -144,12 +154,12 @@ def kernel_diameters(s):
         return tuple(2*v, v, v)
 
 
-def prepare_kernels(meta, synapse_diam_microns, vicinity_diam_microns, redblur_microns):
+def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redblur_microns):
     """Prepare synapse-detection convolution kernels.
 
        Parameters:
 
-         meta: image metadata from load_image() with voxel size info
+         gridsize: the micron step size of the image in (Z, Y, X) axes
          synapse_diam_microns: core synapse feature span
          vicinity_diam_microns: synapse local background span
          redblur_microns: auto-fluourescence blurring span
@@ -158,76 +168,64 @@ def prepare_kernels(meta, synapse_diam_microns, vicinity_diam_microns, redblur_m
        standard-deviation of the related Gaussian distribution in each
        image dimension (Z, Y, X).
 
-       Result is a 4-tuple:
+       Result is a 2-tuple:
 
-         ( kernels_separated, kernels_3d, hollow_offset, hollow_scale ).
+         ( kernels_3x1d, kernels_3d ).
 
-       The kernels_separated result is a 4-tuple:
+       The kernels_3x1d result is a 2-tuple:
 
-         ( syn_kernels, vcn_kernels, red_kernels, k_kernels )
+         ( low_3x1d, span_3x1d )
 
-       where each field is a 3-tuple of numpy arrays, each array being
-       weights of a 1D kernel for each image dimension (Z, Y, X).
+       where each kernel is a 3-tuple of numpy arrays, each array
+       being weights of a 1D kernel for each image dimension (Z, Y,
+       X).  The low_3x1d kernel is float weights summing to 1.0 while
+       the span_3x1d kernel is a binary mask.
 
-       The kernels_3d result is a pair:
+       The kernels_3d result is a 3-tuple
 
-         ( syn_kernel_3d, hollow_kernel_3d )
+         ( core_3d, hollow_3d, red_3d )
 
        where each field is a numpy array, each array being weights of
-       a 3D kernel.
-
-       The hollow_offset and hollow_scale fields are floating point
-       values.
+       a 3D kernel. The kernels are float weights summing to 1.0.
 
     """
-
     # these are separated 1d gaussian kernels
-    syn_kernels = map(
-        gaussian_kernel,
-        sigma_micron_ndim(synapse_diam_microns, meta)
-        )
+    syn_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
+    low_kernels = map(lambda d, s: gaussian_kernel(0.4*d/s/6.), synapse_diam_microns, gridsize)
+    vlow_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize)
+    span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
 
-    vcn_kernels = map(
-        gaussian_kernel,
-        sigma_micron_ndim(vicinity_diam_microns, meta)
-        )
+    # TODO: investigate variants?
+    #  adjust diameter by a fudge factor?
+    core_kernel = compose_3d_kernel(syn_kernels)
+    span_kernel = compose_3d_kernel(vlow_kernels)
 
-    red_kernels = map(
-        gaussian_kernel,
-        sigma_micron_ndim(redblur_microns, meta)
-        )
+    if True:
+        # truncate to ellipsoid region
+        core_kernel = clamp_center_edge(core_kernel)
+        span_kernel = clamp_center_edge(span_kernel)
 
-    #print "kernel shapes:", map(lambda kl: map(len, kl), (syn_kernels, vcn_kernels, red_kernels))
+    hollow_kernel = span_kernel * (pad_centered(core_kernel, span_kernel.shape) <= 0)
+        
+    max_kernel = ones(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize), dtype=float32)
 
-    # we need the combined 3d kernels to compute some constants
-    syn_kernel_3d = compose_3d_kernel(syn_kernels)
-    vcn_kernel_3d = compose_3d_kernel(vcn_kernels)
-    syn_kernel_3d_pad = pad_centered(syn_kernel_3d, vcn_kernel_3d.shape)
+    core_kernel /= core_kernel.sum()
+    hollow_kernel /= hollow_kernel.sum()
 
-    hollow_kernel_3d = vcn_kernel_3d - syn_kernel_3d_pad
-    #print "3d_kernel sums:", syn_kernel_3d.sum(), vcn_kernel_3d.sum(), hollow_kernel_3d.sum()
-
-    hollow_offset = - hollow_kernel_3d.min()
-
-    hollow_kernel_3d = hollow_kernel_3d + hollow_offset
-    #print "3d_kernel sums:", syn_kernel_3d.sum(), vcn_kernel_3d.sum(), hollow_kernel_3d.sum()
-
-    hollow_scale = hollow_kernel_3d.sum()
-    
-    #print "3D hollow constants:", hollow_offset, hollow_scale
-    hollow_kernel_3d = hollow_kernel_3d / hollow_scale
-    #print "3d_kernel sums:", syn_kernel_3d.sum(), vcn_kernel_3d.sum(), hollow_kernel_3d.sum()
-
-    k_kernels = [
-        [ (hollow_offset)**(1./3) for i in range(len(k)) ]
-        for k in vcn_kernels
-    ]
+    red_kernel = compose_3d_kernel(
+        map(lambda d, s: gaussian_kernel(d/s/6.), redblur_microns, gridsize)
+    )
 
     return (
-        (syn_kernels, vcn_kernels, red_kernels, k_kernels),
-        (syn_kernel_3d, hollow_kernel_3d),
-        hollow_offset, hollow_scale
+        (low_kernels, span_kernels, syn_kernels, vlow_kernels),
+        (core_kernel, hollow_kernel, red_kernel, max_kernel)
         )
+
+def radii_3x1d(k3x1d):
+    return np.array([len(k1d)/2 for k1d in k3x1d])
+
+def radii_3d(k3d):
+    return np.array([d/2 for d in k3d.shape])
 
 class BlockedAnalyzer (object):
     """Analyze image using block decomposition for scalability.
@@ -238,21 +236,19 @@ class BlockedAnalyzer (object):
           process_volume   (expensive, scales with image size)
           analyze          (expensive, scales with image size)
           
-       This can be decomposed into blocks and operate on 
+       This can be decomposed into blocks to operate on 
        spatial sub-problems:
 
           process_volume_block  (totally independent)
-          analyze_block (might be indepndent in practice?)
-
-       The output of process_volume undergoes a global feature
-       labeling step and measurement in the analyze phase.  If
-       features include multiple voxels and might span a block
-       boundary, then analysis cannot be decomposed.
+          analyze_block (might be independent in practice?)
 
     """
 
     def convNx1d(self, *args):
         return numpylib.convNx1d(*args)
+
+    def convNd_sparse(self, *args):
+        return numpylib.convNd_sparse(*args)
 
     def maxNx1d(self, *args):
         return numpylib.maxNx1d(*args)
@@ -263,50 +259,55 @@ class BlockedAnalyzer (object):
     def sum_labeled(self, src, labels, n):
         return ndimage.sum(src, labels, range(n))
 
-    def __init__(self, raw_channel, mask_channel, image_meta, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, desired_block_size=(256,256,512)):
+    def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, view_reduction, desired_block_size=None):
+        if desired_block_size is None:
+            try:
+                desired_block_size = tuple(map(int, os.getenv('ZYX_BLOCK_SIZE').split(",")))
+                assert len(desired_block_size) == 3
+            except:
+                desired_block_size = (384,384,450)
+            print "Using %s voxel preferred sub-block size. Override with ZYX_BLOCK_SIZE='int,int,int'" % (desired_block_size,)
+            
+        try:
+            self.view_raw = os.getenv('VIEW_MODE') == 'raw'
+        except:
+            self.view_raw = False
+        print "Using %s viewing mode. Override with VIEW_MODE=raw or VIEW_MODE=dog." % (self.view_raw and 'raw' or 'dog')
+        
+        self.image = image
+        self.view_reduction = view_reduction
+        
+        self.kernels_3x1d, self.kernels_3d = prepare_kernels(image.micron_spacing, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
 
-        assert raw_channel.shape == mask_channel.shape
+        # maximum dependency chain of filters trims this much invalid border data
+        self.max_border_widths = (
+            # DoG is largest separated filter
+            radii_3x1d(self.kernels_3x1d[3])
+            # sparse measures consume DoG output
+            + reduce(
+                lambda a, b: np.maximum(a, b),
+                [radii_3d(k) for k in self.kernels_3d]
+            )
+            # add some padding for peak detection at block borders
+            + radii_3x1d(self.kernels_3x1d[3])
+        )
 
-        self.raw_channel = raw_channel
-        self.mask_channel = mask_channel
-        self.raw_shape = raw_channel.shape
+        # round up to multiple of reduction size
+        self.max_border_widths += np.where(
+            (self.max_border_widths % np.array(self.view_reduction)),
+            np.array(self.view_reduction) - self.max_border_widths % np.array(self.view_reduction),
+            np.zeros((3,))
+        )
 
-        # may modify previous fields as side-effect...
+        print "Kernel radii %s, %s implies max-border %s" % (
+            [tuple(radii_3x1d(k)) for k in self.kernels_3x1d],
+            [tuple(radii_3d(k)) for k in self.kernels_3d],
+            self.max_border_widths
+        )
+        
         self.block_size, self.num_blocks = self.find_blocking(desired_block_size)
         
-        self.image_meta = image_meta
-        self.separated_kernels, self.kernels_3d, self.hollow_offset, self.hollow_scale = prepare_kernels(image_meta, synapse_diam_micron, vicinity_diam_micron, maskblur_micron)
-
-        def kernel_radii(k):
-            result = []
-            for k1d in k:
-                result.append( len(k1d)/2 )
-            return result
-
-        self.separated_kernel_radii = map(kernel_radii, self.separated_kernels)
-
-        # self.separated_kernels contains
-        # 0: synapse_kernels
-        # 1: vicinity_kernels
-        # 2: mask_kernels
-        # 3: offset_kernels
-
-        self.src_border_widths = list(self.separated_kernel_radii)
-
-        # synapse_kernels convolution result feed into a regional box
-        # filter with same kernel width so twice as much border is required
-        self.src_border_widths[0] = tuple(map(lambda w: 2*w, self.src_border_widths[0]))
-
-        # this is how much border we trim at image boundaries to find
-        # valid results
-        self.max_border_widths = map(max, *self.src_border_widths)
-
-        print "Kernel radii %s implies max border width %s" % (
-            self.separated_kernel_radii,
-            self.max_border_widths
-            )
-
-        for d in range(self.raw_channel.ndim):
+        for d in range(3):
             if self.num_blocks[d] > 1:
                 # block has border trimmed from one edge
                 trim_factor = 1
@@ -317,21 +318,19 @@ class BlockedAnalyzer (object):
                 raise ValueError("Block size %s too small for filter borders %s" % (self.block_size, self.max_border_widths))
 
         self.dst_shape = tuple(
-            [ 
-                self.raw_shape[d] - 2 * self.max_border_widths[d]
-                for d in range(self.raw_channel.ndim)
-            ]
+            self.image.shape[d] - 2 * self.max_border_widths[d]
+            for d in range(3)
         )
 
         print "Using %s blocks of size %s to process %s into %s" % (
             self.num_blocks,
             self.block_size,
-            self.raw_shape,
+            self.image.shape,
             self.dst_shape
             )
 
-    def block_slice_src(self, kn, blockpos):
-        """Return slice for source block and separated_kernel[kn].
+    def block_slice_src(self, blockpos):
+        """Return slice for source block.
 
            This slice is used to extract a source sub-array from the
            original input image channels.
@@ -339,19 +338,18 @@ class BlockedAnalyzer (object):
         """
         def slice1d(d):
             if blockpos[d] == 0:
-                lower = 0 + self.max_border_widths[d] - self.src_border_widths[kn][d]
+                lower = 0
             else:
-                lower = self.block_size[d] * blockpos[d] - self.src_border_widths[kn][d]
+                lower = self.block_size[d] * blockpos[d] - self.max_border_widths[d]
         
             if blockpos[d] == self.num_blocks[d] - 1:
-                upper = self.raw_shape[d] - self.max_border_widths[d] + self.src_border_widths[kn][d]
+                upper = self.image.shape[d]
             else:
-                upper = self.block_size[d] * (1 + blockpos[d]) + self.src_border_widths[kn][d]
+                upper = self.block_size[d] * (1 + blockpos[d]) + self.max_border_widths[d]
 
             return slice(lower,upper)
         
-        slc = tuple([ slice1d(d) for d in range(self.raw_channel.ndim)])
-        #print "block_slice_src(%s,%s): %s" % (kn, blockpos, slc)
+        slc = tuple([ slice1d(d) for d in range(3)] + [slice(None)])
         return slc
 
     def block_slice_dst(self, blockpos):
@@ -375,9 +373,34 @@ class BlockedAnalyzer (object):
 
             return slice(lower, upper)
         
-        slc = tuple([ slice1d(d) for d in range(self.raw_channel.ndim)])
-        #print "block_slice_dst(%s): %s" % (blockpos, slc)
-        return tuple([ slice1d(d) for d in range(self.raw_channel.ndim)])
+        slc = tuple([ slice1d(d) for d in range(3)] + [slice(None)])
+        return slc
+
+    def block_slice_viewdst(self, blockpos):
+        """Return slice for view_image dest. block.
+
+           This slice is used to store a destination sub-array into a
+           global result image channel, if reassembling a full image.
+
+        """
+        def slice1d(d):
+            # invalid border gets trimmed from first and last blocks
+            if blockpos[d] == 0:
+                lower = self.max_border_widths[d]
+            else:
+                lower = self.block_size[d] * blockpos[d]
+        
+            if blockpos[d] == (self.num_blocks[d] - 1):
+                upper = self.block_size[d] * (1 + blockpos[d]) - self.max_border_widths[d]
+            else:
+                upper = self.block_size[d] * (1 + blockpos[d])
+
+            assert lower % self.view_reduction[d] == 0
+            assert upper % self.view_reduction[d] == 0
+            return slice(lower/self.view_reduction[d], upper/self.view_reduction[d])
+       
+        slc = tuple([ slice1d(d) for d in range(3)] + [slice(None)])
+        return slc
 
     def block_iter(self):
         def helper(counts):
@@ -410,40 +433,40 @@ class BlockedAnalyzer (object):
 
         """
         def find_blocking_1d(d):
-            if self.raw_shape[d] < desired_block_size[d]:
-                return self.raw_shape[d], 1
+            if self.image.shape[d] < desired_block_size[d]:
+                if self.image.shape[d] % self.view_reduction[d] == 0:
+                    return self.image.shape[d], 1
+                else:
+                    raise ValueError("Dimension %d, length %d, smaller than desired block size %d but not divisible by reduction %d" % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
             # prefer desired_block_size or something a bit smaller
-            for w in xrange(desired_block_size[d], desired_block_size[d]/2, -1):
-                if (self.raw_shape[d] % w) == 0:
-                    return w, self.raw_shape[d] / w
+            for w in xrange(desired_block_size[d], max(desired_block_size[d]/2, 2*self.max_border_widths[d]), -1):
+                if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
+                    return w, self.image.shape[d] / w
             # also consider something larger
-            for w in xrange(desired_block_size[d], desired_block_size[d]*2):
-                if (self.raw_shape[d] % w) == 0:
-                    return w, self.raw_shape[d] / w
-            raise ValueError("No blocking found for image dimension %d, length %d, desired block size %d"
-                             % (d, self.raw_shape[d], desired_block_size[d]))
+            for w in xrange(max(desired_block_size[d], 2*self.max_border_widths[d]), desired_block_size[d]*2):
+                if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
+                    return w, self.image.shape[d] / w
+            raise ValueError("No blocking found for image dimension %d, length %d, desired block size %d, reduction %d"
+                             % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
         block_size = []
         num_blocks = []
 
-        for d in range(self.raw_channel.ndim):
+        for d in range(3):
             try:
                 w, n = find_blocking_1d(d)
             except ValueError:
                 # try trimming one voxel and repeating
                 print "WARNING: trimming image dimension %d to try to find divisible block size" % d
+                axis_size = self.view_reduction[d]*(min(desired_block_size[d], self.image.shape[d])/self.view_reduction[d])
+                trimmed_shape = axis_size*(self.image.shape[d]/axis_size)
                 trim_slice = tuple(
-                    [ slice(None,None) for i in range(d) ]
-                    + [ slice(0, self.raw_channel.shape[d] - 1) ]
-                    + [ slice(None,None) for i in range(d+1, self.raw_channel.ndim) ]
+                    [ slice(None) for i in range(d) ]
+                    + [ slice(0, trimmed_shape) ]
+                    + [ slice(None) for i in range(d+1, self.image.ndim) ]
                 )
-                self.raw_channel = self.raw_channel[trim_slice]
-                self.mask_channel = self.mask_channel[trim_slice]
-                self.raw_shape = list(self.raw_shape)
-                self.raw_shape[d] -= 1
-                self.raw_shape = tuple(self.raw_shape)
-                
+                self.image = self.image.lazyget(trim_slice)
                 w, n = find_blocking_1d(d)
 
             block_size.append(w)
@@ -452,36 +475,53 @@ class BlockedAnalyzer (object):
         return tuple(block_size), tuple(num_blocks)
                         
     def volume_process(self):
+        view_image = zeros(tuple(
+            map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction)
+            + [self.image.shape[-1]]
+        ))
 
-        syn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
-        pks_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
-        vcn_channel = empty(self.dst_shape, dtype=self.raw_channel.dtype)
-        msk_channel = empty(self.dst_shape, dtype=self.mask_channel.dtype)
+        print "Allocated %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction), self.view_reduction, self.image.shape, self.image.micron_spacing)
 
-        noise = None
+        centroids = None
+        centroid_measures = None
+        perf_vector = None
+
+        total_blocks = reduce(lambda a, b: a*b, self.num_blocks, 1)
+        done_blocks = 0
+        last_progress = 0
+
+        sys.stderr.write("Progress processing %d blocks:\n" % total_blocks)
         
         for blockpos in self.block_iter():
-            dslc = self.block_slice_dst(blockpos)
-            syn_channel[dslc], pks_channel[dslc], vcn_channel[dslc], msk_channel[dslc], blocknoise \
-                = self.block_process(blockpos)
-
-            if noise is None:
-                noise = blocknoise
+            view, cent, meas, perf = self.block_process(blockpos)
+            view_image[self.block_slice_viewdst(blockpos)] = view
+            if centroids is None:
+                centroids = cent
+                centroid_measures = meas
+                perf_vector = perf
             else:
-                noise = min(noise, blocknoise)
+                centroids = np.concatenate((centroids, cent))
+                centroid_measures = np.concatenate((centroid_measures, meas))
+                perf_vector = map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf)
+            done_blocks += 1
+            progress = int(100 * done_blocks / total_blocks)
+            for i in range(last_progress, progress, 2):
+                sys.stderr.write('%x' % (i/10))
+            last_progress = progress
+        sys.stderr.write(' DONE.\n')
 
-        raw_channel = self.raw_channel[
-            tuple([ 
-                slice( self.max_border_widths[d], - self.max_border_widths[d]  )
-                for d in range(self.raw_channel.ndim)
-            ]
-              )
-        ]
+        view_image -= view_image.min()
+        view_image *= self.image.max() / view_image.max()
+        
+        total = 0.
+        for elapsed, desc in perf_vector:
+            total += elapsed
+            print "%8.2fs %s task time" % (elapsed, desc)
+        print "%8.2fs TOTAL processing time" % total
 
-        self.noise = noise
-        print "estimating noise as %f" % self.noise
-
-        return raw_channel, syn_channel, pks_channel, vcn_channel, msk_channel
+        print "Found %d centroids" % len(centroids)
+            
+        return view_image, centroids, centroid_measures
 
     def block_process(self, blockpos):
         """Process block data to return convolved results.
@@ -490,84 +530,169 @@ class BlockedAnalyzer (object):
 
               blockpos: N-dimensional block numbers
 
-           Result is a K-tuple:
+           Result is a 3-tuple:
 
-              (synapse, peaks, hollow, mask, noise)
-
-           where all fields are Numpy arrays with the same shape and
-           different result fields:
-
-              synapse: convolution measuring synapse core intensity
-              peaks: synapse core values only at local maxima
-              hollow: convolution measuring synapse background intensity
-              mask: convolution giving low-pass filtered red channel
-
-           For edge blocks, the shape is smaller due to invalid border
-           regions being trimmed.
+              (view_image, centroids, centroid_measures, perf_vector)
 
         """
-        syn_channel = self.convNx1d(
-            self.raw_channel[self.block_slice_src(0, blockpos)], 
-            self.separated_kernels[0]
-        )
+        splits = [(datetime.datetime.now(), None)]
         
-        max_channel = self.maxNx1d(
-            syn_channel, 
-            tuple([ len(k) for k in self.separated_kernels[0] ])
-            )
+        image = self.image[self.block_slice_src(blockpos)]
+        splits.append((datetime.datetime.now(), 'image load'))
 
-        # need to trim border meant for max_channel computation
-        # so we can use this below
-        syn_channel = syn_channel[
-            tuple([
-                slice( self.separated_kernel_radii[0][d], - self.separated_kernel_radii[0][d] )
-                for d in range(self.raw_channel.ndim)
-            ]
-              )
+        low_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[0])
+        splits.append((datetime.datetime.now(), 'image*low'))
+
+        scale1_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[2])
+        splits.append((datetime.datetime.now(), 'image*syn'))
+        
+        scale2_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[3])
+        dog = crop_centered(scale1_channel, scale2_channel.shape) - scale2_channel
+        splits.append((datetime.datetime.now(), 'image*vlow'))
+
+        # allow tinkering w/ multiple peak detection fields
+        max_inputs = [
+            low_channel,
+            # dog,
         ]
-    
-        vcn_channel = self.convNx1d(
-            self.raw_channel[self.block_slice_src(1, blockpos)], 
-            self.separated_kernels[1]
-        )
-        msk_channel = self.convNx1d(
-            self.mask_channel[self.block_slice_src(2, blockpos)], 
-            self.separated_kernels[2]
-        )
-        k_channel = self.convNx1d(
-            self.raw_channel[self.block_slice_src(3, blockpos)], 
-            self.separated_kernels[3]
-        )
 
-        noise = vcn_channel.min()
+        if len(max_inputs) > 1:
+            crop_shape = map(min, *[img.shape for img in max_inputs])
+        else:
+            crop_shape = max_inputs[0].shape
 
-        # compute hollow vicinity convolution using separated convolutions
-        #  ((B - A + k)/s)*I 
-        #  = ((B - A + k)*I)/s
-        #  = (B*I - A*I + k*I)/s
-        vcn_hollow = (
-            vcn_channel
-            - syn_channel
-            + k_channel
-        ) / self.hollow_scale
-        vcn_channel = None
-        k_channel = None
+        max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
+
+        if self.view_raw:
+            view_image = crop_centered(
+                image,
+                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+            )
+        else:
+            # caller expects view_image to have same number of channels as raw image
+            view_image = zeros(
+                tuple(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]),
+                dtype=dog.dtype
+            )
+            view_image[:,:,:,0] = crop_centered(
+                dog,
+                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+            )
+            splits.append((datetime.datetime.now(), 'view image DoG'))
+
+        view_image = bin_reduce(view_image, self.view_reduction + (1,))
+        splits.append((datetime.datetime.now(), 'view image reduce'))
+
+        max_kernel = self.kernels_3d[3].shape
+        max_channels = [self.maxNx1d(img, max_kernel) for img in max_inputs]
+        splits.append((datetime.datetime.now(), 'local maxima'))
+            
+        # need to trim borders discarded by max_channel computation
+        max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
 
         # find syn cores via local maxima test
-        pks_channel = syn_channel * (syn_channel == max_channel)
-        max_channel = None
+        peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+        for i in range(len(max_inputs)):
+            assert max_inputs[i].shape == max_channels[i].shape
+            peaks += max_inputs[i] >= (max_channels[i])
 
-        result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
-    
-        print "Calculated block shapes: %s" % map(lambda a: a.shape, result)
-        return result
+        clipbox = tuple(
+            slice(peaks_border, peaks_width-peaks_border)
+            for peaks_width, peaks_border in map(
+                    lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                    image.shape[0:3],
+                    self.max_border_widths,
+                    peaks.shape
+                    )
+        )
+        splits.append((datetime.datetime.now(), 'mask peaks'))
 
-    def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-        peaks = (synapse > syn_lvl)# & (synapse > hollow)
-        if vcn_lvl is not None:
-            return peaks & (hollow < vcn_lvl)
+        label_im, nb_labels = ndimage.label(peaks)
+        splits.append((datetime.datetime.now(), 'label peaks'))
+        
+        sizes = self.sum_labeled(
+            label_im > 0,
+            label_im,
+            nb_labels + 1
+        )[1:]
+        splits.append((datetime.datetime.now(), 'centroid sizes'))
+
+        centroid_components = [ ]
+
+        for d in range(3):
+            coords = self.array_mult(
+                array(
+                    range(0, peaks.shape[d]) 
+                ).astype('float32')[
+                    [ None for i in range(d) ]  # add dims before axis
+                    + [ slice(None) ]              # get axis
+                    + [ None for i in range(peaks.ndim - 1 - d) ] # add dims after axis
+                ],
+                ones(peaks.shape, 'float32') # broadcast to full volume
+            )
+
+            centroid_components.append(
+                (self.sum_labeled(
+                    coords,
+                    label_im,
+                    nb_labels + 1
+                    )[1:] / sizes)#.astype(np.int32)
+                )
+
+        # centroids are in block peaks grid
+        centroids = zip(*centroid_components)
+
+        if centroids:
+            # discard centroids outside clipbox (we searched slightly
+            # larger to handle peaks at edges
+            filtered_centroids = []
+            for i in range(len(centroids)):
+                clip = False
+                for d in range(3):
+                    if int(centroids[i][d]) < clipbox[d].start or int(centroids[i][d]) >= clipbox[d].stop:
+                        clip = True
+                if not clip:
+                    filtered_centroids.append(centroids[i])
+
+            # centroids are in block core grid
+            centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
+            # image_centroids are in block image grid
+            image_centroids = centroids + array(self.max_border_widths, int32)
+            # dog_centroids are in difference-of-gaussians grid
+            dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
+            # global_centroids are in self.image grid
+            global_centroids = (
+                array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
+                + image_centroids
+            )
+
         else:
-            return peaks
+            image_centroids = []
+            global_centroids = []
+            
+        splits.append((datetime.datetime.now(), 'centroid coords'))
+
+        centroid_measures = [self.convNd_sparse(image[:,:,:,0], self.kernels_3d[0], image_centroids)]
+        splits.append((datetime.datetime.now(), 'raw corevals'))
+
+        centroid_measures.append(self.convNd_sparse(image[:,:,:,0], self.kernels_3d[1], image_centroids))
+        splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[0], dog_centroids))
+        splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[1], dog_centroids))
+        splits.append((datetime.datetime.now(), 'DoG hollowvals'))
+
+        if image.shape[3] > 1:
+            centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
+            splits.append((datetime.datetime.now(), 'centroid redvals'))
+
+        centroid_measures = np.column_stack(tuple(centroid_measures))
+        splits.append((datetime.datetime.now(), 'stack centroid measures'))
+
+        perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+        return view_image, global_centroids, centroid_measures, perf_vector
 
     def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
         """Estimate FWHM measures for synapse candidates."""
@@ -637,144 +762,11 @@ class BlockedAnalyzer (object):
             centroid_widths.append( tuple(widths) )
 
         return centroid_widths
-        
-    def analyze(self, synapse, peaks, hollow, syn_lvl=None, vcn_lvl=None):
-        """Analyze synapse features and return measurements.
-
-           Parameters:
-
-              synapse: from block_process results
-              peaks: from block_process results
-              hollow: from block_process results
-              syn_lvl: minimum synapse core measurement accepted
-              vcn_lvl: maximum synapse background measurement accepted
-
-           Returns 4-tuple:
-
-              (syn_values, vcn_values, centroids, widths)
-
-           all of which have same length N for N synapses
-           accepted. The first two contain the measured core and
-           background levels while centroids contains the (Z, Y, X)
-           voxel coordinates of the detected synapse center, where (0,
-           0, 0) is the least corner voxel of syn_channel.  Widths are
-           (d, h, w) full-width-half-maximum spans of the feature on
-           the corresponding (Z, Y, X) axes.
-
-        """
-        if syn_lvl is None:
-            syn_lvl = 0
-
-        t0 = datetime.datetime.now()
-        peaksf = self.get_peaks(peaks, hollow, syn_lvl, vcn_lvl)
-
-        t1 = datetime.datetime.now()
-        label_im, nb_labels = ndimage.label(peaksf)
-        peaksf = None
-
-        print "found %d centroids" % nb_labels
-
-        t2 = datetime.datetime.now()
-        sizes = self.sum_labeled(
-            label_im > 0,
-            label_im,
-            nb_labels + 1
-        )[1:]
-
-        try:
-            print "centroid sizes: %s, %s, %s" % (
-                sizes.min(),
-                sizes.mean(),
-                sizes.max()
-            )
-        except:
-            pass
-
-        t3 = datetime.datetime.now()
-        sums = self.sum_labeled(
-            peaks,
-            label_im,
-            nb_labels + 1
-        )[1:]
-
-        syn_vals = sums / sizes
-
-        t4 = datetime.datetime.now()
-        sums = self.sum_labeled(
-            hollow,
-            label_im,
-            nb_labels + 1
-        )[1:]
-
-        vcn_vals = sums / sizes
-
-        try:
-            print "centroid values: %s, %s, %s" % (
-                syn_vals.min(),
-                syn_vals.mean(),
-                syn_vals.max()
-            )
-
-            print "centroid background: %s, %s, %s" % (
-                vcn_vals.min(),
-                vcn_vals.mean(),
-                vcn_vals.max()
-            )
-        except:
-            pass    
-
-        centroid_components = [ ]
-
-        t5 = datetime.datetime.now()
-        for d in range(3):
-            coords = self.array_mult(
-                array(
-                    range(0, peaks.shape[d]) 
-                ).astype('float32')[
-                    [ None for i in range(d) ]  # add dims before axis
-                    + [ slice(None) ]              # get axis
-                    + [ None for i in range(peaks.ndim - 1 - d) ] # add dims after axis
-                ],
-                ones(peaks.shape, 'float32') # broadcast to full volume
-            )
-
-            centroid_components.append(
-                (self.sum_labeled(
-                    coords,
-                    label_im,
-                    nb_labels + 1
-                    )[1:] / sizes).astype(np.int)
-                )
-
-        centroids = zip(*centroid_components)
-        t6 = datetime.datetime.now()
-
-        noise = np.percentile(vcn_vals, 5.0)
-        if noise > self.noise:
-            print "overriding noise estimate %f with 5th percentile measure %f" % (self.noise, noise)
-        else:
-            noise = self.noise
-
-        noise = noise * 2.0
-        print "scaling noise estimate to %f for FWHM tests" % noise
-
-        centroid_widths = self.fwhm_estimate(synapse, centroids, syn_vals, vcn_vals, noise)
-        
-        t7 = datetime.datetime.now()
-
-        try:
-            print "centroids:", centroids[0:10], "...", centroids[-1]
-        except:
-            pass
-
-        print "\nanalyze splits: %s" % map(lambda p: (p[1]-p[0]).total_seconds(), [ (t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5), (t5, t6), (t6, t7) ])
-
-        return syn_vals, vcn_vals, centroids, centroid_widths
 
 BlockedAnalyzerOpt = BlockedAnalyzer
 assign_voxels_opt = numpylib.assign_voxels
 
-try:       
+try:
     import nexpr as numerexprlib
     class BlockedAnalyzerNumerexpr (BlockedAnalyzer):
 
@@ -783,14 +775,6 @@ try:
 
         def array_mult(self, a1, a2):
             return numerexprlib.array_mult(a1, a2)
-
-        def get_peaks(self, synapse, hollow, syn_lvl, vcn_lvl):
-            expr = "(synapse > syn_lvl)"
-            #expr += " & (synapse > hollow)"
-            if vcn_lvl is not None:
-                expr += " & (hollow < vcn_lvl)"
-
-            return numerexprlib.neval(expr)
 
     BlockedAnalyzerOpt = BlockedAnalyzerNumerexpr
 except:
@@ -806,88 +790,226 @@ try:
         def maxNx1d(self, *args):
             return opencllib.maxNx1d(*args)
 
-        def sum_labeled(self, src, labels, n):
-            return opencllib.sum_labeled(src, labels, n)
-
-        def block_process(self, blockpos):
-            """Process block data to return convolved results.
-
-               Overrides parent implementation to keep more work on
-               OpenCL device...
-
-            """
-            syn_channel = opencllib.convNx1d(
-                self.raw_channel[self.block_slice_src(0, blockpos)], 
-                self.separated_kernels[0]
-            )
-        
-            clq = opencllib.cl.CommandQueue( opencllib.ctx )
-
-            max_channel_dev = opencllib.maxNx1d(
-                syn_channel, 
-                tuple([ len(k) for k in self.separated_kernels[0] ]),
-                clq=clq
-            )
-
-            # need to trim border meant for max_channel computation
-            # so we can use this below
-            syn_channel = syn_channel[
-                tuple([
-                    slice( self.separated_kernel_radii[0][d], - self.separated_kernel_radii[0][d] )
-                    for d in range(self.raw_channel.ndim)
-                ]
-                  )
-            ]
-            syn_channel = syn_channel.astype(opencllib.float32, copy=True)
-            syn_channel_dev = opencllib.cl_array.to_device(clq, syn_channel)
-    
-            vcn_channel_dev = opencllib.convNx1d(
-                self.raw_channel[self.block_slice_src(1, blockpos)], 
-                self.separated_kernels[1],
-                clq=clq
-            )
-            msk_channel = opencllib.convNx1d(
-                self.mask_channel[self.block_slice_src(2, blockpos)], 
-                self.separated_kernels[2]
-            )
-            k_channel_dev = opencllib.convNx1d(
-                self.raw_channel[self.block_slice_src(3, blockpos)], 
-                self.separated_kernels[3],
-                clq=clq
-            )
-
-            # compute hollow vicinity convolution using separated convolutions
-            #  ((B - A + k)/s)*I 
-            #  = ((B - A + k)*I)/s
-            #  = (B*I - A*I + k*I)/s
-            vcn_hollow_dev = (
-                vcn_channel_dev
-                - syn_channel_dev
-                + k_channel_dev
-            ) / self.hollow_scale
-
-            noise = vcn_channel_dev.map_to_host(clq).min()
-            vcn_channel_dev = None
-            k_channel_dev = None
-
-            # find syn cores via local maxima test
-            pks_channel_dev = syn_channel_dev * (syn_channel_dev == max_channel_dev)
-            max_channel_dev = None
-
-            syn_channel = syn_channel_dev.map_to_host(clq)
-            pks_channel = pks_channel_dev.map_to_host(clq)
-            vcn_hollow = vcn_hollow_dev.map_to_host(clq)
-            clq.finish()
-
-            result = syn_channel, pks_channel, vcn_hollow, msk_channel, noise
-            return result
+        def sum_labeled(self, src, labels, n, clq=None):
+            return opencllib.sum_labeled(src, labels, n, clq=clq)
 
         def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
             return opencllib.fwhm_estimate(
                 synapse, centroids, syn_vals, vcn_vals, noise,
                 (self.image_meta.z_microns, self.image_meta.y_microns, self.image_meta.x_microns)
             )
+
+        def convNd_sparse(self, data, kernel, centroids, clq=None):
+            if clq is None:
+                # CL would actually slower due to data input bottleneck!
+                return BlockedAnalyzer.convNd_sparse(self, data, kernel, centroids)
+            else:
+                return opencllib.weighted_measure(data, centroids, kernel, clq=clq)
+        
+        def block_process(self, blockpos):
+            """Process block data to return convolved results.
+            """
+            clq = opencllib.cl.CommandQueue(opencllib.ctx)
             
+            splits = [(datetime.datetime.now(), None)]
+
+            image = self.image[self.block_slice_src(blockpos)]
+            splits.append((datetime.datetime.now(), 'image load'))
+
+            # PyOpenCL complains about discontiguous arrays when we project C dimension
+            if image.strides[3] == 0:
+                # but, a volspy.util TiffLazyNDArray slice repacks implicitly
+                image0_dev = opencllib.cl_array.to_device(clq, image[:,:,:,0])
+            else:
+                # while a regular ndarray needs repacking here
+                # this happens with the VOLSPY_ZNOISE_PERCENTILE pre-filtering hack
+                image0_dev = opencllib.cl_array.empty(clq, image.shape[0:3], image.dtype)
+                image0_tmp = image0_dev.map_to_host()
+                image0_tmp[...] = image[:,:,:,0]
+                del image0_tmp
+                
+            clq.finish()
+            splits.append((datetime.datetime.now(), 'image to dev'))
+            
+            low_channel = self.convNx1d(image0_dev, self.kernels_3x1d[0], clq).map_to_host()
+            splits.append((datetime.datetime.now(), 'image*low'))
+
+            scale1_channel = self.convNx1d(image0_dev, self.kernels_3x1d[2], clq).map_to_host()
+            splits.append((datetime.datetime.now(), 'image*syn'))
+
+            scale2_channel = self.convNx1d(image0_dev, self.kernels_3x1d[3], clq).map_to_host()
+            clq.finish()
+            dog = crop_centered(scale1_channel, scale2_channel.shape) - scale2_channel
+            splits.append((datetime.datetime.now(), 'image*vlow'))
+
+            # allow tinkering w/ multiple peak detection fields
+            max_inputs = [
+                low_channel,
+                # dog,
+            ]
+
+            if len(max_inputs) > 1:
+                crop_shape = map(min, *[img.shape for img in max_inputs])
+            else:
+                crop_shape = max_inputs[0].shape
+
+            max_inputs = [crop_centered(img, crop_shape) for img in max_inputs]
+
+            if self.view_raw:
+                view_image = crop_centered(
+                    image,
+                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+                )
+            else:
+                view_image = crop_centered(
+                    dog,
+                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+                )
+                view_image = view_image[:,:,:,None]
+                splits.append((datetime.datetime.now(), 'view image DoG'))
+
+            view_image = bin_reduce(view_image, self.view_reduction + (1,))
+            splits.append((datetime.datetime.now(), 'view image reduce'))
+
+            max_kernel = self.kernels_3d[3].shape
+            max_channels = [self.maxNx1d(img, max_kernel) for img in max_inputs]
+            splits.append((datetime.datetime.now(), 'local maxima'))
+
+            # need to trim borders discarded by max_channel computation
+            max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
+
+            # find syn cores via local maxima test
+            peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+            for i in range(len(max_inputs)):
+                assert max_inputs[i].shape == max_channels[i].shape
+                peaks += max_inputs[i] >= (max_channels[i])
+
+            clipbox = tuple(
+                slice(peaks_border, peaks_width-peaks_border)
+                for peaks_width, peaks_border in map(
+                        lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                        image.shape[0:3],
+                        self.max_border_widths,
+                        peaks.shape
+                        )
+            )
+            splits.append((datetime.datetime.now(), 'mask peaks'))
+
+            label_im, nb_labels = ndimage.label(peaks)
+            label_im_dev = opencllib.cl_array.to_device(clq, label_im)
+            splits.append((datetime.datetime.now(), 'label peaks'))
+
+            sizes = self.sum_labeled(
+                label_im_dev > 0,
+                label_im_dev,
+                nb_labels + 1,
+                clq=clq
+            )[1:].map_to_host()
+            splits.append((datetime.datetime.now(), 'centroid sizes'))
+
+            centroid_components = [ ]
+
+            for d in range(3):
+                coords_dev = opencllib.nd_arange(peaks.shape, d, 0, 1, clq)
+                centroid_components.append(
+                    (self.sum_labeled(
+                        coords_dev,
+                        label_im_dev,
+                        nb_labels + 1,
+                        clq=clq
+                        )[1:].map_to_host()/sizes)#.astype(np.int32)
+                    )
+
+            # centroids are in block peaks grid
+            centroids = zip(*centroid_components)
+
+            if centroids:
+                # discard centroids outside clipbox (we searched slightly
+                # larger to handle peaks at edges
+                filtered_centroids = []
+                for i in range(len(centroids)):
+                    clip = False
+                    for d in range(3):
+                        if int(centroids[i][d]) < clipbox[d].start or int(centroids[i][d]) >= clipbox[d].stop:
+                            clip = True
+                    if not clip:
+                        filtered_centroids.append(centroids[i])
+
+                # centroids are in block core grid
+                centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
+                # image_centroids are in block image grid
+                image_centroids = centroids + array(self.max_border_widths, int32)
+                # dog_centroids are in difference-of-gaussians grid
+                dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
+                # global_centroids are in self.image grid
+                global_centroids = (
+                    array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
+                    + image_centroids
+                )
+
+            else:
+                image_centroids = []
+                global_centroids = []
+
+            splits.append((datetime.datetime.now(), 'centroid coords'))
+
+            image_centroids_dev = opencllib.cl_array.to_device(clq, image_centroids)
+            centroid_measures = [
+                self.convNd_sparse(
+                    image0_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                    image_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            ]
+            splits.append((datetime.datetime.now(), 'raw corevals'))
+
+            centroid_measures.append(
+                self.convNd_sparse(
+                    image0_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                    image_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            del image0_dev
+            del image_centroids_dev
+            splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+            dog_dev = opencllib.cl_array.to_device(clq, dog)
+            dog_centroids_dev = opencllib.cl_array.to_device(clq, dog_centroids)
+            centroid_measures.append(
+                self.convNd_sparse(
+                    dog_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                    dog_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+            centroid_measures.append(
+                self.convNd_sparse(
+                    dog_dev,
+                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                    dog_centroids_dev,
+                    clq=clq
+                ).map_to_host()
+            )
+            del dog_dev
+            del dog_centroids_dev
+            splits.append((datetime.datetime.now(), 'DoG hollowvals'))
+
+            if image.shape[3] > 1:
+                centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
+                splits.append((datetime.datetime.now(), 'centroid redvals'))
+
+            centroid_measures = np.column_stack(tuple(centroid_measures))
+            splits.append((datetime.datetime.now(), 'stack centroid measures'))
+
+            perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+            return view_image, global_centroids, centroid_measures, perf_vector
+
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
     assign_voxels_opt = opencllib.assign_voxels
 except:

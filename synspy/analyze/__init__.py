@@ -189,9 +189,15 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
        a 3D kernel. The kernels are float weights summing to 1.0.
 
     """
+    try:
+        peak_factor = float(os.getenv('PEAKS_DIAM_FACTOR', 0.75))
+    except ValueError, te:
+        print 'ERROR: invalid PEAKS_DIAM_FACTOR environment value'
+        raise
+    
     # these are separated 1d gaussian kernels
     syn_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
-    low_kernels = map(lambda d, s: gaussian_kernel(1.0*d/s/6.), synapse_diam_microns, gridsize)
+    low_kernels = map(lambda d, s: gaussian_kernel(peak_factor*d/s/6.), synapse_diam_microns, gridsize)
     vlow_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize)
     span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
 
@@ -209,6 +215,24 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
         
     max_kernel = ones(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize), dtype=float32)
 
+    # sanity check kernel shapes
+    for d in range(3):
+        if len(syn_kernels[d]) <= 1:
+            raise ValueError(
+                'Synapse diameter %f and gridsize %f result in undersized synapse kernel!'
+                % (synapse_diam_microns[d], gridsize[d])
+            )
+        if len(low_kernels[d]) <= 1:
+            raise ValueError(
+                'Synapse diameter %f, peak_diam_factor %f, and gridsize %f result in undersized low-pass kernel!'
+                % (synapse_diam_microns[d], peak_factor, gridsize[d])
+            )
+        if hollow_kernel.shape[d] - core_kernel.shape[d] <= 1:
+            raise ValueError(
+                'Synapse diameter %f, vicinity diameter %f, and gridsize %f result in undersized hollow span!'
+                % (synapse_diam_microns[d], synapse_diam_microns[d], gridsize[d])
+            )
+    
     core_kernel /= core_kernel.sum()
     hollow_kernel /= hollow_kernel.sum()
 

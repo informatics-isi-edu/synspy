@@ -108,6 +108,7 @@ the console. Did we mention this is experimental code?
 
 Several environment variables can be set to modify the behavior of the `synspy-viewer` tool on a run-by-run basis, most of which are in common with the `volspy-viewer`:
 
+- `PEAKS_DIAM_FACTOR` (default `0.75`) controls the diameter of a gaussian low-pass filter that is used to smooth the image before doing local maxima detection. This factor adjusts the diameter relative to the built-in synapse-diameter that is used to model the core intensity distribution of synapse candidates. A smaller diameter will allow the detection of more closely spaced local maxima but may introduce errors as pixel-level noise begins to dominate.
 - `DUMP_PREFIX` controls how dumped files are named. Defaults to input filename plus a hyphen, e.g. when running on `dir1/image2.ome.tiff` the default behaves as if you specified `DUMP_PREFIX=dir1/image2.ome.tiff-` and will name dump files such as `dir1/image2.ome.tiff-segments.csv`.
 - `VOXEL_SAMPLE` selects volume rendering texture sampling modes from `nearest` or `linear` (default for unspecified or unrecognized values).
 - `VIEW_MODE` changes the scalar field that is volume-rendered:

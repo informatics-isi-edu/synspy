@@ -191,7 +191,7 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     """
     # these are separated 1d gaussian kernels
     syn_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
-    low_kernels = map(lambda d, s: gaussian_kernel(0.4*d/s/6.), synapse_diam_microns, gridsize)
+    low_kernels = map(lambda d, s: gaussian_kernel(1.0*d/s/6.), synapse_diam_microns, gridsize)
     vlow_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize)
     span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
 

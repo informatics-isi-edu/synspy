@@ -627,8 +627,13 @@ class Canvas(base.Canvas):
     def __init__(self, filename1):
         
         # TODO: put these under UI control?
-        self.synapse_diam_microns = (2.75, 1.5, 1.5)
-        self.vicinity_diam_microns = (4.0, 2.75, 2.75)
+        do_nuclei = {'true': True}.get(os.getenv('SYNSPY_DETECT_NUCLEI'), False)
+        if do_nuclei:
+            self.synapse_diam_microns = (8., 8., 8.)
+            self.vicinity_diam_microns = (16., 16., 16.)
+        else:
+            self.synapse_diam_microns = (2.75, 1.5, 1.5)
+            self.vicinity_diam_microns = (4.0, 2.75, 2.75)
 
         self.redblur_microns = (3.0, 3.0, 3.0)
 

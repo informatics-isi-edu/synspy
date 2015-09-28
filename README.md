@@ -112,8 +112,8 @@ Several environment variables can be set to modify the behavior of the `synspy-v
 - `DUMP_PREFIX` controls how dumped files are named. Defaults to input filename plus a hyphen, e.g. when running on `dir1/image2.ome.tiff` the default behaves as if you specified `DUMP_PREFIX=dir1/image2.ome.tiff-` and will name dump files such as `dir1/image2.ome.tiff-segments.csv`.
 - `VOXEL_SAMPLE` selects volume rendering texture sampling modes from `nearest` or `linear` (default for unspecified or unrecognized values).
 - `VIEW_MODE` changes the scalar field that is volume-rendered:
-  - `raw` renders the raw data
-  - `dog` renders a difference-of-gaussians transform to emphasize synapse-scale changes (default)
+  - `raw` renders the raw data (default)
+  - `dog` renders a difference-of-gaussians transform to emphasize synapse-scale changes
 - `ZYX_SLICE` selects a grid-aligned region of interest to view from the original image grid, e.g. `0:10,100:200,50:800` selects a region of interest where Z<10, 100<=Y<200, and 50<=X<800. (Default slice contains the whole image.)
 - `ZYX_VIEW_GRID` changes the desired rendering grid spacing. Set a preferred ZYX micron spacing, e.g. `0.5,0.5,0.5` which the program will try to approximate using integer bin-averaging of source voxels but it will only reduce grid resolution and never increase it. NOTE: Y and X values should be equal to avoid artifacts with current renderer. (Default grid is 0.25, 0.25, 0.25 micron.)
 - `ZYX_BLOCK_SIZE` changes the desired sub-block work unit size for decomposing large images to control Numpy or OpenCL working set size. Set a preferred ZYX voxel count, e.g. `256,384,512` which the program will try to approximate to find an evenly divisible block layout.

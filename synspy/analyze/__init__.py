@@ -291,11 +291,11 @@ class BlockedAnalyzer (object):
             except:
                 desired_block_size = (384,384,450)
             print "Using %s voxel preferred sub-block size. Override with ZYX_BLOCK_SIZE='int,int,int'" % (desired_block_size,)
-            
-        try:
-            self.view_raw = os.getenv('VIEW_MODE') == 'raw'
-        except:
-            self.view_raw = False
+
+        view_mode = os.getenv('VIEW_MODE', 'raw')
+        if view_mode.lower() not in ['raw', 'dog']:
+            raise ValueError('Unknown VIEW_MODE "%s"' % view_mode)
+        self.view_raw = view_mode.lower() == 'raw'
         print "Using %s viewing mode. Override with VIEW_MODE=raw or VIEW_MODE=dog." % (self.view_raw and 'raw' or 'dog')
         
         self.image = image

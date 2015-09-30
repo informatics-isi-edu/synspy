@@ -42,6 +42,8 @@ on Mac OSX. It has several requirements:
   OpenCL parallel computing platforms.
 - [Tifffile](http://www.lfd.uci.edu/~gohlke/code/tifffile.py.html) for
   access to OME-TIFF and LSM microscopy file formats.
+- [MDAnalysis](http://pypi.python.org/pypi/MDAnalysis/) for basic
+  transformation matrix utilities.
 - [Python-PCL](https://github.com/strawlab/python-pcl) bindings for
   point-cloud registration algorithms.
   - [Point Cloud Library (PCL)](http://pointclouds.org/) is the 

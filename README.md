@@ -42,6 +42,13 @@ on Mac OSX. It has several requirements:
   OpenCL parallel computing platforms.
 - [Tifffile](http://www.lfd.uci.edu/~gohlke/code/tifffile.py.html) for
   access to OME-TIFF and LSM microscopy file formats.
+- [Python-PCL](https://github.com/strawlab/python-pcl) bindings for
+  point-cloud registration algorithms.
+  - [Point Cloud Library (PCL)](http://pointclouds.org/) is the 
+    actual library. We test with `pcl-devel` on Fedora Linux.
+  - PCL is optional and only used by the auxiliary `synspy-register`
+    script, used to determine alignment between images using a
+    set of common registration features detected in both.
 
 ### Installation
 
@@ -49,7 +56,7 @@ on Mac OSX. It has several requirements:
 1. Check out the development code from GitHub for Synspy and Volspy.
 2. Install with `python setup.py install` for each of Synspy and Volspy.
 
-### Segmenting an Image
+### Detecting Synapses
 
 1. Obtain a sample 2 channel 3D TIFF image such as:
    http://www.isi.edu/~karlcz/sample-data/zebra-d19-03b-D.ome.tiff.gz
@@ -103,6 +110,34 @@ on Mac OSX. It has several requirements:
 
 Do not be alarmed by the copious diagnostic outputs streaming out on
 the console. Did we mention this is experimental code?
+
+### Detecting Nuclei
+
+Follow the same procedure as above, except set the environment
+variable `SYNSPY_DETECT_NUCLEI=true` when launching the
+`synspy-viewer` application. This changes the size of the footprints
+used for scale-sensitive blob detection, so that large nuclei scale
+blobs are detected and classified instead of small synapse-scale
+blobs.
+
+### Registering Two Images
+
+We have only rudimentary support for registering multiple images for expert users:
+
+1. Acquire two images, such as a *before* and *after* image of the same tissue.
+2. Detect nuclei using the previously described method and dump two segment lists such as `nuclei-before.csv` and `nuclei-after.csv` with manually classified features.
+3. Filter the dumped lists to only include manually classified features, e.g. those with `override` column values of `7`.
+4. Run the `synspy-register` tool
+  - `synspy-register nuclei-before.csv nuclei-after.csv`
+5. View the resulting alignment and judge quality.
+6. Capture the transformation matrix printed to standard output if desired.
+
+The transformation matrix can be applied the second image or its
+features (the *after* image in this example). We do not currently
+provide any tools to do this transformation since there are too many
+choices depending on your goals. We do not in general recommend
+resampling the source image grid since a typical anisotropic
+microscope image will be greatly degraded by a rotation.
 
 ### Environment Parameters
 

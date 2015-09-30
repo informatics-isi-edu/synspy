@@ -1,0 +1,75 @@
+#!/usr/bin/python
+#
+# Copyright 2015 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import os
+import sys
+import pcl
+import pcl.registration
+import numpy as np
+import csv
+import vispy.scene
+from vispy.scene import visuals
+
+
+
+def csv2pointcloud(filename):
+    cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
+    cols = tuple(cols.split(','))
+    assert len(cols) == 3
+    grid = os.getenv('SEGMENTS_ZYX_GRID', '1,1,1')
+    grid = tuple(map(float, grid.split(',')))
+    assert len(grid) == 3
+    f = open(filename, 'r')
+    rows = []
+    for row in csv.DictReader(f):
+        rows.append( (float(row[cols[0]]), float(row[cols[1]]), float(row[cols[2]])) )
+    pc = pcl.PointCloud(len(rows))
+    a = np.asarray(pc)
+    for i in range(len(rows)):
+        for j in range(3):
+            a[i,j] = rows[i][j] * grid[j]
+    return pc
+            
+def register_segmentlists(filename1, filename2):
+    pc1 = csv2pointcloud(filename1)
+    pc2 = csv2pointcloud(filename2)
+    sys.stderr.write('Pointcloud lengths: %s, %s\n' % (pc1.size, pc2.size))
+    results = pcl.registration.icp_nl(pc2, pc1, 25)
+
+    print results
+    assert results[0], "point-cloud registration did not converge"
+
+    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True)
+    view = canvas.central_widget.add_view()
+
+    # visualize pc1 and results[2] which is transformed version of pc2??
+    a1 = np.asarray(pc1)
+    a2 = np.asarray(results[2])
+    a3 = np.asarray(pc2)
+    scale = max(a1.max(), a2.max(), a3.max())
+    
+    scatter1 = visuals.Markers()
+    scatter1.set_data(a1/scale, edge_color=None, face_color=(0,1,1,0.5), size=30)
+    view.add(scatter1)
+
+    scatter2 = visuals.Markers()
+    scatter2.set_data(a2/scale, edge_color=None, face_color=(1,1,0,0.5), size=30)
+    view.add(scatter2)
+
+    #scatter3 = visuals.Markers()
+    #scatter3.set_data(a3/scale, edge_color=None, face_color=(1,0,1,.25), size=20)
+    #view.add(scatter3)
+
+    axis = visuals.XYZAxis(parent=view.scene)
+    view.camera = 'turntable'
+    vispy.app.run()
+    
+    return 0
+    
+if __name__ == '__main__':
+    assert len(sys.argv) == 3, "usage: synspy-register csvfile1 csvfile2"
+    result = register_segmentlists(sys.argv[1], sys.argv[2])
+    sys.exit(result)

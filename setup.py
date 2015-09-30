@@ -11,7 +11,11 @@ setup(
     description="synaptic image segmentation",
     version="0.1-prerelease",
     packages=["synspy", "synspy.analyze"],
-    scripts=["bin/synspy-viewer", "bin/synspy-reclassify"],
+    scripts=[
+        "bin/synspy-viewer",
+        "bin/synspy-reclassify",
+        "bin/synspy-register",
+    ],
     requires=["volspy", "vispy", "numpy", "pyopencl", "tifffile"],
     maintainer_email="support@misd.isi.edu",
     license='(new) BSD',

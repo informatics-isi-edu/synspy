@@ -25,7 +25,7 @@ def csv2pointcloud(filename):
     f = open(filename, 'r')
     rows = []
     for row in csv.DictReader(f):
-        rows.append( (float(row[cols[0]]), float(row[cols[1]]), float(row[cols[2]])) )
+        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]])) )
     pc = pcl.PointCloud(len(rows))
     a = np.asarray(pc)
     for i in range(len(rows)):

@@ -27,6 +27,10 @@ def transform_points(M, a):
 
     return a2
 
+def draw_points(view, a, face_color, size=10):
+    scatter = visuals.Markers()
+    scatter.set_data(a, edge_color=None, face_color=face_color, size=size)
+    view.add(scatter)
 
 def csv2pointcloud(filename):
     cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
@@ -45,37 +49,43 @@ def csv2pointcloud(filename):
         for j in range(3):
             a[i,j] = rows[i][j] * grid[j]
     return pc
-            
-def register_segmentlists(filename1, filename2):
-    pc1 = csv2pointcloud(filename1)
-    pc2 = csv2pointcloud(filename2)
-    sys.stderr.write('Pointcloud lengths: %s, %s\n' % (pc1.size, pc2.size))
-    results = pcl.registration.icp_nl(pc2, pc1, 25)
 
+def register(filenames):
+    pointclouds = map(csv2pointcloud, filenames)
+    arrays = map(np.asarray, pointclouds)
+    
+    sys.stderr.write('Pointcloud lengths: %s\n' % map(lambda pc: pc.size, pointclouds))
+    results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0], 25)
     print results
     assert results[0], "point-cloud registration did not converge"
+    M = results[1]
 
+    nuc1 = arrays[0]
+    nuc2 = transform_points(M, arrays[1])
+    scale = max(nuc1.max(), nuc2.max())
+    if len(arrays) == 4:
+        syn1 = arrays[2]
+        syn2 = transform_points(M, arrays[3])
+        scale = max(scale, syn1.max(), syn2.max())
+    else:
+        syn1 = None
+        syn2 = None
+
+    # sanity check that our transform is using same math as pcl did
+    diff = nuc2 - results[2]
+    assert diff.min() == 0
+    assert diff.max() == 0
+    
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True)
     view = canvas.central_widget.add_view()
 
-    # visualize pc1 and results[2] which is transformed version of pc2??
-    a1 = np.asarray(pc1)
-    a2 = np.asarray(results[2])
-    a3 = np.asarray(pc2)
-    scale = max(a1.max(), a2.max(), a3.max())
+    draw_points(view, nuc1/scale, (0,1,0,0.25), 30)
+    draw_points(view, nuc2/scale, (1,0,0,0.25), 30)
+
+    if len(arrays) == 4:
+        draw_points(view, syn1/scale, (0,1,0,0.75), 4)
+        draw_points(view, syn2/scale, (1,0,0,0.75), 4)
     
-    scatter1 = visuals.Markers()
-    scatter1.set_data(a1/scale, edge_color=None, face_color=(0,1,1,0.5), size=30)
-    view.add(scatter1)
-
-    scatter2 = visuals.Markers()
-    scatter2.set_data(a2/scale, edge_color=None, face_color=(1,1,0,0.5), size=30)
-    view.add(scatter2)
-
-    #scatter3 = visuals.Markers()
-    #scatter3.set_data(a3/scale, edge_color=None, face_color=(1,0,1,.25), size=20)
-    #view.add(scatter3)
-
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'turntable'
     vispy.app.run()
@@ -83,6 +93,7 @@ def register_segmentlists(filename1, filename2):
     return 0
     
 if __name__ == '__main__':
-    assert len(sys.argv) == 3, "usage: synspy-register csvfile1 csvfile2"
-    result = register_segmentlists(sys.argv[1], sys.argv[2])
+    assert len(sys.argv) >= 3, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
+    assert len(sys.argv) <= 5, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
+    result = register(sys.argv[1:])
     sys.exit(result)

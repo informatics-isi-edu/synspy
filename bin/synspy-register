@@ -60,7 +60,7 @@ def register(filenames):
     assert len(segment_sizes) == 2
     
     sys.stderr.write('Pointcloud lengths: %s\n' % map(lambda pc: pc.size, pointclouds))
-    results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0], 25)
+    results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0])
     assert results[0], "point-cloud registration did not converge"
     M = results[1]
 

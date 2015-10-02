@@ -534,8 +534,8 @@ class BlockedAnalyzer (object):
             last_progress = progress
         sys.stderr.write(' DONE.\n')
 
-        view_image -= view_image.min()
-        view_image *= self.image.max() / view_image.max()
+        #view_image -= view_image.min()
+        #view_image *= self.image.max() / view_image.max()
         
         total = 0.
         for elapsed, desc in perf_vector:

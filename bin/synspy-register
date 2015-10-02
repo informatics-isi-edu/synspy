@@ -89,12 +89,12 @@ def register(filenames):
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True)
     view = canvas.central_widget.add_view()
 
-    draw_points(view, nuc1/scale, (0,1,0,0.25), segment_sizes[0])
-    draw_points(view, nuc2/scale, (1,0,0,0.25), segment_sizes[0])
+    draw_points(view, nuc1/scale, (0,1,1,0.1), segment_sizes[0])
+    draw_points(view, nuc2/scale, (1,1,0,0.1), segment_sizes[0])
 
     if len(arrays) == 4:
-        draw_points(view, syn1/scale, (0,1,0,0.75), segment_sizes[1])
-        draw_points(view, syn2/scale, (1,0,0,0.75), segment_sizes[1])
+        draw_points(view, syn1/scale, (0,1,1,1), segment_sizes[1])
+        draw_points(view, syn2/scale, (1,1,0,1), segment_sizes[1])
     
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'turntable'

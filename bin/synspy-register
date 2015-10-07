@@ -72,29 +72,44 @@ def register(filenames):
     
     nuc1 = arrays[0]
     nuc2 = transform_points(M, arrays[1])
-    scale = max(nuc1.max(), nuc2.max())
-    if len(arrays) == 4:
-        syn1 = arrays[2]
-        syn2 = transform_points(M, arrays[3])
-        scale = max(scale, syn1.max(), syn2.max())
-    else:
-        syn1 = None
-        syn2 = None
 
     # sanity check that our transform is using same math as pcl did
     diff = nuc2 - results[2]
     assert diff.min() == 0
     assert diff.max() == 0
+
+    bbox = np.zeros((2,3), dtype=np.float32)
+    bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
+    bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
+    if len(arrays) == 4:
+        syn1 = arrays[2]
+        syn2 = transform_points(M, arrays[3])
+        bbox[0,:] = np.minimum(syn1.min(axis=0), bbox[0,:])
+        bbox[0,:] = np.minimum(syn2.min(axis=0), bbox[0,:])
+        bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
+        bbox[1,:] = np.minimum(syn2.max(axis=0), bbox[1,:])
+    else:
+        syn1 = None
+        syn2 = None
+
+    origin = (bbox[1,:] - bbox[0,:]) / 2
+    scale = origin.max()
     
+    nuc1 = (nuc1 - origin)/scale
+    nuc2 = (nuc2 - origin)/scale
+    if len(arrays) == 4:
+        syn1 = (syn1 - origin)/scale
+        syn2 = (syn2 - origin)/scale
+        
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True)
     view = canvas.central_widget.add_view()
 
-    draw_points(view, nuc1/scale, (0,1,1,0.1), segment_sizes[0])
-    draw_points(view, nuc2/scale, (1,1,0,0.1), segment_sizes[0])
+    draw_points(view, nuc1, (0,1,1,0.1), segment_sizes[0])
+    draw_points(view, nuc2, (1,1,0,0.1), segment_sizes[0])
 
     if len(arrays) == 4:
-        draw_points(view, syn1/scale, (0,1,1,1), segment_sizes[1])
-        draw_points(view, syn2/scale, (1,1,0,1), segment_sizes[1])
+        draw_points(view, syn1, (0,1,1,1), segment_sizes[1])
+        draw_points(view, syn2, (1,1,0,1), segment_sizes[1])
     
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'turntable'

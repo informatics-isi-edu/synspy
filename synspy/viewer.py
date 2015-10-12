@@ -660,13 +660,19 @@ class Canvas(base.Canvas):
         self.centroids_batch = set() # store 0-based centroid IDs here...
 
         self.text_overlay = visuals.TextVisual('DUMMY', color="white", font_size=12)
-        self.text_overlay_transform = visuals.transforms.TransformSystem(self)
+        if not hasattr(self.text_overlay, 'transforms'):
+            # temporary backwards compatibility
+            self.text_overlay_transform = visuals.transforms.TransformSystem(self)
 
         self.size = 512, 512
 
     def on_resize(self, event):
         base.Canvas.on_resize(self, event)
-        self.text_overlay_transform = visuals.transforms.TransformSystem(self)
+        if hasattr(self.text_overlay, 'transforms'):
+            self.text_overlay.transforms.configure(canvas=self, viewport=self.viewport1)
+        else:
+            # temporary backwards compatibility
+            self.text_overlay_transform = visuals.transforms.TransformSystem(self)
         
     def reload_data(self):
         base.Canvas.reload_data(self)
@@ -962,5 +968,8 @@ transparency factor: %f
                     self.centroid_measures[segment_id, 1],
                 )
             ]
-            self.text_overlay.draw(self.text_overlay_transform)
+            if hasattr(self.text_overlay, 'transforms'):
+                self.text_overlay.draw()
+            else:
+                self.text_overlay.draw(self.text_overlay_transform)
 

@@ -11,6 +11,7 @@ import datetime
 import os
 import math
 import csv
+import re
 
 import volspy.viewer as base
 from vispy import gloo, visuals
@@ -664,6 +665,16 @@ class Canvas(base.Canvas):
         self.hud_display_names['u_toplvl'] = 'saturation point'
         self.hud_display_names['u_transp'] = 'opacity'
 
+        self.user_notices = []
+        if os.getenv('USER_NOTICES_FILE'):
+            f = open(os.getenv('USER_NOTICES_FILE'))
+            self.user_notices = f.readlines()
+            self.user_notices = [ l.strip() for l in self.user_notices ]
+                
+        assert len(self.user_notices) <= 12
+        for i in range(len(self.user_notices)):
+            self.key_press_handlers['F%d' % (i + 1)] = self.emit_notice
+        
         # provide better value display for HUD
         def value_denorm(v):
             return "%.1f" % (v * (self.data_max - self.data_min) + self.data_min)
@@ -685,6 +696,15 @@ class Canvas(base.Canvas):
             print 'Using default WINDOW_SIZE=512x512'
             self.size = 512, 512
 
+    def emit_notice(self, event):
+        """Emit user-defined notices to heads-up display."""
+        k = str(event.key)
+        n = int(k[re.search('[0-9]', k).start()])
+        n = n - 1
+        assert n >= 0
+        assert n < len(self.user_notices)
+        self.volume_renderer.uniform_changes[self.user_notices[n]] = None
+            
     def on_resize(self, event):
         base.Canvas.on_resize(self, event)
         if hasattr(self.text_overlay, 'transforms'):

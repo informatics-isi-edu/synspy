@@ -807,7 +807,9 @@ transparency factor: %f
                     {1: 5, 3: 7, 5: 5, 7: 7}[int(row['override'])]
                 )
                 self.centroids_batch.add(i)
-        print '%s loaded' % csv_name
+        msg = '%s loaded' % csv_name
+        self.volume_renderer.uniform_changes[msg] = None
+        print msg
                 
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""

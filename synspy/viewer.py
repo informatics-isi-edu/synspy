@@ -952,7 +952,7 @@ transparency factor: %f
                 self.pick_click = False
                 
         picked = base.Canvas.on_draw(self, event, color_mask, pick=self.pick_pos, on_pick=on_pick)
-        if picked is not None and picked[0:3].max() > 0:
+        if picked is not None and picked[0:3].max() > 0 and False:
             segment_id = (
                 picked[0]
                 + picked[1] * 2**8

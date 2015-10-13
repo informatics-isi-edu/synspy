@@ -678,7 +678,12 @@ class Canvas(base.Canvas):
             # temporary backwards compatibility
             self.text_overlay_transform = visuals.transforms.TransformSystem(self)
 
-        self.size = 512, 512
+        try:
+            self.size = tuple([ int(x) for x in os.getenv('WINDOW_SIZE', '').split('x') ])
+            assert len(self.size) == 2, 'WINDOW_SIZE must have form WxH'
+        except:
+            print 'Using default WINDOW_SIZE=512x512'
+            self.size = 512, 512
 
     def on_resize(self, event):
         base.Canvas.on_resize(self, event)

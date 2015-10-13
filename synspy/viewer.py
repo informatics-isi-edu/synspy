@@ -656,6 +656,20 @@ class Canvas(base.Canvas):
         self.key_press_handlers['H'] = self.dump_segment_heatmap
         self.key_press_handlers['?'] = self.help
 
+        # provide better names for synspy parameters on HUD
+        self.hud_display_names['u_floorlvl'] = 'core measure'
+        self.hud_display_names['u_nuclvl'] = 'hollow measure'
+        self.hud_display_names['u_msklvl'] = 'autofluourescence'
+        self.hud_display_names['u_zerlvl'] = 'zero point'
+        self.hud_display_names['u_toplvl'] = 'saturation point'
+        self.hud_display_names['u_transp'] = 'opacity'
+
+        # provide better value display for HUD
+        def value_denorm(v):
+            return "%.1f" % (v * (self.data_max - self.data_min) + self.data_min)
+        for uniform in ['u_floorlvl', 'u_nuclvl', 'u_msklvl', 'u_zerlvl', 'u_toplvl']:
+            self.hud_value_rewrite[uniform] = value_denorm
+        
         self.pick_click = False
         self.centroids_batch = set() # store 0-based centroid IDs here...
 

@@ -723,9 +723,16 @@ class Canvas(base.Canvas):
         self.user_notices = []
         if os.getenv('USER_NOTICES_FILE'):
             f = open(os.getenv('USER_NOTICES_FILE'))
-            self.user_notices = f.readlines()
-            self.user_notices = [ l.strip() for l in self.user_notices ]
-            if self.user_notices[-1] == '':
+            self.user_notices = []
+            for line in f.readlines():
+                line = line.strip()
+                parts = line.split(',')
+                try:
+                    num = int(parts[0])
+                    self.user_notices.append((num, ','.join(parts[1:])))
+                except:
+                    self.user_notices.append((line, None))
+            if self.user_notices[-1] == ('', None):
                 del self.user_notices[-1]
                 
         assert len(self.user_notices) <= 12
@@ -760,7 +767,8 @@ class Canvas(base.Canvas):
         n = n - 1
         assert n >= 0
         assert n < len(self.user_notices)
-        self.volume_renderer.uniform_changes[self.user_notices[n]] = None
+        key, value = self.user_notices[n]
+        self.volume_renderer.uniform_changes[key] = value
             
     def on_resize(self, event):
         base.Canvas.on_resize(self, event)

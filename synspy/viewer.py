@@ -725,6 +725,8 @@ class Canvas(base.Canvas):
             f = open(os.getenv('USER_NOTICES_FILE'))
             self.user_notices = f.readlines()
             self.user_notices = [ l.strip() for l in self.user_notices ]
+            if self.user_notices[-1] == '':
+                del self.user_notices[-1]
                 
         assert len(self.user_notices) <= 12
         for i in range(len(self.user_notices)):
@@ -753,8 +755,8 @@ class Canvas(base.Canvas):
 
     def emit_notice(self, event):
         """Emit user-defined notices to heads-up display."""
-        k = str(event.key)
-        n = int(k[re.search('[0-9]', k).start()])
+        k = event.key.name
+        n = int(k[re.search('[0-9]', k).start():])
         n = n - 1
         assert n >= 0
         assert n < len(self.user_notices)

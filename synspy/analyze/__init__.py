@@ -561,7 +561,7 @@ class BlockedAnalyzer (object):
         """
         splits = [(datetime.datetime.now(), None)]
         
-        image = self.image[self.block_slice_src(blockpos)]
+        image = self.image[self.block_slice_src(blockpos)].astype(np.float32, copy=False)
         splits.append((datetime.datetime.now(), 'image load'))
 
         low_channel = self.convNx1d(image[:,:,:,0], self.kernels_3x1d[0])
@@ -837,7 +837,7 @@ try:
             
             splits = [(datetime.datetime.now(), None)]
 
-            image = self.image[self.block_slice_src(blockpos)]
+            image = self.image[self.block_slice_src(blockpos)].astype(np.float32, copy=False)
             splits.append((datetime.datetime.now(), 'image load'))
 
             # PyOpenCL complains about discontiguous arrays when we project C dimension

@@ -678,7 +678,7 @@ class Canvas(base.Canvas):
             desc="Voxels colored by RGB-packed segment ID."
         )
         ]
-    _pick_glsl_index = 5
+    _pick_glsl_index = 6
     
     def __init__(self, filename1):
         

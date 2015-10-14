@@ -898,7 +898,8 @@ transparency factor: %f
                 )
                 self.centroids_batch.add(i)
         msg = '%s loaded' % csv_name
-        self.volume_renderer.uniform_changes[msg] = None
+        if self.hud_enable:
+            self.volume_renderer.uniform_changes[msg] = None
         print msg
                 
     def thresholded_segments(self):

@@ -110,7 +110,9 @@ on Mac OSX. It has several requirements:
   - The `h` key writes out a 2D histogram of all blobs using the
     feature intensity and background noise intensity measures as the
     two plotting axes.
-  - The `e` key *expunges* manually classified segments, making those
+  - The `e` key *endorses* currently in-threshold segments as if they
+    have been manually classified as true synapses.
+  - The `E` key *expunges* manually classified segments, making those
     segments unclickable so that other adjacent segments are easier to
     click.
 

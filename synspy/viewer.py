@@ -491,7 +491,7 @@ class Canvas(base.Canvas):
         self.status_texture.set_data(np.array([[[b]]], dtype=np.uint8), offset=tuple(pick[::-1]), copy=True)
 
     def retire_centroid_batch(self, event):
-        """Expunge ('E') manually-classified centroids to be non-clickable."""
+        """Expunge manually-classified as non-clickable."""
         for id in self.centroids_batch:
             pick = self._pick_segment_to_rgb(id+1)
             self._set_centroid_status(
@@ -502,7 +502,25 @@ class Canvas(base.Canvas):
                 ]
             )
         self.centroids_batch.clear()
-        
+
+    def endorse_centroids(self, event):
+        """Endorse thresholded centroids as true positives."""
+        centroids, measures, status, indices = self.thresholded_segments()
+        for i in range(centroids.shape[0]):
+            if status[i] == 0:
+                self._set_centroid_status(
+                    self._pick_segment_to_rgb(indices[i]+1),
+                    7
+                )
+                self.centroids_batch.add(indices[i])
+
+    def endorse_or_expunge(self, event):
+        """Endorse ('e') thresholded centroids as true or expunge ('E') centroids as non-clickable."""
+        if 'Shift' in event.modifiers:
+            self.retire_centroid_batch(event)
+        else:
+            self.endorse_centroids(event)
+            
     def _reform_image(self, I, meta, view_reduction):
         analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
         self.raw_image = I
@@ -702,7 +720,7 @@ class Canvas(base.Canvas):
         self.volume_renderer.set_uniform('u_status_texture', self.status_texture)
 
         self.key_press_handlers['L'] = self.load_classified_segments
-        self.key_press_handlers['E'] = self.retire_centroid_batch
+        self.key_press_handlers['E'] = self.endorse_or_expunge
         self.key_press_handlers['N'] = self.adjust_nuc_level
         self.key_press_handlers['M'] = self.adjust_msk_level
         self.key_press_handlers['T'] = self.adjust_zer_level
@@ -841,7 +859,7 @@ transparency factor: %f
         result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
 
         # splat classified centroids
-        centroids, measures, status = self.thresholded_segments()
+        centroids, measures, status, indices = self.thresholded_segments()
         segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
 
         # shift blue to green for segmented voxels
@@ -899,7 +917,7 @@ transparency factor: %f
 
             # newer dump files have an extra saved-parameters row first...
             if row['Z'] == 'saved' and row['Y'] == 'parameters':
-                ignore1, measures, ignore2 = self.thresholded_segments()
+                ignore1, measures, ignore2, ignore3 = self.thresholded_segments()
                 
                 self.floorlvl = (float(row['raw core']) - self.data_min) / (self.data_max - self.data_min)
                 self.nuclvl = (float(row['raw hollow']) - self.data_min) / (self.data_max - self.data_min)
@@ -961,7 +979,9 @@ transparency factor: %f
 
         return self.centroids[matches], \
             self.centroid_measures[matches], \
-            self.centroid_status[1:self.centroid_measures.shape[0]+1][matches]
+            self.centroid_status[1:self.centroid_measures.shape[0]+1][matches], \
+            np.arange(0, self.centroids.shape[0])[matches]
+    
         
     def dump_segment_heatmap(self, event):
         """Dump a heatmap image with current thresholds."""
@@ -998,7 +1018,7 @@ transparency factor: %f
         render(m[:,0], m[:,1], 0)
 
         # render thresholded peaks
-        c, m = self.thresholded_segments()
+        c, m, ignore1, ignore2 = self.thresholded_segments()
         print c.shape, m.shape
         m = normalize(m)
         m /= hmax

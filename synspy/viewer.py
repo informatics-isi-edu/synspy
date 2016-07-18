@@ -863,6 +863,21 @@ transparency factor: %f
             + ((measures.shape[1] == 5) and ('red',) or ())
             + ('override',)
         )
+        writer.writerow(
+            (
+                'saved',
+                'parameters',
+                ('(core, vicinity, zerolvl, toplvl,'
+                 + ((measures.shape[1] == 5) and  'autofl' or '')
+                 + 'transp):'),
+                self.floorlvl * (self.data_max - self.data_min) + self.data_min,
+                self.nuclvl * (self.data_max - self.data_min) + self.data_min,
+                self.zerlvl * (self.data_max - self.data_min) + self.data_min,
+                self.toplvl * (self.data_max - self.data_min) + self.data_min
+            )
+            + ((measures.shape[1] == 5) and (self.msklvl * (self.data_max - self.data_min) + self.data_min,) or ())
+            + (self.transp,)
+        )
         for i in range(measures.shape[0]):
             Z, Y, X = centroids[i]
             writer.writerow( 
@@ -881,6 +896,30 @@ transparency factor: %f
         i = 0
         self.centroids_batch.clear()
         for row in reader:
+
+            # newer dump files have an extra saved-parameters row first...
+            if row['Z'] == 'saved' and row['Y'] == 'parameters':
+                ignore1, measures, ignore2 = self.thresholded_segments()
+                
+                self.floorlvl = (float(row['raw core']) - self.data_min) / (self.data_max - self.data_min)
+                self.nuclvl = (float(row['raw hollow']) - self.data_min) / (self.data_max - self.data_min)
+                self.zerlvl = (float(row['DoG core']) - self.data_min) / (self.data_max - self.data_min)
+                self.toplvl = (float(row['DoG hollow']) - self.data_min) / (self.data_max - self.data_min)
+
+                if measures.shape[1] == 5:
+                    self.msklvl = (float(row['red']) - self.data_min) / (self.data_max - self.data_min)
+
+                self.transp = float(row['override'])
+                
+                self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
+                self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
+                self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
+                self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
+                self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
+                self.volume_renderer.set_uniform('u_transp', self.transp)
+
+                continue
+                    
             Z = int(row['Z'])
             Y = int(row['Y'])
             X = int(row['X'])

@@ -917,7 +917,8 @@ transparency factor: %f
                 self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
                 self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
                 self.volume_renderer.set_uniform('u_transp', self.transp)
-
+                self.update()
+                
                 continue
                     
             Z = int(row['Z'])

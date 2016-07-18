@@ -100,9 +100,13 @@ on Mac OSX. It has several requirements:
       (green for synapses, red for auto-fluorescence).
   - The `d` key *dumps* current parameters to the console output.
   - The `D` key *dumps* a voxel classification TIFF image and a
-    segment list CSV file.
+    segment list CSV file, as well as current threshold parameters.
   - The `l` key *loads* a previously dumped segment list CSV file to
-    continue making manual classification decisions in a new session.
+    continue making manual classification decisions in a new
+    session. This also loads the threshold parameters saved to a
+    special row of the CSV file, if found. (For backwards
+    compatibility, older CSV dumps without saved threshold parameters
+    are also supported, leaving the thresholds unchanged.)
   - The `h` key writes out a 2D histogram of all blobs using the
     feature intensity and background noise intensity measures as the
     two plotting axes.

@@ -954,7 +954,8 @@ transparency factor: %f
         matches = (
             (self.centroid_measures[:,0] >= floorlvl)
             * (self.centroid_measures[:,1] <= nuclvl)
-        )
+        ) + (self.centroid_status[1:self.centroid_measures.shape[0]+1] > 0)
+        
         if self.centroid_measures.shape[1] > 4:
             matches *= self.centroid_measures[:,4] <= msklvl
 

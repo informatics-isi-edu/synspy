@@ -246,10 +246,10 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
         )
 
 def radii_3x1d(k3x1d):
-    return np.array([len(k1d)/2 for k1d in k3x1d])
+    return np.array([len(k1d)/2 for k1d in k3x1d], dtype=np.int32)
 
 def radii_3d(k3d):
-    return np.array([d/2 for d in k3d.shape])
+    return np.array([d/2 for d in k3d.shape], dtype=np.int32)
 
 class BlockedAnalyzer (object):
     """Analyze image using block decomposition for scalability.
@@ -318,9 +318,9 @@ class BlockedAnalyzer (object):
 
         # round up to multiple of reduction size
         self.max_border_widths += np.where(
-            (self.max_border_widths % np.array(self.view_reduction)),
-            np.array(self.view_reduction) - self.max_border_widths % np.array(self.view_reduction),
-            np.zeros((3,))
+            (self.max_border_widths % np.array(self.view_reduction, dtype=np.int32)),
+            np.array(self.view_reduction, dtype=np.int32) - self.max_border_widths % np.array(self.view_reduction, dtype=np.int32),
+            np.zeros((3,), dtype=np.int32)
         )
 
         print "Kernel radii %s, %s implies max-border %s" % (

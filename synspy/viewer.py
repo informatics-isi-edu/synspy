@@ -712,7 +712,18 @@ class Canvas(base.Canvas):
         self.redblur_microns = (3.0, 3.0, 3.0)
 
         base.Canvas.__init__(self, filename1)
-        self.dump_prefix = os.getenv('DUMP_PREFIX', '%s-' % filename1)
+
+        try:
+            dn = os.path.dirname(filename1)
+            dn = dn + '/' if dn else ''
+            bn = os.path.basename(filename1)
+            m = re.match('^(?P<id>.+)[.]ome[.]tif+$', bn)
+            self.dump_prefix = '%s%s.' % (dn, m.groupdict()['id'])
+        except:
+            # backwards compatible default
+            self.dump_prefix = '%s-' % filename1
+
+        self.dump_prefix = os.getenv('DUMP_PREFIX', self.dump_prefix)
         
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)

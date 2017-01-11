@@ -1,6 +1,6 @@
 
 #
-# Copyright 2014-2015 University of Southern California
+# Copyright 2014-2017 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -702,6 +702,7 @@ class Canvas(base.Canvas):
         
         # TODO: put these under UI control?
         do_nuclei = {'true': True}.get(os.getenv('SYNSPY_DETECT_NUCLEI'), False)
+        self.do_nuclei = do_nuclei
         if do_nuclei:
             self.synapse_diam_microns = (8., 8., 8.)
             self.vicinity_diam_microns = (16., 16., 16.)
@@ -812,8 +813,15 @@ class Canvas(base.Canvas):
 
     def reset_ui(self, event=None):
         """Reset UI controls to startup state."""
-        self.nuclvl = (1.2*self.vcn_values.mean()-self.data_min) / (self.data_max-self.data_min)
-        self.msklvl = (self.red_values.max()-self.data_min) / (self.data_max-self.data_min) or 1.0
+        if self.do_nuclei:
+            self.nuclvl = (self.vcn_values.max()-self.data_min) / (self.data_max-self.data_min)
+            self.msklvl = 1.0
+            self.floorlvl = (0.9*self.syn_values.max()-self.data_min) / (self.data_max - self.data_min)
+        else:
+            self.nuclvl = (1.2*self.vcn_values.mean()-self.data_min) / (self.data_max-self.data_min)
+            self.msklvl = (self.red_values.max()-self.data_min) / (self.data_max-self.data_min) or 1.0
+            self.floorlvl = (0.9*self.syn_values.mean()-self.data_min) / (self.data_max-self.data_min)
+
         self.zerlvl = (0.0 - self.data_min) / (self.data_max-self.data_min)
         self.toplvl = self.zerlvl + (0.5 * self.data_max) / (self.data_max-self.data_min)
         self.transp = 0.8
@@ -825,7 +833,6 @@ class Canvas(base.Canvas):
         self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
         self.volume_renderer.set_uniform('u_transp', self.transp)
         base.Canvas.reset_ui(self, event)
-        self.floorlvl = (0.9*self.syn_values.mean()-self.data_min) / (self.data_max-self.data_min)
         self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
 
     def dump_parameters(self, event):

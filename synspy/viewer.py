@@ -536,6 +536,7 @@ class Canvas(base.Canvas):
         print "measures range", centroid_measures.min(axis=0), centroid_measures.max(axis=0)
         print "centroids:", centroids.min(axis=0), centroids.max(axis=0)
         print "view_image shape:", view_image.shape
+        print "view_image range", view_image.min(), view_image.max()
 
         # align 3D textures for opengl?
         assert view_image.shape[3] < 4
@@ -618,7 +619,7 @@ class Canvas(base.Canvas):
         self.status_texture.wrapping = 'clamp_to_edge'
         splits.append((datetime.datetime.now(), 'segment measures and status textures'))
 
-        result = np.zeros(result_shape, dtype=I.dtype)
+        result = np.zeros(result_shape, dtype=np.float32)
         result[0,0,0,0] = self.data_min
         result[0,0,1,0] = self.data_max
         result_box = result[

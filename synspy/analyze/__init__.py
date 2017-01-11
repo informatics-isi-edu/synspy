@@ -502,9 +502,9 @@ class BlockedAnalyzer (object):
         view_image = zeros(tuple(
             map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction)
             + [self.image.shape[-1]]
-        ))
+        ), dtype=np.float32)
 
-        print "Allocated %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction), self.view_reduction, self.image.shape, self.image.micron_spacing)
+        print "Allocated %s %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, view_image.dtype, map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction), self.view_reduction, self.image.shape, self.image.micron_spacing)
 
         centroids = None
         centroid_measures = None

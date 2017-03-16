@@ -39,19 +39,25 @@ def csv2pointcloud(filename):
     cols = tuple(cols.split(','))
     assert len(cols) == 3
     grid = os.getenv('SEGMENTS_ZYX_GRID', '1,1,1')
-    grid = tuple(map(float, grid.split(',')))
-    assert len(grid) == 3
+    grid = np.array(tuple(map(float, grid.split(','))) + (1,), dtype=np.float32)
+    assert grid.shape == (4,), grid.shape
     f = open(filename, 'r')
     rows = []
     for row in csv.DictReader(f):
         if row[cols[0]] == 'saved':
             continue
-        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]])) )
-    pc = pcl.PointCloud(len(rows))
-    a = np.asarray(pc)
-    for i in range(len(rows)):
-        for j in range(3):
-            a[i,j] = rows[i][j] * grid[j]
+        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]]), int(row.get('override', 0) or '0')) )
+    a = np.asarray(rows, dtype=np.float32)
+    a[:0:3] *= grid
+    # filtered array where manual classification is true
+    fa = a[ (a[:,3] == 3) | (a[:,3] == 7) ]
+    if fa.shape[0] > 5:
+        print 'From %s using %s manually classified points' % (filename, fa.shape[0])
+        a = fa
+    else:
+        print 'From %s using all %s detected points' % (filename, a.shape[0])
+    pc = pcl.PointCloud()
+    pc.from_array(a[:,0:3])
     return pc
 
 def register(filenames):
@@ -61,7 +67,6 @@ def register(filenames):
     segment_sizes = map(float, os.getenv('SEGMENT_SIZES', '30,4').split(','))
     assert len(segment_sizes) == 2
     
-    sys.stderr.write('Pointcloud lengths: %s\n' % map(lambda pc: pc.size, pointclouds))
     results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0])
     assert results[0], "point-cloud registration did not converge"
     M = results[1]

@@ -15,6 +15,7 @@ setup(
         "bin/synspy-viewer",
         "bin/synspy-reclassify",
         "bin/synspy-register",
+        "bin/synspy_worker"
     ],
     requires=["volspy", "vispy", "numpy", "pyopencl", "tifffile"],
     maintainer_email="support@misd.isi.edu",

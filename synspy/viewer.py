@@ -893,6 +893,9 @@ transparency factor: %f
         tifffile.imsave(debug_name, result)
         print "%s dumped" % debug_name
 
+        # correct dumped centroids to global coordinate space of unsliced source image
+        centroids = centroids + np.array(self.vol_cropper.slice_origin, np.int32)
+
         csvfile = open(csv_name, 'w')
         writer = csv.writer(csvfile)
         writer.writerow(
@@ -957,10 +960,11 @@ transparency factor: %f
                 self.update()
                 
                 continue
-                    
-            Z = int(row['Z'])
-            Y = int(row['Y'])
-            X = int(row['X'])
+
+            # convert global unsliced coordinates back into sliced image coordinates
+            Z = int(row['Z']) - self.vol_cropper.slice_origin[0]
+            Y = int(row['Y']) - self.vol_cropper.slice_origin[1]
+            X = int(row['X']) - self.vol_cropper.slice_origin[2]
 
             # scan forward until we find same centroid, since CSV is a subset
             while i < self.centroids.shape[0] and (Z, Y, X) != tuple(self.centroids[i]):

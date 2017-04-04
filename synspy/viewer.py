@@ -716,17 +716,15 @@ class Canvas(base.Canvas):
         base.Canvas.__init__(self, filename1)
 
         try:
-            dn = os.path.dirname(filename1)
-            dn = dn + '/' if dn else ''
             bn = os.path.basename(filename1)
             m = re.match('^(?P<id>.+)[.]ome[.]tif+$', bn)
-            self.dump_prefix = '%s%s.' % (dn, m.groupdict()['id'])
+            self.dump_prefix = './%s.' % (m.groupdict()['id'],)
         except:
             # backwards compatible default
             self.dump_prefix = '%s-' % filename1
 
         self.dump_prefix = os.getenv('DUMP_PREFIX', self.dump_prefix)
-        
+
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
         self.volume_renderer.set_uniform('u_measures_texture', self.measures_texture)
@@ -869,6 +867,12 @@ transparency factor: %f
         else:
             self.dump_parameters(event)
 
+    def _csv_dump_filename(self):
+        if self.do_nuclei:
+            return '%snuclei.csv' % self.dump_prefix
+        else:
+            return '%ssynapses.csv' % self.dump_prefix
+
     def dump_classified_voxels(self, event):
         """Dump a volume image and segment list."""
         dtype = np.uint16
@@ -889,7 +893,7 @@ transparency factor: %f
         result = (result * ((2**8-1)/result.max())).astype(np.uint8)
 
         debug_name = '%sdebug.tiff' % self.dump_prefix
-        csv_name = '%ssegments.csv' % self.dump_prefix
+        csv_name = self._csv_dump_filename()
         tifffile.imsave(debug_name, result)
         print "%s dumped" % debug_name
 
@@ -930,7 +934,7 @@ transparency factor: %f
     def load_classified_segments(self, event):
         """Load a segment list with manual override status values."""
         # assume that dump is ordered subset of current analysis
-        csv_name = '%ssegments.csv' % self.dump_prefix
+        csv_name = self._csv_dump_filename()
         csvfile = open(csv_name, 'r')
         reader = csv.DictReader(csvfile)
         i = 0

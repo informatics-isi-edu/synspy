@@ -161,23 +161,14 @@ def run_row_job(row):
                 'X micron': float(micron_spacing[2])
             })
         
-        if row['Synapses URL'] is not None and row['Synapses Filtered URL'] is None:
-            synapses_filtered_file = filter_synspy_csv(row['Synapses URL'])
-            synapses_filtered_url = store.put_loc(
-                '%s/%s' % (subject_path, synapses_filtered_file),
-                synapses_filtered_file,
+        if row['Segments URL'] is not None and row['Segments Filtered URL'] is None:
+            segments_filtered_file = filter_synspy_csv(row['Segments URL'])
+            segments_filtered_url = store.put_loc(
+                '%s/%s' % (subject_path, segments_filtered_file),
+                segments_filtered_file,
                 headers={'Content-Type': 'text/csv'}
             )
-            updated_row['Synapses Filtered URL'] = synapses_filtered_url
-            
-        if row['Nuclei URL'] is not None and row['Nuclei Filtered URL'] is None:
-            nuclei_filtered_file = filter_synspy_csv(row['Nuclei URL'])
-            nuclei_filtered_url = store.put_loc(
-                '%s/%s' (subject_path, nuclei_filtered_file),
-                nuclei_filtered_file,
-                headers={'Content-Type': 'text/csv'}
-            )
-            updated_row['Nuclei Filtered URL'] = nuclei_filtered_url
+            updated_row['Segments Filtered URL'] = segments_filtered_url
             
         if updated_row:
             updated_row['ID'] = row['ID']
@@ -185,7 +176,7 @@ def run_row_job(row):
             
             # record analysis results in ermrest
             catalog.put(
-                '/attributegroup/Zebrafish:Cropped%%20Image/ID;%s' % ','.join([
+                '/attributegroup/Zebrafish:Image%20Region/ID;%s' % ','.join([
                     urllib.quote(col, safe='')
                     for col in updated_row.keys()
                     if col != 'ID'
@@ -226,8 +217,8 @@ def look_for_work():
     """
     global idle_etag
 
-    claimable_work_url = '/attribute/I:=Zebrafish:Image/Zebrafish:Cropped%20Image/!URL::null::&(Z%20micron::null::;Y%20micron::null::;X%20micron::null::);!Synapses%20URL::null::&Synapses%20Filtered%20URL::null::;!Nuclei%20URL::null::&Nuclei%20Filtered%20URL::null::/Status::null::;Status=null;Status=%22processed%22/*,I:Subject?limit=1'
-    status_update_url = '/attributegroup/Zebrafish:Cropped%20Image/ID;Status'
+    claimable_work_url = '/attribute/I:=Zebrafish:Image/Zebrafish:Image%20Region/!I:URL::null::&(Z%20micron::null::;Y%20micron::null::;X%20micron::null::);!Segments%20URL::null::&Segments%20Filtered%20URL::null::/Status=%22analysis%20complete%22;Status=%22processed%22/*,I:Subject?limit=1'
+    status_update_url = '/attributegroup/Zebrafish:Image%20Region/ID;Status'
     
     # this handled concurrent update for us to safely and efficiently claim a record
     idle_etag, batch = catalog.state_change_once(

@@ -11,7 +11,7 @@ def main():
         app.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
         mainWindow = mw.MainWindow()
         mainWindow.show()
-        ret = app.exec()
+        ret = app.exec_()
         return ret
     except Exception as e:
         print(e)

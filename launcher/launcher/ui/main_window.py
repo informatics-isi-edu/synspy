@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
                 self.ui.getWorkListSelectedRow(), "Segmentation Mode")).lower()
         viewerTask = ViewerTask()
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
-        viewerTask.exec(file_path, env)
+        viewerTask.run(file_path, env)
 
     @pyqtSlot(bool, str, str, str)
     def onSubprocessExecuteResult(self, success, status, detail, output_dir):

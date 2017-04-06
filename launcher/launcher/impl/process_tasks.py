@@ -27,7 +27,7 @@ class ViewerTask(SubprocessTask):
             return
         self.status_update_signal.emit(False, "Viewer subprocess execution failed", format_exception(error), None)
 
-    def exec(self, file_path, env=None):
+    def run(self, file_path, env=None):
         self.init_request()
         self.request = async_execute(self._execute,
                                      [file_path, env],

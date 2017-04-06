@@ -10,7 +10,35 @@ import numpy
 import pyopencl as cl
 import pyopencl.array as cl_array
 
-ctx = cl.create_some_context()
+# ugly hack: try to choose context automatically
+#
+# 1. prefer Intel so we don't hit GPU RAM limit as easily,
+# 2. fallback to NVIDIA if available
+# 3. fallback to PyOpenCL automatic mode if we don't know what to do
+platforms = cl.get_platforms()
+
+platform_devices = [
+    [ d for d in p.get_devices() if d.available ]
+    for p in platforms
+]
+
+vendor_platform_idx = {
+    platform_devices[i][0].vendor_id: i
+    for i in range(len(platform_devices))
+    if platform_devices[i]
+}
+
+idx = vendor_platform_idx.get(
+    32902, # prefer Intel
+    vendor_platform_idx.get(4318) # or NVIDIA
+)
+if idx is not None:
+    answers = ['%d' % idx]
+    print 'synspy: choosing %s' % platforms[idx]
+else:
+    answers = None
+
+ctx = cl.create_some_context(answers=answers)
 
 def product(terms):
     return reduce(lambda a, b: a*b, terms, 1)

@@ -38,7 +38,7 @@ class ViewerTask(SubprocessTask):
     @staticmethod
     def _execute(file_path, env=None):
         tempdir = tempfile.mkdtemp(prefix="synspy_")
-        command = ["synspy-viewer", file_path]
+        command = ["/bin/synspy-viewer", file_path]
         try:
             process = subprocess.Popen(command, cwd=tempdir, env=env)
             ret = process.wait()

@@ -1,7 +1,7 @@
 import sys
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import QApplication, QStyleFactory
-from ui import main_window as mw
+from .ui import main_window as mw
 
 
 def main():

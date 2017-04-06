@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
                 return
 
         self.updateStatus("%s. Executing viewer..." % status)
-        env = dict()
+        env = os.environ
         env["ZYX_SLICE"] = self.ui.getWorkListItemByName(self.ui.getWorkListSelectedRow(), "ZYX Slice")
         env["SYNSPY_DETECT_NUCLEI"] = \
             str("nucleic" == self.ui.getWorkListItemByName(
@@ -401,7 +401,7 @@ class MainWindowUI(object):
             header_text = self.workList.horizontalHeaderItem(column).text()
             if column_name == header_text:
                 break
-        if not (row and column):
+        if row is None or column is None:
             return ''
 
         item = self.workList.item(row, column)

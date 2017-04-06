@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
         self.ui = MainWindowUI(self)
         self.configure()
         self.getSession()
+        if not self.identity:
+            self.ui.actionLaunch.setEnabled(False)
 
     def configure(self):
         # configure logging
@@ -119,6 +121,10 @@ class MainWindow(QMainWindow):
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
         self.ui.workList.resizeColumnToContents(2)
+        if (self.ui.workList.columnCount() > 0) and self.identity:
+            self.ui.actionLaunch.setEnabled(True)
+        else:
+            self.ui.actionLaunch.setEnabled(False)
 
     def getCacheDir(self):
         cwd = os.getcwd()
@@ -164,6 +170,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         if success:
             self.identity = result['client']['id']
+            self.ui.actionLaunch.setEnabled(True)
             self.on_actionRefresh_triggered()
         else:
             self.updateStatus(status, detail)
@@ -230,6 +237,9 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def on_actionRefresh_triggered(self):
+        if not self.identity:
+            self.updateStatus("Unable to get worklist -- not logged in.")
+            return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         self.disableControls()
         self.updateStatus("Refreshing worklist...")
@@ -391,6 +401,9 @@ class MainWindowUI(object):
             header_text = self.workList.horizontalHeaderItem(column).text()
             if column_name == header_text:
                 break
+        if not (row and column):
+            return ''
+
         item = self.workList.item(row, column)
         return item.text()
 

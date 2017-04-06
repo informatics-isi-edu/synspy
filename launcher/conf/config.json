@@ -1,0 +1,9 @@
+{
+    "server":
+    {
+        "protocol": "https",
+        "host": "synapse-dev.isrd.isi.edu",
+        "catalog_id": 1
+    },
+    "cache_dir":"/usr/local/synspy"
+}

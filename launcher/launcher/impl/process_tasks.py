@@ -1,6 +1,5 @@
+import os
 import subprocess
-import tempfile
-import shutil
 from PyQt5.QtCore import pyqtSignal
 from deriva_common import format_exception, DEFAULT_HEADERS
 from deriva_qt.common.async_task import async_execute, AsyncTask
@@ -12,42 +11,36 @@ class SubprocessTask(AsyncTask):
 
 
 class ViewerTask(SubprocessTask):
-    status_update_signal = pyqtSignal(bool, str, str, str)
+    status_update_signal = pyqtSignal(bool, str, str)
 
     def __init__(self, parent=None):
         super(SubprocessTask, self).__init__(parent)
+        self.executable = "/bin/synspy-viewer"
 
     def success_callback(self, rid, result):
         if rid != self.rid:
             return
-        self.status_update_signal.emit(True, "Viewer subprocess execution success.", "", result)
+        self.status_update_signal.emit(True, "Viewer subprocess execution success.", "")
 
     def error_callback(self, rid, error):
         if rid != self.rid:
             return
-        self.status_update_signal.emit(False, "Viewer subprocess execution failed", format_exception(error), None)
+        self.status_update_signal.emit(False, "Viewer subprocess execution failed", format_exception(error))
 
-    def run(self, file_path, env=None):
+    def run(self, file_path, working_dir=os.getcwd(), env=None):
         self.init_request()
         self.request = async_execute(self._execute,
-                                     [file_path, env],
+                                     [self.executable, file_path, working_dir, env],
                                      self.rid,
                                      self.success_callback,
                                      self.error_callback)
 
     @staticmethod
-    def _execute(file_path, env=None):
-        tempdir = tempfile.mkdtemp(prefix="synspy_")
-        command = ["/bin/synspy-viewer", file_path]
-        try:
-            process = subprocess.Popen(command, cwd=tempdir, env=env)
-            ret = process.wait()
-            del process
-            if ret != 0:
-                shutil.rmtree(tempdir)
-                raise RuntimeError('Non-zero viewer exit status %s!' % ret)
-            return tempdir
-        except:
-            shutil.rmtree(tempdir)
-            raise
+    def _execute(executable, file_path, working_dir, env=None):
+        command = [executable, file_path]
+        process = subprocess.Popen(command, cwd=working_dir, env=env)
+        ret = process.wait()
+        del process
+        if ret != 0:
+            raise RuntimeError('Non-zero viewer exit status %s!' % ret)
 

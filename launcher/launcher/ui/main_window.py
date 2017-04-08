@@ -1,17 +1,19 @@
 import os
+import re
 import errno
 import logging
 import shutil
+import tempfile
 from PyQt5.QtCore import Qt, QCoreApplication,QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, \
-     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, qApp
+     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, QPushButton, qApp
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget
 from deriva_qt.common import async_task
 from deriva_common import ErmrestCatalog, HatracStore, read_config, read_credentials, resource_path, format_exception, \
     urlquote
-from ..impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, WORKLIST_QUERY
-from ..impl.store_tasks import FileRetrieveTask
+from ..impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
+from ..impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from ..impl.process_tasks import ViewerTask
 
 
@@ -21,6 +23,7 @@ class MainWindow(QMainWindow):
     store = None
     catalog = None
     identity = None
+    tempdir = None
     progress_update_signal = pyqtSignal(str)
 
     def __init__(self):
@@ -48,6 +51,10 @@ class MainWindow(QMainWindow):
         self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
         self.store = HatracStore(protocol, server, credentials, session_config=session_config)
 
+        # create working dir (tempdir)
+        self.tempdir = tempfile.mkdtemp(prefix="synspy_")
+
+        # save config
         self.config = config
 
     def getSession(self):
@@ -67,9 +74,11 @@ class MainWindow(QMainWindow):
         self.ui.actionRefresh.setEnabled(False)
         self.ui.workList.setEnabled(False)
 
-    def closeEvent(self, event):
+    def closeEvent(self, event=None):
         self.cancelTasks()
-        event.accept()
+        shutil.rmtree(self.tempdir)
+        if event:
+            event.accept()
 
     def cancelTasks(self):
         self.disableControls()
@@ -92,8 +101,9 @@ class MainWindow(QMainWindow):
                 "Status",
                 "URL",
                 "ZYX Slice",
-                "Segmentation Mode"]
-        hidden = ["URL", "ZYX Slice", "Segmentation Mode"]
+                "Segmentation Mode",
+                "Subject"]
+        hidden = ["URL", "ZYX Slice", "Segmentation Mode", "Subject"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -105,6 +115,8 @@ class MainWindow(QMainWindow):
                 if key == "Classifier":
                     value = row['user'][0]['Full Name']
                 elif key == "URL":
+                    value = row['source_image'][0][key]
+                elif key == "Subject":
                     value = row['source_image'][0][key]
                 else:
                     value = row[key]
@@ -142,6 +154,21 @@ class MainWindow(QMainWindow):
         self.progress_update_signal.emit(status)
         return True
 
+    def serverProblemMessageBox(self, text, detail):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Warning)
+        msg.setWindowTitle("Confirm Action")
+        msg.setText(text)
+        msg.setInformativeText(detail)
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        ret = msg.exec_()
+        if ret == QMessageBox.No:
+            return
+        else:
+            row = self.ui.getWorkListSelectedRow()
+            self.ui.workList.removeRow(row)
+            return
+
     @pyqtSlot()
     def taskTriggered(self):
         self.ui.logTextBrowser.widget.clear()
@@ -157,7 +184,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(status)
 
     @pyqtSlot(str, str)
-    def updateUI(self, status, detail=None):
+    def resetUI(self, status, detail=None):
         self.updateStatus(status, detail)
         self.enableControls()
 
@@ -179,8 +206,7 @@ class MainWindow(QMainWindow):
     def on_actionLaunch_triggered(self):
         self.disableControls()
         QApplication.setOverrideCursor(Qt.WaitCursor)
-        row = self.ui.getWorkListSelectedRow()
-        url = self.ui.getWorkListItemByName(row, "URL")
+        url = self.ui.getCurrentWorkListItemByName("URL")
 
         filename = os.path.basename(url).split(":")[0]
         destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
@@ -200,40 +226,101 @@ class MainWindow(QMainWindow):
     def onRetrieveFileResult(self, success, status, detail, file_path):
         QApplication.restoreOverrideCursor()
         if not success:
-            self.updateUI(status, detail)
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Confirm Action")
-            msg.setText("Unable to download required file(s)")
-            msg.setInformativeText(
+            self.resetUI(status, detail)
+            self.serverProblemMessageBox(
+                "Unable to download required file(s)",
                 "One or more required files were not downloaded successfully.\n\n"
                 "Would you like to remove this item from the current worklist?")
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            ret = msg.exec_()
-            if ret == QMessageBox.No:
-                return
-            else:
-                row = self.ui.getWorkListSelectedRow()
-                self.ui.workList.removeRow(row)
-                return
+            return
 
         self.updateStatus("%s. Executing viewer..." % status)
         env = os.environ
-        env["ZYX_SLICE"] = self.ui.getWorkListItemByName(self.ui.getWorkListSelectedRow(), "ZYX Slice")
-        env["SYNSPY_DETECT_NUCLEI"] = \
-            str("nucleic" == self.ui.getWorkListItemByName(
-                self.ui.getWorkListSelectedRow(), "Segmentation Mode")).lower()
+        env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemByName("ID")
+        env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemByName("ZYX Slice")
+        env["SYNSPY_DETECT_NUCLEI"] = str(
+            "nucleic" == self.ui.getCurrentWorkListItemByName("Segmentation Mode")).lower()
         viewerTask = ViewerTask()
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
-        viewerTask.run(file_path, env)
+        viewerTask.run(file_path, self.tempdir, env)
 
-    @pyqtSlot(bool, str, str, str)
-    def onSubprocessExecuteResult(self, success, status, detail, output_dir):
+    @pyqtSlot(bool, str, str)
+    def onSubprocessExecuteResult(self, success, status, detail):
         if not success:
-            self.updateUI(status, detail)
+            self.resetUI(status, detail)
+            return
 
-        if os.path.isdir(output_dir):
-            shutil.rmtree(output_dir)
+        # prompt for save/complete/discard
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Confirm Action")
+        msg.setText("How would you like to proceed?")
+        msg.setInformativeText(
+            "Select \"Save Progress\" to save your progress and upload the output to the server.\n\n"
+            "Select \"Complete\" to upload the output to the server and mark this task as completed.\n\n"
+            "Select \"Discard\" to abort the process and leave the task state unchanged.")
+        saveButton = msg.addButton("Save Progress", QMessageBox.ActionRole)
+        completeButton = msg.addButton("Complete", QMessageBox.ActionRole)
+        discardButton = msg.addButton("Discard", QMessageBox.RejectRole)
+        msg.exec_()
+        if msg.clickedButton() == discardButton:
+            self.resetUI("Aborted.")
+            return
+        update_state = None
+        if msg.clickedButton() == saveButton:
+            update_state = ("incomplete", "analysis in progress")
+        elif msg.clickedButton() == completeButton:
+            update_state = ("complete", "analysis complete")
+
+        # generate hatrac upload params
+        basename = self.ui.getCurrentWorkListItemByName("ID")
+        match = "%s\..*\.csv" % basename
+        output_files = [f for f in os.listdir(self.tempdir)
+                        if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
+        if not output_files:
+            self.resetUI("Could not locate output file from viewer subprocess -- aborting.")
+            return
+        seg_mode = self.ui.getCurrentWorkListItemByName("Segmentation Mode")
+        if seg_mode == "synaptic":
+            extension = ".synapses.csv"
+        elif seg_mode == "nucleic":
+            extension = ".nuclei.csv"
+        else:
+            self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
+            return
+        file_name = basename + extension
+        hatrac_path = HATRAC_UPDATE_URL_TEMPLATE % (self.ui.getCurrentWorkListItemByName("Subject"), file_name)
+        file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
+
+        # upload to object store
+        uploadTask = FileUploadTask(self.store)
+        uploadTask.status_update_signal.connect(self.onUploadFileResult)
+        uploadTask.upload(hatrac_path, file_path, update_state)
+
+    @pyqtSlot(bool, str, str, object)
+    def onUploadFileResult(self, success, status, detail, result):
+        if not success:
+            self.resetUI(status, detail)
+            self.serverProblemMessageBox(
+                "Unable to upload required file(s)",
+                "One or more required files were not uploaded successfully.\n\n"
+                "Would you like to remove this item from the current worklist?")
+            return
+        state = result[0]
+        body = [{"ID": self.ui.getCurrentWorkListItemByName("ID"), "Segments URL": result[1], "Status":  state[1]}]
+        updateTask = CatalogUpdateTask(self.catalog)
+        updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
+        updateTask.update(WORKLIST_UPDATE, json=body)
+
+    @pyqtSlot(bool, str, str, object)
+    def onCatalogUpdateResult(self, success, status, detail, result):
+        if not success:
+            self.resetUI(status, detail)
+            self.serverProblemMessageBox(
+                "Unable to update catalog data",
+                "The catalog state was not updated successfully.\n\n"
+                "Would you like to remove this item from the current worklist?")
+            return
+        self.on_actionRefresh_triggered()
 
     @pyqtSlot()
     def on_actionRefresh_triggered(self):
@@ -252,9 +339,9 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         if success:
             self.displayWorklist(result)
-            self.updateUI("Ready.")
+            self.resetUI("Ready.")
         else:
-            self.updateUI(status, detail)
+            self.resetUI(status, detail)
 
     @pyqtSlot()
     def on_actionHelp_triggered(self):
@@ -262,7 +349,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def on_actionExit_triggered(self):
-        self.cancelTasks()
+        self.closeEvent()
         QCoreApplication.quit()
 
 
@@ -392,6 +479,10 @@ class MainWindowUI(object):
 
     # finalize UI setup
         QMetaObject.connectSlotsByName(MainWin)
+
+    def getCurrentWorkListItemByName(self, column_name):
+        row = self.getWorkListSelectedRow()
+        return self.getWorkListItemByName(row, column_name)
 
     def getWorkListItemByName(self, row, column_name):
         column = None

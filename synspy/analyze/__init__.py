@@ -666,10 +666,10 @@ class BlockedAnalyzer (object):
         # centroids are in block peaks grid
         centroids = zip(*centroid_components)
 
+        filtered_centroids = []
         if centroids:
             # discard centroids outside clipbox (we searched slightly
             # larger to handle peaks at edges
-            filtered_centroids = []
             for i in range(len(centroids)):
                 clip = False
                 for d in range(3):
@@ -678,6 +678,7 @@ class BlockedAnalyzer (object):
                 if not clip:
                     filtered_centroids.append(centroids[i])
 
+        if filtered_centroids:
             # centroids are in block core grid
             centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
             # image_centroids are in block image grid
@@ -690,27 +691,44 @@ class BlockedAnalyzer (object):
                 + image_centroids
             )
 
+            splits.append((datetime.datetime.now(), 'centroid coords'))
+
+            centroid_measures = [self.convNd_sparse(image[:,:,:,0], self.kernels_3d[0], image_centroids)]
+            splits.append((datetime.datetime.now(), 'raw corevals'))
+
+            centroid_measures.append(self.convNd_sparse(image[:,:,:,0], self.kernels_3d[1], image_centroids))
+            splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+            centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[0], dog_centroids))
+            splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+            centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[1], dog_centroids))
+            splits.append((datetime.datetime.now(), 'DoG hollowvals'))
+
+            if image.shape[3] > 1:
+                centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
+                splits.append((datetime.datetime.now(), 'centroid redvals'))
         else:
-            image_centroids = []
-            global_centroids = []
-            
-        splits.append((datetime.datetime.now(), 'centroid coords'))
+            # defaults if we have no centroids in block...
+                image_centroids = zeros((0,3), int32)
+                global_centroids = zeros((0,3), int32)
+                centroid_measures = [
+                    zeros((0,), float32), # raw coreval
+                    zeros((0,), float32), # raw hollowval
+                    zeros((0,), float32), # dog coreval
+                    zeros((0,), float32), # dog hollowval
+                ]
+                if image.shape[3] > 1:
+                    centroid_measures.append(
+                        zeros((0,), float32), # redvals
+                    )
 
-        centroid_measures = [self.convNd_sparse(image[:,:,:,0], self.kernels_3d[0], image_centroids)]
-        splits.append((datetime.datetime.now(), 'raw corevals'))
-
-        centroid_measures.append(self.convNd_sparse(image[:,:,:,0], self.kernels_3d[1], image_centroids))
-        splits.append((datetime.datetime.now(), 'raw hollowvals'))
-
-        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[0], dog_centroids))
-        splits.append((datetime.datetime.now(), 'DoG corevals'))
-
-        centroid_measures.append(self.convNd_sparse(dog, self.kernels_3d[1], dog_centroids))
-        splits.append((datetime.datetime.now(), 'DoG hollowvals'))
-
-        if image.shape[3] > 1:
-            centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
-            splits.append((datetime.datetime.now(), 'centroid redvals'))
+                # need to keep same shape for splits list
+                splits.append((datetime.datetime.now(), 'centroid coords'))
+                splits.append((datetime.datetime.now(), 'raw corevals'))
+                splits.append((datetime.datetime.now(), 'raw hollowvals'))
+                splits.append((datetime.datetime.now(), 'DoG corevals'))
+                splits.append((datetime.datetime.now(), 'DoG hollowvals'))
 
         centroid_measures = np.column_stack(tuple(centroid_measures))
         splits.append((datetime.datetime.now(), 'stack centroid measures'))
@@ -947,10 +965,10 @@ try:
             # centroids are in block peaks grid
             centroids = zip(*centroid_components)
 
+            filtered_centroids = []
             if centroids:
                 # discard centroids outside clipbox (we searched slightly
                 # larger to handle peaks at edges
-                filtered_centroids = []
                 for i in range(len(centroids)):
                     clip = False
                     for d in range(3):
@@ -959,7 +977,7 @@ try:
                     if not clip:
                         filtered_centroids.append(centroids[i])
 
-                # centroids are in block core grid
+            if filtered_centroids:
                 centroids = array(filtered_centroids, int32) - array([slc.start for slc in clipbox], int32)
                 # image_centroids are in block image grid
                 image_centroids = centroids + array(self.max_border_widths, int32)
@@ -971,62 +989,79 @@ try:
                     + image_centroids
                 )
 
+                splits.append((datetime.datetime.now(), 'centroid coords'))
+
+                image_centroids_dev = opencllib.cl_array.to_device(clq, image_centroids)
+                centroid_measures = [
+                    self.convNd_sparse(
+                        image0_dev,
+                        opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                        image_centroids_dev,
+                        clq=clq
+                    ).map_to_host()
+                ]
+                splits.append((datetime.datetime.now(), 'raw corevals'))
+
+                centroid_measures.append(
+                    self.convNd_sparse(
+                        image0_dev,
+                        opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                        image_centroids_dev,
+                        clq=clq
+                    ).map_to_host()
+                )
+                del image0_dev
+                del image_centroids_dev
+                splits.append((datetime.datetime.now(), 'raw hollowvals'))
+
+                dog_dev = opencllib.cl_array.to_device(clq, dog)
+                dog_centroids_dev = opencllib.cl_array.to_device(clq, dog_centroids)
+                centroid_measures.append(
+                    self.convNd_sparse(
+                        dog_dev,
+                        opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
+                        dog_centroids_dev,
+                        clq=clq
+                    ).map_to_host()
+                )
+                splits.append((datetime.datetime.now(), 'DoG corevals'))
+
+                centroid_measures.append(
+                    self.convNd_sparse(
+                        dog_dev,
+                        opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
+                        dog_centroids_dev,
+                        clq=clq
+                    ).map_to_host()
+                )
+                del dog_dev
+                del dog_centroids_dev
+                splits.append((datetime.datetime.now(), 'DoG hollowvals'))
+
+                if image.shape[3] > 1:
+                    centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
+                    splits.append((datetime.datetime.now(), 'centroid redvals'))
             else:
-                image_centroids = []
-                global_centroids = []
+                # defaults if we have no centroids in block...
+                image_centroids = zeros((0,3), int32)
+                global_centroids = zeros((0,3), int32)
+                centroid_measures = [
+                    zeros((0,), float32), # raw coreval
+                    zeros((0,), float32), # raw hollowval
+                    zeros((0,), float32), # dog coreval
+                    zeros((0,), float32), # dog hollowval
+                ]
+                if image.shape[3] > 1:
+                    centroid_measures.append(
+                        zeros((0,), float32), # redvals
+                    )
 
-            splits.append((datetime.datetime.now(), 'centroid coords'))
-
-            image_centroids_dev = opencllib.cl_array.to_device(clq, image_centroids)
-            centroid_measures = [
-                self.convNd_sparse(
-                    image0_dev,
-                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
-                    image_centroids_dev,
-                    clq=clq
-                ).map_to_host()
-            ]
-            splits.append((datetime.datetime.now(), 'raw corevals'))
-
-            centroid_measures.append(
-                self.convNd_sparse(
-                    image0_dev,
-                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
-                    image_centroids_dev,
-                    clq=clq
-                ).map_to_host()
-            )
-            del image0_dev
-            del image_centroids_dev
-            splits.append((datetime.datetime.now(), 'raw hollowvals'))
-
-            dog_dev = opencllib.cl_array.to_device(clq, dog)
-            dog_centroids_dev = opencllib.cl_array.to_device(clq, dog_centroids)
-            centroid_measures.append(
-                self.convNd_sparse(
-                    dog_dev,
-                    opencllib.cl_array.to_device(clq, self.kernels_3d[0]),
-                    dog_centroids_dev,
-                    clq=clq
-                ).map_to_host()
-            )
-            splits.append((datetime.datetime.now(), 'DoG corevals'))
-
-            centroid_measures.append(
-                self.convNd_sparse(
-                    dog_dev,
-                    opencllib.cl_array.to_device(clq, self.kernels_3d[1]),
-                    dog_centroids_dev,
-                    clq=clq
-                ).map_to_host()
-            )
-            del dog_dev
-            del dog_centroids_dev
-            splits.append((datetime.datetime.now(), 'DoG hollowvals'))
-
-            if image.shape[3] > 1:
-                centroid_measures.append(self.convNd_sparse(image[:,:,:,1], self.kernels_3d[2], image_centroids))
-                splits.append((datetime.datetime.now(), 'centroid redvals'))
+                # need to keep same shape for splits list
+                splits.append((datetime.datetime.now(), 'centroid coords'))
+                splits.append((datetime.datetime.now(), 'raw corevals'))
+                splits.append((datetime.datetime.now(), 'raw hollowvals'))
+                splits.append((datetime.datetime.now(), 'DoG corevals'))
+                splits.append((datetime.datetime.now(), 'DoG hollowvals'))
 
             centroid_measures = np.column_stack(tuple(centroid_measures))
             splits.append((datetime.datetime.now(), 'stack centroid measures'))

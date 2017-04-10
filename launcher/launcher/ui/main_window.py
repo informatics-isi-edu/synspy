@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         logging.getLogger().setLevel(logging.INFO)
 
         # configure Ermrest/Hatrac
-        config_path = os.path.expanduser(os.path.normpath(os.path.join('~/deriva', "synspy", "config.json")))
+        config_path = os.path.expanduser(os.path.normpath('~/deriva/synapse/synspy/config.json'))
         if not os.path.isfile(config_path):
             config_path = os.path.join(resource_path('conf'), 'config.json')
         config = read_config(config_path)

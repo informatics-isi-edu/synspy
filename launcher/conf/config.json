@@ -1,10 +1,9 @@
 {
-    "server":
-    {
-        "protocol": "https",
-        "host": "synapse-dev.isrd.isi.edu",
-        "catalog_id": 1
-    },
-    "credentials_dir":"~/deriva/synspy",
-    "cache_dir":"~/synspy"
+  "server": {
+    "protocol": "https",
+    "host": "synapse-dev.isrd.isi.edu",
+    "catalog_id": 1
+  },
+  "credentials_dir": "~/deriva/synapse/synspy",
+  "cache_dir": "~/synspy"
 }

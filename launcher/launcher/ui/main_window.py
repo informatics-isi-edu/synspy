@@ -5,8 +5,8 @@ import logging
 import shutil
 import tempfile
 from PyQt5.QtCore import Qt, QCoreApplication,QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, \
-     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, QPushButton, qApp
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
+     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, qApp
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget
 from deriva_qt.common import async_task
@@ -25,34 +25,35 @@ class MainWindow(QMainWindow):
     identity = None
     tempdir = None
     progress_update_signal = pyqtSignal(str)
-
-    def __init__(self):
+    config_file_name = "config.json"
+    
+    def __init__(self, config_path=None, credential_path=None):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
-        self.configure()
+        self.configure(config_path, credential_path)
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
 
-    def configure(self):
+    def configure(self, config_path, credential_path):
         # configure logging
         self.ui.logTextBrowser.widget.log_update_signal.connect(self.updateLog)
-        self.ui.logTextBrowser.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        self.ui.logTextBrowser.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logging.getLogger().addHandler(self.ui.logTextBrowser)
         logging.getLogger().setLevel(logging.INFO)
 
         # configure Ermrest/Hatrac
-        config_path = os.path.expanduser(os.path.normpath('~/deriva/synapse/synspy/config.json'))
-        if not os.path.isfile(config_path):
-            config_path = os.path.join(resource_path('conf'), 'config.json')
+        if not config_path:
+            config_path = os.path.join(os.path.expanduser(
+                os.path.normpath("~/.deriva/synapse/synspy-launcher")), self.config_file_name)
+            if not os.path.isfile(config_path):
+                config_path = os.path.join(resource_path("conf"), self.config_file_name)
         config = read_config(config_path)
-        protocol = config['server']['protocol']
-        server = config['server']['host']
-        catalog_id = config['server']['catalog_id']
-        session_config = config.get('session')
-        credentials = read_credentials(
-            os.path.expanduser(os.path.normpath(
-                os.path.join(config.get('credentials_dir', resource_path('conf')), 'credentials.json'))))
+        credentials = read_credentials(credential_path)
+        protocol = config["server"]["protocol"]
+        server = config["server"]["host"]
+        catalog_id = config["server"]["catalog_id"]
+        session_config = config.get("session")
         self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
         self.store = HatracStore(protocol, server, credentials, session_config=session_config)
 
@@ -119,9 +120,9 @@ class MainWindow(QMainWindow):
             for key in keys:
                 item = QTableWidgetItem()
                 if key == "Classifier":
-                    value = row['user'][0].get('Full Name')
+                    value = row["user"][0].get("Full Name")
                 elif key == "URL" or key == "Subject":
-                    value = row['source_image'][0].get(key)
+                    value = row["source_image"][0].get(key)
                 else:
                     value = row.get(key)
                 if isinstance(value, str):
@@ -144,7 +145,7 @@ class MainWindow(QMainWindow):
 
     def getCacheDir(self):
         cwd = os.getcwd()
-        cache_dir = os.path.expanduser(self.config.get('cache_dir', cwd))
+        cache_dir = os.path.expanduser(self.config.get("cache_dir", cwd))
         if not os.path.isdir(cache_dir):
             try:
                 os.makedirs(cache_dir)
@@ -272,7 +273,7 @@ class MainWindow(QMainWindow):
     def onSessionResult(self, success, status, detail, result):
         QApplication.restoreOverrideCursor()
         if success:
-            self.identity = result['client']['id']
+            self.identity = result["client"]["id"]
             self.ui.actionLaunch.setEnabled(True)
             self.on_actionRefresh_triggered()
         else:
@@ -372,7 +373,7 @@ class MainWindow(QMainWindow):
         self.updateStatus("Refreshing worklist...")
         queryTask = CatalogQueryTask(self.catalog)
         queryTask.status_update_signal.connect(self.onRefreshResult)
-        queryTask.query(WORKLIST_QUERY % urlquote(self.identity, ''))
+        queryTask.query(WORKLIST_QUERY % urlquote(self.identity, ""))
 
     @pyqtSlot(bool, str, str, object)
     def onRefreshResult(self, success, status, detail, result):
@@ -412,6 +413,9 @@ class MainWindowUI(object):
         self.verticalLayout.setSpacing(6)
         self.verticalLayout.setObjectName("verticalLayout")
 
+        # Splitter for Worklist/Log
+        self.splitter = QSplitter(Qt.Vertical)
+
         # Table View (Work list)
         self.workList = QTableWidget(self.centralWidget)
         self.workList.setObjectName("tableWidget")
@@ -430,7 +434,7 @@ class MainWindowUI(object):
         self.workList.horizontalHeader().setStretchLastSection(True)
         # self.workList.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.workList.setSortingEnabled(True)  # allow sorting
-        self.verticalLayout.addWidget(self.workList)
+        self.splitter.addWidget(self.workList)
 
         # Log Widget
         self.logTextBrowser = log_widget.QPlainTextEditLogger(self.centralWidget)
@@ -443,7 +447,11 @@ class MainWindowUI(object):
                     background-color: lightgray;
             }
             """)
-        self.verticalLayout.addWidget(self.logTextBrowser.widget)
+        self.splitter.addWidget(self.logTextBrowser.widget)
+
+        # add splitter
+        self.splitter.setSizes([600, 100])
+        self.verticalLayout.addWidget(self.splitter)
 
     # Actions
 
@@ -533,7 +541,7 @@ class MainWindowUI(object):
 
     def getWorkListItemTextByName(self, row, column_name):
         item = self.getWorkListItemByName(row, column_name)
-        return item.text() if item else ''
+        return item.text() if item else ""
 
     def getWorkListItemByName(self, row, column_name):
         column = None

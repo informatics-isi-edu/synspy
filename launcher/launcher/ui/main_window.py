@@ -42,12 +42,17 @@ class MainWindow(QMainWindow):
         logging.getLogger().setLevel(logging.INFO)
 
         # configure Ermrest/Hatrac
-        config = read_config(resource_path(os.path.join('conf', 'config.json')))
-        credentials = read_credentials(resource_path(os.path.join('conf', 'credentials.json')))
+        config_path = os.path.expanduser(os.path.normpath(os.path.join('~/deriva', "synspy", "config.json")))
+        if not os.path.isfile(config_path):
+            config_path = os.path.join(resource_path('conf'), 'config.json')
+        config = read_config(config_path)
         protocol = config['server']['protocol']
         server = config['server']['host']
         catalog_id = config['server']['catalog_id']
         session_config = config.get('session')
+        credentials = read_credentials(
+            os.path.expanduser(os.path.normpath(
+                os.path.join(config.get('credentials_dir', resource_path('conf')), 'credentials.json'))))
         self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
         self.store = HatracStore(protocol, server, credentials, session_config=session_config)
 
@@ -102,8 +107,9 @@ class MainWindow(QMainWindow):
                 "URL",
                 "ZYX Slice",
                 "Segmentation Mode",
+                "Segments URL",
                 "Subject"]
-        hidden = ["URL", "ZYX Slice", "Segmentation Mode", "Subject"]
+        hidden = ["URL", "ZYX Slice", "Segmentation Mode", "Subject", "Segments URL"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -113,15 +119,13 @@ class MainWindow(QMainWindow):
             for key in keys:
                 item = QTableWidgetItem()
                 if key == "Classifier":
-                    value = row['user'][0]['Full Name']
-                elif key == "URL":
-                    value = row['source_image'][0][key]
-                elif key == "Subject":
-                    value = row['source_image'][0][key]
+                    value = row['user'][0].get('Full Name')
+                elif key == "URL" or key == "Subject":
+                    value = row['source_image'][0].get(key)
                 else:
-                    value = row[key]
+                    value = row.get(key)
                 if isinstance(value, str):
-                    item.setText(value or '')  # or '' for any None values
+                    item.setText(value)
                 self.ui.workList.setItem(rows, cols, item)
                 if key in hidden:
                     self.ui.workList.hideColumn(cols)
@@ -140,7 +144,7 @@ class MainWindow(QMainWindow):
 
     def getCacheDir(self):
         cwd = os.getcwd()
-        cache_dir = self.config.get('cache_dir', cwd)
+        cache_dir = os.path.expanduser(self.config.get('cache_dir', cwd))
         if not os.path.isdir(cache_dir):
             try:
                 os.makedirs(cache_dir)
@@ -159,7 +163,7 @@ class MainWindow(QMainWindow):
         msg.setIcon(QMessageBox.Warning)
         msg.setWindowTitle("Confirm Action")
         msg.setText(text)
-        msg.setInformativeText(detail)
+        msg.setInformativeText(detail + "\n\nWould you like to remove this item from the current worklist?")
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         ret = msg.exec_()
         if ret == QMessageBox.No:
@@ -168,6 +172,78 @@ class MainWindow(QMainWindow):
             row = self.ui.getWorkListSelectedRow()
             self.ui.workList.removeRow(row)
             return
+
+    def downloadFiles(self):
+        # if analysis in progress for this item and there is an existing segments file, download it first
+        segments_url = self.ui.getCurrentWorkListItemTextByName("Segments URL")
+        status = self.ui.getCurrentWorkListItemTextByName("Status")
+        if segments_url and "analysis in progress" == status:
+            segments_filename = os.path.basename(segments_url).split(":")[0]
+            segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
+            self.updateStatus("Downloading file: [%s]" % segments_destfile)
+            downloadTask = FileRetrieveTask(self.store)
+            downloadTask.status_update_signal.connect(self.onRetrieveAnalysisFileResult)
+            self.progress_update_signal.connect(self.updateProgress)
+            downloadTask.retrieve(
+                segments_url,
+                destfile=segments_destfile,
+                progress_callback=self.downloadCallback)
+        else:
+            self.downloadInputFile()
+
+    def downloadInputFile(self):
+        # get the main TIFF file for analysis if not already cached
+        url = self.ui.getCurrentWorkListItemTextByName("URL")
+        filename = os.path.basename(url).split(":")[0]
+        destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
+        if not os.path.isfile(destfile):
+            self.updateStatus("Downloading file: [%s]" % destfile)
+            downloadTask = FileRetrieveTask(self.store)
+            downloadTask.status_update_signal.connect(self.onRetrieveInputFileResult)
+            self.progress_update_signal.connect(self.updateProgress)
+            downloadTask.retrieve(
+                url,
+                destfile=destfile,
+                progress_callback=self.downloadCallback)
+        else:
+            self.onRetrieveInputFileResult(True, "The file [%s] already exists" % destfile, None, destfile)
+
+    def executeViewer(self, file_path):
+        self.updateStatus("Executing viewer...")
+        env = os.environ
+        env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemTextByName("ID")
+        env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemTextByName("ZYX Slice")
+        env["SYNSPY_DETECT_NUCLEI"] = str(
+            "nucleic" == self.ui.getCurrentWorkListItemTextByName("Segmentation Mode")).lower()
+        viewerTask = ViewerTask()
+        viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
+        viewerTask.run(file_path, self.tempdir, env)
+
+    def uploadAnalysisResult(self, update_state):
+        # generate hatrac upload params
+        basename = self.ui.getCurrentWorkListItemTextByName("ID")
+        match = "%s\..*\.csv" % basename
+        output_files = [f for f in os.listdir(self.tempdir)
+                        if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
+        if not output_files:
+            self.resetUI("Could not locate output file from viewer subprocess -- aborting.")
+            return
+        seg_mode = self.ui.getCurrentWorkListItemTextByName("Segmentation Mode")
+        if seg_mode == "synaptic":
+            extension = ".synapses.csv"
+        elif seg_mode == "nucleic":
+            extension = ".nuclei.csv"
+        else:
+            self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
+            return
+        file_name = basename + extension
+        hatrac_path = HATRAC_UPDATE_URL_TEMPLATE % (self.ui.getCurrentWorkListItemTextByName("Subject"), file_name)
+        file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
+
+        # upload to object store
+        uploadTask = FileUploadTask(self.store)
+        uploadTask.status_update_signal.connect(self.onUploadFileResult)
+        uploadTask.upload(hatrac_path, file_path, update_state)
 
     @pyqtSlot()
     def taskTriggered(self):
@@ -206,42 +282,31 @@ class MainWindow(QMainWindow):
     def on_actionLaunch_triggered(self):
         self.disableControls()
         QApplication.setOverrideCursor(Qt.WaitCursor)
-        url = self.ui.getCurrentWorkListItemByName("URL")
-
-        filename = os.path.basename(url).split(":")[0]
-        destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
-        if not os.path.isfile(destfile):
-            self.updateStatus("Downloading file: [%s]" % destfile)
-            downloadTask = FileRetrieveTask(self.store)
-            downloadTask.status_update_signal.connect(self.onRetrieveFileResult)
-            self.progress_update_signal.connect(self.updateProgress)
-            downloadTask.retrieve(
-                url,
-                destfile=destfile,
-                progress_callback=self.downloadCallback)
-        else:
-            self.onRetrieveFileResult(True, "The file [%s] already exists" % destfile, None, destfile)
+        self.downloadFiles()
 
     @pyqtSlot(bool, str, str, str)
-    def onRetrieveFileResult(self, success, status, detail, file_path):
+    def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
         QApplication.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
-                "Unable to download required file(s)",
-                "One or more required files were not downloaded successfully.\n\n"
-                "Would you like to remove this item from the current worklist?")
+                "Unable to download required input file",
+                "The in-progress analysis file was not downloaded successfully.")
             return
 
-        self.updateStatus("%s. Executing viewer..." % status)
-        env = os.environ
-        env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemByName("ID")
-        env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemByName("ZYX Slice")
-        env["SYNSPY_DETECT_NUCLEI"] = str(
-            "nucleic" == self.ui.getCurrentWorkListItemByName("Segmentation Mode")).lower()
-        viewerTask = ViewerTask()
-        viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
-        viewerTask.run(file_path, self.tempdir, env)
+        self.downloadInputFile()
+
+    @pyqtSlot(bool, str, str, str)
+    def onRetrieveInputFileResult(self, success, status, detail, file_path):
+        QApplication.restoreOverrideCursor()
+        if not success:
+            self.resetUI(status, detail)
+            self.serverProblemMessageBox(
+                "Unable to download required input file",
+                "The image input file was not downloaded successfully.")
+            return
+
+        self.executeViewer(file_path)
 
     @pyqtSlot(bool, str, str)
     def onSubprocessExecuteResult(self, success, status, detail):
@@ -271,30 +336,7 @@ class MainWindow(QMainWindow):
         elif msg.clickedButton() == completeButton:
             update_state = ("complete", "analysis complete")
 
-        # generate hatrac upload params
-        basename = self.ui.getCurrentWorkListItemByName("ID")
-        match = "%s\..*\.csv" % basename
-        output_files = [f for f in os.listdir(self.tempdir)
-                        if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
-        if not output_files:
-            self.resetUI("Could not locate output file from viewer subprocess -- aborting.")
-            return
-        seg_mode = self.ui.getCurrentWorkListItemByName("Segmentation Mode")
-        if seg_mode == "synaptic":
-            extension = ".synapses.csv"
-        elif seg_mode == "nucleic":
-            extension = ".nuclei.csv"
-        else:
-            self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
-            return
-        file_name = basename + extension
-        hatrac_path = HATRAC_UPDATE_URL_TEMPLATE % (self.ui.getCurrentWorkListItemByName("Subject"), file_name)
-        file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
-
-        # upload to object store
-        uploadTask = FileUploadTask(self.store)
-        uploadTask.status_update_signal.connect(self.onUploadFileResult)
-        uploadTask.upload(hatrac_path, file_path, update_state)
+        self.uploadAnalysisResult(update_state)
 
     @pyqtSlot(bool, str, str, object)
     def onUploadFileResult(self, success, status, detail, result):
@@ -302,11 +344,10 @@ class MainWindow(QMainWindow):
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to upload required file(s)",
-                "One or more required files were not uploaded successfully.\n\n"
-                "Would you like to remove this item from the current worklist?")
+                "One or more required files were not uploaded successfully.")
             return
         state = result[0]
-        body = [{"ID": self.ui.getCurrentWorkListItemByName("ID"), "Segments URL": result[1], "Status":  state[1]}]
+        body = [{"ID": self.ui.getCurrentWorkListItemTextByName("ID"), "Segments URL": result[1], "Status":  state[1]}]
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
         updateTask.update(WORKLIST_UPDATE, json=body)
@@ -317,8 +358,7 @@ class MainWindow(QMainWindow):
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to update catalog data",
-                "The catalog state was not updated successfully.\n\n"
-                "Would you like to remove this item from the current worklist?")
+                "The catalog state was not updated successfully.")
             return
         self.on_actionRefresh_triggered()
 
@@ -480,9 +520,20 @@ class MainWindowUI(object):
     # finalize UI setup
         QMetaObject.connectSlotsByName(MainWin)
 
-    def getCurrentWorkListItemByName(self, column_name):
+    def getWorkListSelectedRow(self):
+        row = self.workList.currentRow()
+        if row == -1 and self.workList.rowCount() > 0:
+            row = 0
+
+        return row
+
+    def getCurrentWorkListItemTextByName(self, column_name):
         row = self.getWorkListSelectedRow()
-        return self.getWorkListItemByName(row, column_name)
+        return self.getWorkListItemTextByName(row, column_name)
+
+    def getWorkListItemTextByName(self, row, column_name):
+        item = self.getWorkListItemByName(row, column_name)
+        return item.text() if item else ''
 
     def getWorkListItemByName(self, row, column_name):
         column = None
@@ -493,14 +544,6 @@ class MainWindowUI(object):
             if column_name == header_text:
                 break
         if row is None or column is None:
-            return ''
+            return None
 
-        item = self.workList.item(row, column)
-        return item.text()
-
-    def getWorkListSelectedRow(self):
-        row = self.workList.currentRow()
-        if row == -1 and self.workList.rowCount() > 0:
-            row = 0
-
-        return row
+        return self.workList.item(row, column)

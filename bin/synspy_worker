@@ -199,7 +199,7 @@ idle_etag = None
 def look_for_work():
     """Find, claim, and process experiment one record.
 
-       1. Find row with actionable state (partial data and Status=None
+       1. Find row with actionable state (partial data and Status="analysis complete")
        2. Claim by setting Status="in progress"
        3. Download and process data as necessary
        4. Upload processing results to Hatrac

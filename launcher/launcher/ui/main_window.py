@@ -10,11 +10,12 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePo
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget
 from deriva_qt.common import async_task
-from deriva_common import ErmrestCatalog, HatracStore, read_config, read_credentials, resource_path, format_exception, \
+from deriva_common import ErmrestCatalog, HatracStore, read_config, read_credential, resource_path, format_exception, \
     urlquote
 from ..impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
 from ..impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from ..impl.process_tasks import ViewerTask
+from . import DEFAULT_CONFIG
 
 
 # noinspection PyArgumentList
@@ -46,10 +47,8 @@ class MainWindow(QMainWindow):
         if not config_path:
             config_path = os.path.join(os.path.expanduser(
                 os.path.normpath("~/.deriva/synapse/synspy-launcher")), self.config_file_name)
-            if not os.path.isfile(config_path):
-                config_path = os.path.join(resource_path("conf"), self.config_file_name)
-        config = read_config(config_path)
-        credentials = read_credentials(credential_path)
+        config = read_config(config_path, create_default=True, default=DEFAULT_CONFIG)
+        credentials = read_credential(credential_path, create_default=True)
         protocol = config["server"]["protocol"]
         server = config["server"]["host"]
         catalog_id = config["server"]["catalog_id"]

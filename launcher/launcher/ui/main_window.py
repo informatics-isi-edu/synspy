@@ -211,6 +211,7 @@ class MainWindow(QMainWindow):
     def executeViewer(self, file_path):
         self.updateStatus("Executing viewer...")
         env = os.environ
+        env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
         env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemTextByName("ID")
         env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemTextByName("ZYX Slice")
         env["SYNSPY_DETECT_NUCLEI"] = str(

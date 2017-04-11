@@ -7,8 +7,9 @@ from .ui import main_window as mw
 
 def main():
     try:
+        QApplication.setDesktopSettingsAware(False)
+        QApplication.setStyle(QStyleFactory.create("Fusion"))
         app = QApplication(sys.argv)
-        app.setStyle(QStyleFactory.create('Fusion'))
         app.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
 
         cli = BaseCLI("Synapse Viewer Launcher",

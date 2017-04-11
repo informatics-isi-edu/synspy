@@ -493,13 +493,11 @@ class MainWindowUI(object):
 
         # Launch
         self.mainToolBar.addAction(self.actionLaunch)
-        self.actionLaunch.setIcon(
-            self.actionLaunch.parentWidget().style().standardIcon(getattr(QStyle, "SP_MediaPlay")))
+        self.actionLaunch.setIcon(qApp.style().standardIcon(QStyle.SP_MediaPlay))
 
         # Reload
         self.mainToolBar.addAction(self.actionRefresh)
-        self.actionRefresh.setIcon(
-            self.actionRefresh.parentWidget().style().standardIcon(getattr(QStyle, "SP_BrowserReload")))
+        self.actionRefresh.setIcon(qApp.style().standardIcon(QStyle.SP_BrowserReload))
 
         # this spacer right justifies everything that comes after it
         spacer = QWidget()
@@ -508,13 +506,11 @@ class MainWindowUI(object):
 
         # Help
         self.mainToolBar.addAction(self.actionHelp)
-        self.actionHelp.setIcon(
-            self.actionHelp.parentWidget().style().standardIcon(getattr(QStyle, "SP_MessageBoxQuestion")))
+        self.actionHelp.setIcon(qApp.style().standardIcon(QStyle.SP_MessageBoxQuestion))
 
         # Exit
         self.mainToolBar.addAction(self.actionExit)
-        self.actionExit.setIcon(
-            self.actionExit.parentWidget().style().standardIcon(getattr(QStyle, "SP_DialogCancelButton")))
+        self.actionExit.setIcon(qApp.style().standardIcon(QStyle.SP_DialogCancelButton))
 
     # Status Bar
 

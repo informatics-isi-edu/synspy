@@ -874,28 +874,29 @@ transparency factor: %f
             return '%ssynapses.csv' % self.dump_prefix
 
     def dump_classified_voxels(self, event):
-        """Dump a volume image and segment list."""
-        dtype = np.uint16
-        dmax = 1./self.raw_image.max() * (2**16-1)
+        """Dump a segment list."""
 
-        result = np.zeros( self.raw_image.shape[0:3] + (3,), dtype ) # RGB debug image
-        result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
+        centroids, measures, status, indices = self.thresholded_segments()
 
         # splat classified centroids
-        centroids, measures, status, indices = self.thresholded_segments()
-        segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
+        #dtype = np.uint16
+        #dmax = 1./self.raw_image.max() * (2**16-1)
+        #result = np.zeros( self.raw_image.shape[0:3] + (3,), dtype ) # RGB debug image
+        #result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
+        #segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
 
         # shift blue to green for segmented voxels
-        result[:,:,:,1] = result[:,:,:,2] * (segment_map > 0)
-        result[:,:,:,2] -= result[:,:,:,2] * (segment_map > 0)
+        #result[:,:,:,1] = result[:,:,:,2] * (segment_map > 0)
+        #result[:,:,:,2] -= result[:,:,:,2] * (segment_map > 0)
         
-        result = np.sqrt(result)
-        result = (result * ((2**8-1)/result.max())).astype(np.uint8)
+        #result = np.sqrt(result)
+        #result = (result * ((2**8-1)/result.max())).astype(np.uint8)
 
-        debug_name = '%sdebug.tiff' % self.dump_prefix
+        #debug_name = '%sdebug.tiff' % self.dump_prefix
+        #tifffile.imsave(debug_name, result)
+        #print "%s dumped" % debug_name
+
         csv_name = self._csv_dump_filename()
-        tifffile.imsave(debug_name, result)
-        print "%s dumped" % debug_name
 
         # correct dumped centroids to global coordinate space of unsliced source image
         centroids = centroids + np.array(self.vol_cropper.slice_origin, np.int32)
@@ -929,7 +930,10 @@ transparency factor: %f
             )
         del writer
         csvfile.close()
-        print "%s dumped" % csv_name
+        msg = "%s dumped" % csv_name
+        if self.hud_enable:
+            self.volume_renderer.uniform_changes[msg] = None
+        print msg
 
     def load_classified_segments(self, event):
         """Load a segment list with manual override status values."""

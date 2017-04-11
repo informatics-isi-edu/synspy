@@ -164,6 +164,7 @@ Several environment variables can be set to modify the behavior of the `synspy-v
 - `MAX_3D_TEXTURE_WIDTH` hints the per-dimension size of the volume cube loaded into an OpenGL texture. This affects the sampling precision along the ray-casting integration in the renderer. (Default is `768`.)
 - `ZNOISE_PERCENTILE` enables a sensor noise estimation by calculating the Nth percentile value along the Z axis, e.g. `ZNOISE_PERCENTILE_5` estimates a 2D noise image as the 5th percentile value across the Z stack, and subtracts that noise image from every slice in the stack as a pre-filtering step. *WARNING*: use of this feature causes the entire image to be loaded into RAM, causing a significantly higher minimum RAM size for runs with large input images. (Default is no noise estimate.) 
   - `ZNOISE_ZERO_LEVEL` controls a lower value clamp for the pre-filtered data when percentile filtering is enabled. (Default is `0`.)
+- `SYNSPY_AUTO_DUMP_LOAD=true`: Automatically load an existing segments CSV file on startup and dump one on exit via the `ESC` key. See related `DUMP_PREFIX` for how segments CSV file must be named. **WARNING***: exiting the application by other means such as using the `[X]` close button on the window decoration MAY bypass the application and exit without dumping the latest voxel classifications.
 
 The `ZYX_SLICE`, `ZYX_VIEW_GRID`, and `MAX_3D_TEXTURE_WIDTH` parameters have different but inter-related effects on the scope of the volumetric visualization.
 

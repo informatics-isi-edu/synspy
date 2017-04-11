@@ -741,6 +741,8 @@ class Canvas(base.Canvas):
         self.key_press_handlers['H'] = self.dump_segment_heatmap
         self.key_press_handlers['?'] = self.help
 
+        self.auto_dump_load = os.getenv('SYNSPY_AUTO_DUMP_LOAD', 'false').lower() == 'true'
+
         # provide better names for synspy parameters on HUD
         self.hud_display_names['u_floorlvl'] = 'core measure'
         self.hud_display_names['u_nuclvl'] = 'hollow measure'
@@ -788,6 +790,12 @@ class Canvas(base.Canvas):
         except:
             print 'Using default WINDOW_SIZE=512x512'
             self.size = 512, 512
+
+        if self.auto_dump_load:
+            try:
+                self.load_classified_segments(None)
+            except:
+                pass
 
     def emit_notice(self, event):
         """Emit user-defined notices to heads-up display."""
@@ -1101,7 +1109,11 @@ transparency factor: %f
             self.pick_pos = None
             self.pick_click = False
 
-    
+    def on_close(self, event):
+        if self.auto_dump_load:
+            self.dump_classified_voxels(event)
+        print 'window closed'
+
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")
     def adjust_floor_level(self, event):
         """Increase ('F') or decrease ('f') small feature threshold level."""

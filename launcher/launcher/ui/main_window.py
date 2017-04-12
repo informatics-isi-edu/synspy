@@ -4,7 +4,7 @@ import errno
 import logging
 import shutil
 import tempfile
-from PyQt5.QtCore import Qt, QCoreApplication,QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
      QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, qApp
 from PyQt5.QtGui import QIcon
@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
         env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemTextByName("ID")
         env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemTextByName("ZYX Slice")
+        env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
             "nucleic" == self.ui.getCurrentWorkListItemTextByName("Segmentation Mode")).lower()
         viewerTask = ViewerTask()

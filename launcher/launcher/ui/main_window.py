@@ -8,8 +8,8 @@ from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlo
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
      QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, qApp
 from PyQt5.QtGui import QIcon
-from deriva_qt.common import log_widget
-from deriva_qt.common import async_task
+from deriva_qt.common import log_widget, async_task
+from deriva_qt.auth_agent.ui.auth_window import AuthWindow
 from deriva_common import ErmrestCatalog, HatracStore, read_config, read_credential, resource_path, format_exception, \
     urlquote
 from ..impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
@@ -21,22 +21,25 @@ from . import DEFAULT_CONFIG
 # noinspection PyArgumentList
 class MainWindow(QMainWindow):
     config = None
+    credential = None
+    config_path = None
     store = None
     catalog = None
     identity = None
     tempdir = None
     progress_update_signal = pyqtSignal(str)
-    config_file_name = "config.json"
     
     def __init__(self, config_path=None, credential_path=None):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
-        self.configure(config_path, credential_path)
+        self.configure(config_path)
+        self.authWindow = AuthWindow(config_path, credential_path, self.onLoginSuccess, True)
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
+            # self.on_actionLogin_triggered()
 
-    def configure(self, config_path, credential_path):
+    def configure(self, config_path):
         # configure logging
         self.ui.logTextBrowser.widget.log_update_signal.connect(self.updateLog)
         self.ui.logTextBrowser.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
@@ -46,15 +49,15 @@ class MainWindow(QMainWindow):
         # configure Ermrest/Hatrac
         if not config_path:
             config_path = os.path.join(os.path.expanduser(
-                os.path.normpath("~/.deriva/synapse/synspy-launcher")), self.config_file_name)
-        config = read_config(config_path, create_default=True, default=DEFAULT_CONFIG)
-        credentials = read_credential(credential_path, create_default=True)
+                os.path.normpath("~/.deriva/synapse/synspy-launcher")), "config.json")
+        self.config_path = config_path
+        config = read_config(self.config_path, create_default=True, default=DEFAULT_CONFIG)
         protocol = config["server"]["protocol"]
         server = config["server"]["host"]
         catalog_id = config["server"]["catalog_id"]
         session_config = config.get("session")
-        self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
-        self.store = HatracStore(protocol, server, credentials, session_config=session_config)
+        self.catalog = ErmrestCatalog(protocol, server, catalog_id, self.credential, session_config=session_config)
+        self.store = HatracStore(protocol, server, self.credential, session_config=session_config)
 
         # create working dir (tempdir)
         self.tempdir = tempfile.mkdtemp(prefix="synspy_")
@@ -69,14 +72,24 @@ class MainWindow(QMainWindow):
         queryTask.status_update_signal.connect(self.onSessionResult)
         queryTask.query()
 
+    def onLoginSuccess(self, **kwargs):
+        self.authWindow.hide()
+        self.credential = kwargs["credential"]
+        server = self.config["server"]["host"]
+        self.catalog.set_credentials(self.credential, server)
+        self.store.set_credentials(self.credential, server)
+        self.getSession()
+
     def enableControls(self):
         self.ui.actionLaunch.setEnabled(True)
         self.ui.actionRefresh.setEnabled(True)
+        self.ui.actionLogin.setEnabled(True)
         self.ui.workList.setEnabled(True)
 
     def disableControls(self):
         self.ui.actionLaunch.setEnabled(False)
         self.ui.actionRefresh.setEnabled(False)
+        self.ui.actionLogin.setEnabled(False)
         self.ui.workList.setEnabled(False)
 
     def closeEvent(self, event=None):
@@ -386,6 +399,19 @@ class MainWindow(QMainWindow):
             self.resetUI(status, detail)
 
     @pyqtSlot()
+    def on_actionLogin_triggered(self):
+        self.authWindow.show()
+        self.authWindow.login()
+
+    @pyqtSlot()
+    def on_actionLogout_triggered(self):
+        self.authWindow.logout()
+        self.ui.workList.clearContents()
+        self.ui.workList.setRowCount(0)
+        self.identity = None
+        self.ui.actionLaunch.setEnabled(False)
+
+    @pyqtSlot()
     def on_actionHelp_triggered(self):
         pass
 
@@ -460,24 +486,36 @@ class MainWindowUI(object):
         self.actionLaunch = QAction(MainWin)
         self.actionLaunch.setObjectName("actionLaunch")
         self.actionLaunch.setText(MainWin.tr("Launch Viewer"))
-        self.actionLaunch.setToolTip(
-            MainWin.tr("Launch the synspy-viewer process"))
+        self.actionLaunch.setToolTip(MainWin.tr("Launch the synspy-viewer process"))
         self.actionLaunch.setShortcut(MainWin.tr("Ctrl+L"))
 
         # Refresh
         self.actionRefresh = QAction(MainWin)
         self.actionRefresh.setObjectName("actionRefresh")
         self.actionRefresh.setText(MainWin.tr("Refresh Work List"))
-        self.actionRefresh.setToolTip(
-            MainWin.tr("Refresh the work list"))
+        self.actionRefresh.setToolTip(MainWin.tr("Refresh the work list"))
         self.actionLaunch.setShortcut(MainWin.tr("Ctrl+R"))
+
+        # Login
+        self.actionLogin = QAction(MainWin)
+        self.actionLogin.setObjectName("actionLogin")
+        self.actionLogin.setText(MainWin.tr("Login"))
+        self.actionLogin.setToolTip(MainWin.tr("Login to the server"))
+        self.actionLogin.setShortcut(MainWin.tr("Ctrl+G"))
+
+        # Logout
+        self.actionLogout = QAction(MainWin)
+        self.actionLogout.setObjectName("actionLogout")
+        self.actionLogout.setText(MainWin.tr("Logout"))
+        self.actionLogout.setToolTip(MainWin.tr("Logout of the server"))
+        self.actionLogout.setShortcut(MainWin.tr("Ctrl+O"))
 
         # Exit
         self.actionExit = QAction(MainWin)
         self.actionExit.setObjectName("actionExit")
         self.actionExit.setText(MainWin.tr("Exit"))
         self.actionExit.setToolTip(MainWin.tr("Exit the application"))
-        self.actionExit.setShortcut(MainWin.tr("Ctrl+X"))
+        self.actionExit.setShortcut(MainWin.tr("Ctrl+Z"))
 
         # Help
         self.actionHelp = QAction(MainWin)
@@ -506,8 +544,16 @@ class MainWindowUI(object):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.mainToolBar.addWidget(spacer)
 
+        # Login
+        self.mainToolBar.addAction(self.actionLogin)
+        self.actionLogin.setIcon(qApp.style().standardIcon(QStyle.SP_DialogApplyButton))
+
+        # Logout
+        self.mainToolBar.addAction(self.actionLogout)
+        self.actionLogout.setIcon(qApp.style().standardIcon(QStyle.SP_DialogOkButton))
+
         # Help
-        self.mainToolBar.addAction(self.actionHelp)
+        #self.mainToolBar.addAction(self.actionHelp)
         self.actionHelp.setIcon(qApp.style().standardIcon(QStyle.SP_MessageBoxQuestion))
 
         # Exit

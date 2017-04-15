@@ -485,7 +485,7 @@ class MainWindowUI(object):
         # Launch
         self.actionLaunch = QAction(MainWin)
         self.actionLaunch.setObjectName("actionLaunch")
-        self.actionLaunch.setText(MainWin.tr("Launch Viewer"))
+        self.actionLaunch.setText(MainWin.tr("Launch Analysis"))
         self.actionLaunch.setToolTip(MainWin.tr("Launch the synspy-viewer process"))
         self.actionLaunch.setShortcut(MainWin.tr("Ctrl+L"))
 

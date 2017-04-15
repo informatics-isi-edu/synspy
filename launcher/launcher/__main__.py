@@ -2,7 +2,7 @@ import sys
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import QApplication, QStyleFactory
 from deriva_common.base_cli import BaseCLI
-from launcher.launcher.ui import main_window as mw
+from launcher.ui import main_window as mw
 
 
 def main():

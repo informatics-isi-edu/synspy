@@ -29,7 +29,7 @@ setup(
         'logging',
         'tempfile',
         'shutil',
-        'subprocess'
+        'subprocess',
         'deriva_common',
         'deriva_qt',
         'PyQt5'],

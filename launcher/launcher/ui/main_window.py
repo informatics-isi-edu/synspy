@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
-     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem,QAbstractItemView, qApp
+     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem, QAbstractItemView, qApp
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget, async_task
 from deriva_qt.auth_agent.ui.auth_window import AuthWindow
@@ -494,7 +494,7 @@ class MainWindowUI(object):
         self.actionRefresh.setObjectName("actionRefresh")
         self.actionRefresh.setText(MainWin.tr("Refresh Work List"))
         self.actionRefresh.setToolTip(MainWin.tr("Refresh the work list"))
-        self.actionLaunch.setShortcut(MainWin.tr("Ctrl+R"))
+        self.actionRefresh.setShortcut(MainWin.tr("Ctrl+R"))
 
         # Login
         self.actionLogin = QAction(MainWin)

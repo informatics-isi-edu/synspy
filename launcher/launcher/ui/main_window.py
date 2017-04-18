@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
         self.configure(config_path)
-        self.authWindow = AuthWindow(config_path, credential_path, self.onLoginSuccess, True)
+        self.authWindow = AuthWindow(self.config_path, credential_path, self.onLoginSuccess, True)
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)

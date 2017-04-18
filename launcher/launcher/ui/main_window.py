@@ -83,12 +83,16 @@ class MainWindow(QMainWindow):
         self.ui.actionLaunch.setEnabled(True)
         self.ui.actionRefresh.setEnabled(True)
         self.ui.actionLogin.setEnabled(True)
+        self.ui.actionLogout.setEnabled(True)
+        self.ui.actionExit.setEnabled(True)
         self.ui.workList.setEnabled(True)
 
     def disableControls(self):
         self.ui.actionLaunch.setEnabled(False)
         self.ui.actionRefresh.setEnabled(False)
         self.ui.actionLogin.setEnabled(False)
+        self.ui.actionLogout.setEnabled(False)
+        self.ui.actionExit.setEnabled(False)
         self.ui.workList.setEnabled(False)
 
     def closeEvent(self, event=None):
@@ -149,7 +153,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
         self.ui.workList.resizeColumnToContents(2)
-        if (self.ui.workList.columnCount() > 0) and self.identity:
+        if (self.ui.workList.rowCount() > 0) and self.identity:
             self.ui.actionLaunch.setEnabled(True)
         else:
             self.ui.actionLaunch.setEnabled(False)
@@ -166,8 +170,10 @@ class MainWindow(QMainWindow):
                     cache_dir = cwd
         return cache_dir
 
-    def downloadCallback(self, status):
-        self.progress_update_signal.emit(status)
+    def downloadCallback(self, **kwargs):
+        status = kwargs.get("progress")
+        if status:
+            self.progress_update_signal.emit(status)
         return True
 
     def serverProblemMessageBox(self, text, detail):

@@ -5,17 +5,16 @@ import logging
 import shutil
 import tempfile
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
-     QToolBar, QStatusBar, QVBoxLayout, QTableWidget, QTableWidgetItem, QAbstractItemView, qApp
+from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
+     QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView
 from PyQt5.QtGui import QIcon
-from deriva_qt.common import log_widget, async_task
+from deriva_qt.common import log_widget, table_widget, async_task
 from deriva_qt.auth_agent.ui.auth_window import AuthWindow
-from deriva_common import ErmrestCatalog, HatracStore, read_config, read_credential, resource_path, format_exception, \
-    urlquote
-from ..impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
-from ..impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
-from ..impl.process_tasks import ViewerTask
-from . import DEFAULT_CONFIG
+from deriva_common import ErmrestCatalog, HatracStore, read_config, format_exception, urlquote
+from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
+from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
+from launcher.impl.process_tasks import ViewerTask
+from launcher.ui import DEFAULT_CONFIG
 
 
 # noinspection PyArgumentList
@@ -66,7 +65,7 @@ class MainWindow(QMainWindow):
         self.config = config
 
     def getSession(self):
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        qApp.setOverrideCursor(Qt.WaitCursor)
         self.updateStatus("Validating session.")
         queryTask = SessionQueryTask(self.catalog)
         queryTask.status_update_signal.connect(self.onSessionResult)
@@ -182,14 +181,14 @@ class MainWindow(QMainWindow):
         if ret == QMessageBox.No:
             return
         else:
-            row = self.ui.getWorkListSelectedRow()
+            row = self.ui.workList.getCurrentTableRow()
             self.ui.workList.removeRow(row)
             return
 
     def downloadFiles(self):
         # if analysis in progress for this item and there is an existing segments file, download it first
-        segments_url = self.ui.getCurrentWorkListItemTextByName("Segments URL")
-        status = self.ui.getCurrentWorkListItemTextByName("Status")
+        segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments URL")
+        status = self.ui.workList.getCurrentTableItemTextByName("Status")
         if segments_url and "analysis in progress" == status:
             segments_filename = os.path.basename(segments_url).split(":")[0]
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
@@ -206,7 +205,7 @@ class MainWindow(QMainWindow):
 
     def downloadInputFile(self):
         # get the main TIFF file for analysis if not already cached
-        url = self.ui.getCurrentWorkListItemTextByName("URL")
+        url = self.ui.workList.getCurrentTableItemTextByName("URL")
         filename = os.path.basename(url).split(":")[0]
         destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not os.path.isfile(destfile):
@@ -225,25 +224,25 @@ class MainWindow(QMainWindow):
         self.updateStatus("Executing viewer...")
         env = os.environ
         env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
-        env["DUMP_PREFIX"] = "./%s." % self.ui.getCurrentWorkListItemTextByName("ID")
-        env["ZYX_SLICE"] = self.ui.getCurrentWorkListItemTextByName("ZYX Slice")
+        env["DUMP_PREFIX"] = "./%s." % self.ui.workList.getCurrentTableItemTextByName("ID")
+        env["ZYX_SLICE"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Slice")
         env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
-            "nucleic" == self.ui.getCurrentWorkListItemTextByName("Segmentation Mode")).lower()
+            "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
         viewerTask = ViewerTask()
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
         viewerTask.run(file_path, self.tempdir, env)
 
     def uploadAnalysisResult(self, update_state):
         # generate hatrac upload params
-        basename = self.ui.getCurrentWorkListItemTextByName("ID")
+        basename = self.ui.workList.getCurrentTableItemTextByName("ID")
         match = "%s\..*\.csv" % basename
         output_files = [f for f in os.listdir(self.tempdir)
                         if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
         if not output_files:
             self.resetUI("Could not locate output file from viewer subprocess -- aborting.")
             return
-        seg_mode = self.ui.getCurrentWorkListItemTextByName("Segmentation Mode")
+        seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if seg_mode == "synaptic":
             extension = ".synapses.csv"
         elif seg_mode == "nucleic":
@@ -252,7 +251,8 @@ class MainWindow(QMainWindow):
             self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
             return
         file_name = basename + extension
-        hatrac_path = HATRAC_UPDATE_URL_TEMPLATE % (self.ui.getCurrentWorkListItemTextByName("Subject"), file_name)
+        hatrac_path = HATRAC_UPDATE_URL_TEMPLATE % \
+            (self.ui.workList.getCurrentTableItemTextByName("Subject"), file_name)
         file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
 
         # upload to object store
@@ -285,7 +285,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, object)
     def onSessionResult(self, success, status, detail, result):
-        QApplication.restoreOverrideCursor()
+        qApp.restoreOverrideCursor()
         if success:
             self.identity = result["client"]["id"]
             self.ui.actionLaunch.setEnabled(True)
@@ -296,12 +296,12 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def on_actionLaunch_triggered(self):
         self.disableControls()
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        qApp.setOverrideCursor(Qt.WaitCursor)
         self.downloadFiles()
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
-        QApplication.restoreOverrideCursor()
+        qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveInputFileResult(self, success, status, detail, file_path):
-        QApplication.restoreOverrideCursor()
+        qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
@@ -362,7 +362,8 @@ class MainWindow(QMainWindow):
                 "One or more required files were not uploaded successfully.")
             return
         state = result[0]
-        body = [{"ID": self.ui.getCurrentWorkListItemTextByName("ID"), "Segments URL": result[1], "Status":  state[1]}]
+        body = [{"ID": self.ui.workList.getCurrentTableItemTextByName("ID"),
+                 "Segments URL": result[1], "Status":  state[1]}]
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
         updateTask.update(WORKLIST_UPDATE, json=body)
@@ -382,7 +383,7 @@ class MainWindow(QMainWindow):
         if not self.identity:
             self.updateStatus("Unable to get worklist -- not logged in.")
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        qApp.setOverrideCursor(Qt.WaitCursor)
         self.disableControls()
         self.updateStatus("Refreshing worklist...")
         queryTask = CatalogQueryTask(self.catalog)
@@ -391,7 +392,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, object)
     def onRefreshResult(self, success, status, detail, result):
-        QApplication.restoreOverrideCursor()
+        qApp.restoreOverrideCursor()
         if success:
             self.displayWorklist(result)
             self.resetUI("Ready.")
@@ -444,7 +445,7 @@ class MainWindowUI(object):
         self.splitter = QSplitter(Qt.Vertical)
 
         # Table View (Work list)
-        self.workList = QTableWidget(self.centralWidget)
+        self.workList = table_widget.TableWidget(self.centralWidget)
         self.workList.setObjectName("tableWidget")
         self.workList.setStyleSheet(
             """
@@ -570,31 +571,3 @@ class MainWindowUI(object):
 
     # finalize UI setup
         QMetaObject.connectSlotsByName(MainWin)
-
-    def getWorkListSelectedRow(self):
-        row = self.workList.currentRow()
-        if row == -1 and self.workList.rowCount() > 0:
-            row = 0
-
-        return row
-
-    def getCurrentWorkListItemTextByName(self, column_name):
-        row = self.getWorkListSelectedRow()
-        return self.getWorkListItemTextByName(row, column_name)
-
-    def getWorkListItemTextByName(self, row, column_name):
-        item = self.getWorkListItemByName(row, column_name)
-        return item.text() if item else ""
-
-    def getWorkListItemByName(self, row, column_name):
-        column = None
-        header_count = self.workList.columnCount()
-        # noinspection PyTypeChecker
-        for column in range(header_count):
-            header_text = self.workList.horizontalHeaderItem(column).text()
-            if column_name == header_text:
-                break
-        if row is None or column is None:
-            return None
-
-        return self.workList.item(row, column)

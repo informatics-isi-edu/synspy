@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
     store = None
     catalog = None
     identity = None
+    server = None
     tempdir = None
     progress_update_signal = pyqtSignal(str)
     
@@ -52,11 +53,11 @@ class MainWindow(QMainWindow):
         self.config_path = config_path
         config = read_config(self.config_path, create_default=True, default=DEFAULT_CONFIG)
         protocol = config["server"]["protocol"]
-        server = config["server"]["host"]
+        self.server = config["server"]["host"]
         catalog_id = config["server"]["catalog_id"]
         session_config = config.get("session")
-        self.catalog = ErmrestCatalog(protocol, server, catalog_id, self.credential, session_config=session_config)
-        self.store = HatracStore(protocol, server, self.credential, session_config=session_config)
+        self.catalog = ErmrestCatalog(protocol, self.server, catalog_id, self.credential, session_config=session_config)
+        self.store = HatracStore(protocol, self.server, self.credential, session_config=session_config)
 
         # create working dir (tempdir)
         self.tempdir = tempfile.mkdtemp(prefix="synspy_")
@@ -74,9 +75,8 @@ class MainWindow(QMainWindow):
     def onLoginSuccess(self, **kwargs):
         self.authWindow.hide()
         self.credential = kwargs["credential"]
-        server = self.config["server"]["host"]
-        self.catalog.set_credentials(self.credential, server)
-        self.store.set_credentials(self.credential, server)
+        self.catalog.set_credentials(self.credential, self.server)
+        self.store.set_credentials(self.credential, self.server)
         self.getSession()
 
     def enableControls(self):
@@ -240,6 +240,7 @@ class MainWindow(QMainWindow):
         viewerTask.run(file_path, self.tempdir, env)
 
     def uploadAnalysisResult(self, update_state):
+        qApp.setOverrideCursor(Qt.WaitCursor)
         # generate hatrac upload params
         basename = self.ui.workList.getCurrentTableItemTextByName("ID")
         match = "%s\..*\.csv" % basename
@@ -282,6 +283,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str, str)
     def resetUI(self, status, detail=None):
+        qApp.restoreOverrideCursor()
         self.updateStatus(status, detail)
         self.enableControls()
 
@@ -294,6 +296,8 @@ class MainWindow(QMainWindow):
         qApp.restoreOverrideCursor()
         if success:
             self.identity = result["client"]["id"]
+            display_name = result["client"]["full_name"]
+            self.setWindowTitle("%s (%s - %s)" % (self.windowTitle(), self.server, display_name))
             self.ui.actionLaunch.setEnabled(True)
             self.on_actionRefresh_triggered()
         else:
@@ -307,7 +311,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
-        qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
@@ -319,7 +322,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveInputFileResult(self, success, status, detail, file_path):
-        qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
@@ -331,6 +333,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str)
     def onSubprocessExecuteResult(self, success, status, detail):
+        qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             return
@@ -382,6 +385,7 @@ class MainWindow(QMainWindow):
                 "Unable to update catalog data",
                 "The catalog state was not updated successfully.")
             return
+        qApp.restoreOverrideCursor()
         self.on_actionRefresh_triggered()
 
     @pyqtSlot()
@@ -398,7 +402,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool, str, str, object)
     def onRefreshResult(self, success, status, detail, result):
-        qApp.restoreOverrideCursor()
         if success:
             self.displayWorklist(result)
             self.resetUI("Ready.")
@@ -413,6 +416,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def on_actionLogout_triggered(self):
         self.authWindow.logout()
+        self.setWindowTitle(self.ui.title)
         self.ui.workList.clearContents()
         self.ui.workList.setRowCount(0)
         self.identity = None
@@ -431,12 +435,14 @@ class MainWindow(QMainWindow):
 # noinspection PyArgumentList
 class MainWindowUI(object):
 
+    title = "Synspy Launcher"
+
     def __init__(self, MainWin):
         super(MainWindow).__init__()
 
         # Main Window
         MainWin.setObjectName("MainWindow")
-        MainWin.setWindowTitle(MainWin.tr("Synspy Launcher"))
+        MainWin.setWindowTitle(MainWin.tr(self.title))
         # MainWin.setWindowIcon(QIcon(":/images/bag.png"))
         MainWin.resize(640, 600)
         self.centralWidget = QWidget(MainWin)

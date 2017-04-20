@@ -37,6 +37,7 @@ class MainWindow(QMainWindow):
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
+            self.ui.actionLogout.setEnabled(False)
             # self.on_actionLogin_triggered()
 
     def configure(self, config_path):
@@ -82,8 +83,8 @@ class MainWindow(QMainWindow):
     def enableControls(self):
         self.ui.actionLaunch.setEnabled(True)
         self.ui.actionRefresh.setEnabled(True)
-        self.ui.actionLogin.setEnabled(True)
-        self.ui.actionLogout.setEnabled(True)
+        self.ui.actionLogin.setEnabled(not self.authWindow.authenticated())
+        self.ui.actionLogout.setEnabled(self.authWindow.authenticated())
         self.ui.actionExit.setEnabled(True)
         self.ui.workList.setEnabled(True)
 
@@ -96,13 +97,13 @@ class MainWindow(QMainWindow):
         self.ui.workList.setEnabled(False)
 
     def closeEvent(self, event=None):
+        self.disableControls()
         self.cancelTasks()
         shutil.rmtree(self.tempdir)
         if event:
             event.accept()
 
     def cancelTasks(self):
-        self.disableControls()
         async_task.Request.shutdown()
         self.statusBar().showMessage("Waiting for background tasks to terminate...")
 
@@ -111,14 +112,10 @@ class MainWindow(QMainWindow):
             if QThreadPool.globalInstance().waitForDone(10):
                 break
 
-        self.enableControls()
         self.statusBar().showMessage("All background tasks terminated successfully")
 
     def displayWorklist(self, worklist):
         keys = ["ID",
-                "Classifier",
-                "Subject Issue Date",
-                "Sub-Sequence",
                 "Status",
                 "URL",
                 "ZYX Slice",
@@ -134,14 +131,13 @@ class MainWindow(QMainWindow):
             cols = 0
             for key in keys:
                 item = QTableWidgetItem()
-                if key == "Classifier":
-                    value = row["user"][0].get("Full Name")
-                elif key == "URL" or key == "Subject":
+                if key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
                 else:
                     value = row.get(key)
                 if isinstance(value, str):
                     item.setText(value)
+                    item.setToolTip(value)
                 self.ui.workList.setItem(rows, cols, item)
                 if key in hidden:
                     self.ui.workList.hideColumn(cols)
@@ -172,6 +168,21 @@ class MainWindow(QMainWindow):
 
     def downloadCallback(self, **kwargs):
         status = kwargs.get("progress")
+        if status:
+            self.progress_update_signal.emit(status)
+        return True
+
+    def uploadCallback(self, **kwargs):
+        completed = kwargs.get("completed")
+        total = kwargs.get("total")
+        file_path = kwargs.get("file_path")
+        if completed and total:
+            file_path = " [%s]" % os.path.basename(file_path) if file_path else ""
+            status = "Uploading file%s: %d%% complete" % (file_path, round(((completed / total) % 100) * 100))
+        else:
+            summary = kwargs.get("summary", "")
+            file_path = "Uploaded file: [%s]" % os.path.basename(file_path) if file_path else ""
+            status = file_path + summary
         if status:
             self.progress_update_signal.emit(status)
         return True
@@ -263,9 +274,10 @@ class MainWindow(QMainWindow):
         file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
 
         # upload to object store
+        self.progress_update_signal.connect(self.updateProgress)
         uploadTask = FileUploadTask(self.store)
         uploadTask.status_update_signal.connect(self.onUploadFileResult)
-        uploadTask.upload(hatrac_path, file_path, update_state)
+        uploadTask.upload(hatrac_path, file_path, update_state, callback=self.uploadCallback())
 
     @pyqtSlot()
     def taskTriggered(self):
@@ -299,6 +311,8 @@ class MainWindow(QMainWindow):
             display_name = result["client"]["full_name"]
             self.setWindowTitle("%s (%s - %s)" % (self.windowTitle(), self.server, display_name))
             self.ui.actionLaunch.setEnabled(True)
+            self.ui.actionLogout.setEnabled(True)
+            self.ui.actionLogin.setEnabled(False)
             self.on_actionRefresh_triggered()
         else:
             self.updateStatus(status, detail)
@@ -421,6 +435,8 @@ class MainWindow(QMainWindow):
         self.ui.workList.setRowCount(0)
         self.identity = None
         self.ui.actionLaunch.setEnabled(False)
+        self.ui.actionLogout.setEnabled(False)
+        self.ui.actionLogin.setEnabled(True)
 
     @pyqtSlot()
     def on_actionHelp_triggered(self):

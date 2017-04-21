@@ -181,8 +181,8 @@ class MainWindow(QMainWindow):
             status = "Uploading file%s: %d%% complete" % (file_path, round(((completed / total) % 100) * 100))
         else:
             summary = kwargs.get("summary", "")
-            file_path = "Uploaded file: [%s]" % os.path.basename(file_path) if file_path else ""
-            status = file_path + summary
+            file_path = "Uploaded file: [%s] " % os.path.basename(file_path) if file_path else ""
+            status = file_path  # + summary
         if status:
             self.progress_update_signal.emit(status)
         return True
@@ -277,7 +277,7 @@ class MainWindow(QMainWindow):
         self.progress_update_signal.connect(self.updateProgress)
         uploadTask = FileUploadTask(self.store)
         uploadTask.status_update_signal.connect(self.onUploadFileResult)
-        uploadTask.upload(hatrac_path, file_path, update_state, callback=self.uploadCallback())
+        uploadTask.upload(hatrac_path, file_path, update_state, callback=self.uploadCallback)
 
     @pyqtSlot()
     def taskTriggered(self):

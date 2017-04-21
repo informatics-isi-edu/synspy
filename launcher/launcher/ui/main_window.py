@@ -321,6 +321,10 @@ class MainWindow(QMainWindow):
     def on_actionLaunch_triggered(self):
         self.disableControls()
         qApp.setOverrideCursor(Qt.WaitCursor)
+        # create working dir (tempdir)
+        if self.tempdir:
+            shutil.rmtree(self.tempdir)
+        self.tempdir = tempfile.mkdtemp(prefix="synspy_")
         self.downloadFiles()
 
     @pyqtSlot(bool, str, str, str)

@@ -140,7 +140,7 @@ def run_row_job(row):
     
     sys.stderr.write('Claimed job %s.\n' % row['ID'])
 
-    working_dir = tempfile.mkdtemp()
+    working_dir = tempfile.mkdtemp(dir="/var/tmp")
     os.chdir(working_dir)
     sys.stderr.write('Using working directory %s.\n' % working_dir)
 

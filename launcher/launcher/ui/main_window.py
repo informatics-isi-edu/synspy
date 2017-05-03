@@ -29,16 +29,18 @@ class MainWindow(QMainWindow):
     tempdir = None
     progress_update_signal = pyqtSignal(str)
     
-    def __init__(self, config_path=None, credential_path=None):
+    def __init__(self, config_path=None):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
         self.configure(config_path)
-        self.authWindow = AuthWindow(self.config_path, credential_path, self.onLoginSuccess, True)
+        self.authWindow = AuthWindow(config=self.config,
+                                     is_child_window=True,
+                                     cookie_persistence=False,
+                                     authentication_success_callback=self.onLoginSuccess)
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
             self.ui.actionLogout.setEnabled(False)
-            # self.on_actionLogin_triggered()
 
     def configure(self, config_path):
         # configure logging
@@ -148,7 +150,6 @@ class MainWindow(QMainWindow):
         self.ui.workList.horizontalHeader().setDefaultAlignment(Qt.AlignLeft)  # set alignment
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
-        self.ui.workList.resizeColumnToContents(2)
         if (self.ui.workList.rowCount() > 0) and self.identity:
             self.ui.actionLaunch.setEnabled(True)
         else:

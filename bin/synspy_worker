@@ -140,7 +140,7 @@ def run_row_job(row):
     
     sys.stderr.write('Claimed job %s.\n' % row['ID'])
 
-    working_dir = tempfile.mkdtemp()
+    working_dir = tempfile.mkdtemp(dir="/var/tmp")
     os.chdir(working_dir)
     sys.stderr.write('Using working directory %s.\n' % working_dir)
 
@@ -160,6 +160,7 @@ def run_row_job(row):
                 'Y micron': float(micron_spacing[1]),
                 'X micron': float(micron_spacing[2])
             })
+            updated_row['Status'] = "analysis pending"
         
         if row['Segments URL'] is not None and row['Segments Filtered URL'] is None:
             segments_filtered_file = filter_synspy_csv(row['Segments URL'])
@@ -169,14 +170,14 @@ def run_row_job(row):
                 headers={'Content-Type': 'text/csv'}
             )
             updated_row['Segments Filtered URL'] = segments_filtered_url
-            
+            updated_row['Status'] = "processed"
+
         if updated_row:
             updated_row['ID'] = row['ID']
-            updated_row['Status'] = "processed"
             
             # record analysis results in ermrest
             catalog.put(
-                '/attributegroup/Zebrafish:Image%20Region/ID;%s' % ','.join([
+                '/attributegroup/Zebrafish:Image%%20Region/ID;%s' % ','.join([
                     urllib.quote(col, safe='')
                     for col in updated_row.keys()
                     if col != 'ID'
@@ -217,7 +218,10 @@ def look_for_work():
     """
     global idle_etag
 
-    claimable_work_url = '/attribute/I:=Zebrafish:Image/Zebrafish:Image%20Region/!I:URL::null::&(Z%20micron::null::;Y%20micron::null::;X%20micron::null::);!Segments%20URL::null::&Segments%20Filtered%20URL::null::/Status=%22analysis%20complete%22;Status=%22processed%22/*,I:Subject?limit=1'
+    # state machine:
+    # Status is NULL -> Z/Y/X micron set and Status = "analysis pending" -> Status = "analysis complete" -> filtered URL set and Status = "processed"
+
+    claimable_work_url = '/attribute/I:=Zebrafish:Image/Zebrafish:Image%20Region/!I:URL::null::&(Z%20micron::null::;Y%20micron::null::;X%20micron::null::)&Status::null::;!Segments%20URL::null::&Segments%20Filtered%20URL::null::&Status=%22analysis%20complete%22/*,I:URL,I:Subject?limit=1'
     status_update_url = '/attributegroup/Zebrafish:Image%20Region/ID;Status'
     
     # this handled concurrent update for us to safely and efficiently claim a record
@@ -235,6 +239,7 @@ def look_for_work():
         except Exception, e:
             # TODO: eat some exceptions and return True to continue?
             catalog.put(status_update_url, json=[{'ID': row['ID'], 'Status': "failed: %s" % e }])
+            
             raise
 
         return True

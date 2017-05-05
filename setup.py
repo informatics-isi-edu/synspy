@@ -12,6 +12,7 @@ setup(
     version="0.1-prerelease",
     packages=["synspy", "synspy.analyze"],
     scripts=[
+        "bin/synspy-analyze",
         "bin/synspy-viewer",
         "bin/synspy-reclassify",
         "bin/synspy-register",

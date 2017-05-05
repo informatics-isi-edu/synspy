@@ -57,7 +57,7 @@ do not need to be separable.
 """
 
 import np as numpylib
-
+import re
 import datetime
 import sys
 import os
@@ -71,7 +71,7 @@ import json
 import math
 import re
 import csv
-from volspy.util import bin_reduce
+from volspy.util import bin_reduce, load_and_mangle_image
 
 def Gsigma(sigma):
     """Pickle a gaussian function G(x) for given sigma"""
@@ -1074,17 +1074,95 @@ try:
 except:
     pass
 
+def batch_analyze(image, cdiam_microns, vdiam_microns, rdiam_microns, view_reduction=(1,1,1)):
+    analyzer = BlockedAnalyzerOpt(image, cdiam_microns, vdiam_microns, rdiam_microns, view_reduction)
+    view_image, centroids, centroid_measures = analyzer.volume_process()
+    return analyzer, view_image, centroids, centroid_measures
 
-## TEST HARNESS
-## read parameter CSV format from standard-input and process each record as separate file+params
+synaptic_footprints = (
+    (2.75, 1.5, 1.5),
+    (4.0, 2.75, 2.75),
+    (3.0, 3.0, 3.0),
+)
 
-def batch_stdin(engine=None):
+nucleic_footprints = (
+    (8., 8., 8.),
+    (16., 16., 16.),
+    (3.0, 3.0, 3.0),
+)
 
-    param_reader = csv.DictReader(sys.stdin)
+def get_mode_and_footprints():
+    do_nuclei = {'true': True}.get(os.getenv('SYNSPY_DETECT_NUCLEI'), False)
+    footprints = nucleic_footprints if do_nuclei else synaptic_footprints
+    return do_nuclei, footprints
 
-    for params in param_reader:
-        params['engine'] = engine
+def batch_analyze_cli(fname):
+    """Analyze file given as argument and write NPZ output file.
 
+       Arguments:
+         fname: OME-TIFF input file name
+
+       Environment parameters:
+         DUMP_PREFIX: defaults to './basename' where '.ome.tiff' suffix has been stripped
+         ZYX_SLICE: selects ROI within full image
+         ZYX_IMAGE_GRID: overrides image grid step metadata
+         SYNSPY_NUCLEI_DETECT: 'true' for nuclei mode, else synapse mode
+
+       Output NPZ array keys:
+         'properties.json': various metadata as 1D uint8 array of UTF-8 JSON data
+         'voxels': 4D voxel data with axes (channel, z, y, x)
+         'centroids': 2D centroid list with axes (N, c) for coords [z y x]
+         'measures':  2D measure list with axes (N, m) for measures []
+
+       Output is written to file names by DUMP_PREFIX + '.roi.npz'
+    """
+    dump_prefix = os.path.basename(fname)
+    try:
+        m = re.match('^(?P<accession>.*)(?P<ome>[.]ome)[.]tif+$', dump_prefix)
+        dump_prefix = m.groupdict()['accession']
+    except:
         pass
+    dump_prefix = os.getenv('DUMP_PREFIX', dump_prefix)
 
+    image, meta, slice_origin = load_and_mangle_image(fname)
+    do_nuclei, footprints = get_mode_and_footprints()
+    cdiam, vdiam, rdiam = footprints
+    analyzer, view_image, centroids, measures = batch_analyze(image, cdiam, vdiam, rdiam)
 
+    props = {
+        "image_grid": list(image.micron_spacing),
+        "shape": list(image.shape),
+        "slice_origin": list(slice_origin),
+        "core_diam_microns": list(footprints[0]),
+        "vicinity_diam_microns": list(footprints[1]),
+        "synspy_nuclei_mode": do_nuclei,
+    }
+    if image.shape[0] > 1:
+        props['redblur_diam_mirons'] = list(footprints[2])
+
+    if view_image.dtype == np.float32 and measures.dtype == np.float32:
+        maxval = max(view_image.max(), measures.max())
+        view_image = view_image * 1.0/maxval
+        view_image = view_image.astype(np.float16)
+        measures = measures * 1.0/maxval
+        measures = measures.astype(np.float16)
+        props['voxel_divisor'] = float(maxval)
+        props['measures_divisor'] = float(maxval)
+
+    if centroids.dtype == np.int32 and centroids.max() < 2**16-1 and centroids.min() >= 0:
+        centroids = centroids.astype(np.uint16)
+
+    dump_fname = '%s.roi.npz' % dump_prefix
+    outf = open(dump_fname, 'wb')
+
+    np.savez(
+        outf,
+        properties=np.fromstring(json.dumps(props), np.uint8),
+        voxels=view_image,
+        centroids=centroids,
+        measures=measures
+    )
+    outf.close()
+    print 'Dumped ROI analysis data to %s' % dump_fname
+
+    return 0

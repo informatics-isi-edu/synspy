@@ -1,0 +1,13 @@
+#!/usr/bin/python
+#
+# Copyright 2017 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+
+from synspy.analyze import batch_analyze_cli
+
+if __name__ == '__main__':
+    status = batch_analyze_cli(sys.argv[1])
+    sys.exit(status)

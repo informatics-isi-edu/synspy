@@ -4,5 +4,5 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-import analyze
-import viewer
+#import analyze
+#import viewer

@@ -1,5 +1,4 @@
 import sys
-import argparse
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import QApplication, QStyleFactory
 from deriva_common.base_cli import BaseCLI

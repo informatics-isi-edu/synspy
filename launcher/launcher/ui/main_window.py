@@ -331,6 +331,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(bool, str, str, str)
     def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
         if not success:
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logging.warning("Unable to remove file [%s]: %s", (file_path, format_exception(e)))
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to download required input file",
@@ -342,6 +346,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(bool, str, str, str)
     def onRetrieveInputFileResult(self, success, status, detail, file_path):
         if not success:
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logging.warning("Unable to remove file [%s]: %s", (file_path, format_exception(e)))
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to download required input file",

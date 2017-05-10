@@ -29,7 +29,7 @@ class FileRetrieveTask(StoreTask):
     def error_callback(self, rid, error):
         if rid != self.rid:
             return
-        self.status_update_signal.emit(False, "File download failed", format_exception(error), None)
+        self.status_update_signal.emit(False, "File download failed", format_exception(error), self.file_path)
 
     def retrieve(self, path, headers=DEFAULT_HEADERS, destfile=None, progress_callback=None):
         self.init_request()

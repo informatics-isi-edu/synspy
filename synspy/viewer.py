@@ -16,7 +16,7 @@ import re
 import volspy.viewer as base
 from vispy import gloo, visuals
 
-from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel
+from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
 
 import tifffile
         
@@ -520,16 +520,17 @@ class Canvas(base.Canvas):
             self.retire_centroid_batch(event)
         else:
             self.endorse_centroids(event)
-            
-    def _reform_image(self, I, meta, view_reduction):
-        analyzer = BlockedAnalyzerOpt(I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction)
-        self.raw_image = I
 
+    def _reform_image(self, I, meta, view_reduction):
         splits = [(datetime.datetime.now(), None)]
         
-        view_image, centroids, centroid_measures = analyzer.volume_process()
-        centroid_status = np.zeros((256**3,), dtype=np.uint8)
+        self.raw_image = I
+        analyzer, view_image, centroids, centroid_measures = batch_analyze(
+            I, self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns, view_reduction
+        )
         splits.append((datetime.datetime.now(), 'volume process'))
+
+        centroid_status = np.zeros((256**3,), dtype=np.uint8)
 
         # get labeled voxels
         assert np.isnan(centroid_measures).sum() == 0
@@ -701,17 +702,8 @@ class Canvas(base.Canvas):
     
     def __init__(self, filename1):
         
-        # TODO: put these under UI control?
-        do_nuclei = {'true': True}.get(os.getenv('SYNSPY_DETECT_NUCLEI'), False)
-        self.do_nuclei = do_nuclei
-        if do_nuclei:
-            self.synapse_diam_microns = (8., 8., 8.)
-            self.vicinity_diam_microns = (16., 16., 16.)
-        else:
-            self.synapse_diam_microns = (2.75, 1.5, 1.5)
-            self.vicinity_diam_microns = (4.0, 2.75, 2.75)
-
-        self.redblur_microns = (3.0, 3.0, 3.0)
+        self.do_nuclei, footprints = get_mode_and_footprints()
+        self.synapse_diam_microns, self.vicinity_diam_microns, self.redblur_microns = footprints
 
         base.Canvas.__init__(self, filename1)
 
@@ -998,7 +990,7 @@ transparency factor: %f
         if self.hud_enable:
             self.volume_renderer.uniform_changes[msg] = None
         print msg
-                
+
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""
         # get thresholds from OpenGL back to absolute values

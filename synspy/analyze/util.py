@@ -234,7 +234,7 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
     csvfile.close()
     return status, saved_params
 
-def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfilename, saved_params=None):
+def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfilename, saved_params=None, all_segments=True):
     """Load a segment list with manual override status values validating against expected centroid list.
 
        Arguments:
@@ -244,6 +244,7 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
          offset_origin: CSV coordinates = offset_origin + centroid coordinates
          outfilename: file to open to write CSV content
          saved_params: dict or None if saving threshold params row
+         all_segments: True: dump all, False: dump only when status > 0
     """
     # correct dumped centroids to global coordinate space of unsliced source image
     centroids = centroids + np.array(offset_origin, np.int32)
@@ -267,7 +268,11 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
             + (saved_params.get('red'),) if 'red' in saved_params else ()
             + (saved_params.get('override', ''),)
         )
-    for i in range(measures.shape[0]):
+    if all_segments:
+        indices = range(measures.shape[0])
+    else:
+        indices = (status > 0).nonzero()[0]
+    for i in indices:
         Z, Y, X = centroids[i]
         writer.writerow( 
             (Z, Y, X) + tuple(measures[i,m] for m in range(measures.shape[1])) + (status[i] or '',)

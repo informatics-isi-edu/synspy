@@ -14,6 +14,7 @@ setup(
     scripts=[
         "bin/synspy-analyze",
         "bin/synspy-viewer",
+        "bin/synspy-viewer2d",
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy_worker"

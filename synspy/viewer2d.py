@@ -1,0 +1,755 @@
+
+#
+# Copyright 2014-2017 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import os
+import numpy as np
+import json
+
+import datetime
+
+from vispy import gloo
+from vispy import app
+from vispy import visuals
+
+from synspy.analyze.util import gaussian_kernel, load_segment_status_from_csv, dump_segment_info_to_csv
+from synspy.analyze.np import assign_voxels
+from volspy.util import clamp, ImageMetadata
+
+#gloo.gl.use_gl('pyopengl debug')
+
+def keydoc(details):
+    def helper(original_method):
+        original_method._keydocs = details
+        return original_method
+    return helper
+
+class SynspyImageManager (object):
+
+    def __init__(self, filename):
+        with np.load(filename) as parts:
+            self.properties = json.loads(parts['properties'].tostring())
+            self.data = parts['voxels'].astype(np.float32) * np.float32(self.properties['voxel_divisor'])
+            self.measures = parts['measures'].astype(np.float32) * np.float32(self.properties['measures_divisor'])
+            self.centroids = parts['centroids'].astype(np.int32)
+            self.slice_origin = np.array(self.properties['slice_origin'], dtype=np.int32)
+            self.meta = ImageMetadata(
+                self.properties['image_grid'][2],
+                self.properties['image_grid'][1],
+                self.properties['image_grid'][0],
+                'ZYXC'
+            )
+
+        D, H, W = self.data.shape[0:3]
+
+        assert self.properties['core_diam_microns'][1] == self.properties['core_diam_microns'][2]
+
+        self.z_radius = int(
+            self.properties['core_diam_microns'][0]
+            / self.properties['image_grid'][0]
+            / 2.0
+        )
+        self.xy_radius = int(
+            self.properties['core_diam_microns'][1]
+            / self.properties['image_grid'][1]
+            / 2.0
+        )
+        print 'kernel radii %d, %d, %d' % (self.z_radius, self.xy_radius, self.xy_radius)
+
+        def dstslice(offset, limit):
+            if offset < 0:
+                return slice(0, limit+offset)
+            else:
+                return slice(offset, limit)
+
+        def srcslice(offset, limit):
+            if offset < 0:
+                return slice(0-offset, limit)
+            else:
+                return slice(0, limit-offset)
+
+        # we will pack segment indices into 3 bytes as RGB uint8
+        # so we can use them as 3D texture coordinates
+        assert self.centroids.shape[0] < (2**24 - 1)
+
+        self.kernel_slices = [
+            (yoff, xoff)
+            for yoff, xoff in [
+                    (yoff, xoff)
+                    for yoff in range(-self.xy_radius-1, self.xy_radius+2)
+                    for xoff in range(-self.xy_radius-1, self.xy_radius+2)
+            ]
+            if ((xoff*xoff + yoff*yoff) < (self.xy_radius*self.xy_radius))
+        ]
+        # sort so we can splat centroids from center outward to assign texels
+        self.kernel_slices.sort(key=lambda p: p[0]**2 + p[1]**2)
+
+        self.kernel_slices = [
+            (dstslice(yoff, H), dstslice(xoff, W),
+             srcslice(yoff, H), srcslice(xoff, W))
+            for yoff, xoff in self.kernel_slices
+        ]
+
+        self.textures = None
+        self.minval = self.data.min()
+        self.maxval = self.data.max()
+        self.last_Z = None
+        self.last_channels = None
+        self.channels = None
+        self.set_view()
+
+    def set_view(self, channels=None):
+        if channels is not None:
+            # use caller-specified sequence of channels
+            assert type(channels) is tuple
+            assert len(channels) <= 4
+            self.channels = channels
+        else:
+            # default to first N channels u to 4 for RGBA direct mapping
+            self.channels = tuple(range(0, min(self.data.shape[3], 4)))
+        for c in self.channels:
+            assert c >= 0
+            assert c < self.data.shape[3]
+
+    def _get_texture_format(self, nc, bps):
+        return {
+            (1,1): ('luminance', 'red'),
+            (1,2): ('luminance', 'r16f'),
+            (1,4): ('luminance', 'r16f'),
+            (2,1): ('rg', 'rg'),
+            (2,2): ('rg', 'rg32f'),
+            (2,4): ('rg', 'rg32f'),
+            (3,1): ('rgb', 'rgb'),
+            (3,2): ('rgb', 'rgb16f'),
+            (3,4): ('rgb', 'rgb16f'),
+            (4,1): ('rgba', 'rgba'),
+            (4,2): ('rgba', 'rgba16f'),
+            (4,4): ('rgba', 'rgba16f')
+        }[(nc, bps)]
+
+    def get_textures(self, Z):
+        """Returns ((image_texture, map_texture, measures_texture), map_ndarray, status3d_flat)"""
+        I0 = self.data
+
+        # choose size for texture data
+        D, H, W = self.data.shape[0:3]
+        C = len(self.channels)
+
+        if self.textures is None:
+            format, internalformat = self._get_texture_format(len(self.channels), 2)
+            print 'allocating textures...'
+            self.textures = [
+                gloo.Texture2D(shape=(H, W, C), format=format, internalformat=internalformat),
+                gloo.Texture2D(shape=(H, W, 3), format='rgb', internalformat='rgb'),
+                gloo.Texture3D(shape=(256,256,256,3), format='rgb', internalformat='rgb16f'),
+                gloo.Texture3D(shape=(256,256,256), format='luminance', internalformat='red'),
+            ]
+            self.map_ndarray = np.zeros((H, W, 4), dtype=np.uint8)
+            self.measures3d = np.zeros((256,256,256,3), dtype=np.float32)
+            self.status3d = np.zeros((256,256,256), dtype=np.uint8)
+            for texture in self.textures:
+                texture.interpolation = 'nearest'
+                texture.wrapping = 'clamp_to_edge'
+            
+        elif self.last_channels == self.channels and self.last_Z == Z:
+            print 'reusing textures'
+            return self.textures
+        else:
+            #print 'regenerating texture'
+            pass
+
+        # normalize image data for OpenGL [0,1.0] or [0,2**N-1] and zero black-level
+        scale = 1.0/(float(self.maxval) - float(self.minval))
+        if I0.dtype == np.uint8 or I0.dtype == np.int8:
+            tmpout = np.zeros((H, W, C), dtype=np.uint8)
+            scale *= float(2**8-1)
+        else:
+            assert I0.dtype == np.float16 or I0.dtype == np.float32 or I0.dtype == np.uint16 or I0.dtype == np.int16
+            tmpout = np.zeros((H, W, C), dtype=np.uint16 )
+            scale *= (2.0**16-1)
+
+        # pack selected channels into texture
+        for i in range(C):
+            tmpout[:,:,i] = (I0[Z,:,:,self.channels[i]].astype(np.float32) - self.minval) * scale
+
+        self.last_channels = self.channels
+        self.last_Z = Z
+        self.textures[0].set_data(tmpout)
+
+        # splat intersecting segment IDs into map texture
+        tmpout = np.zeros((H, W, 4), dtype=np.uint8)
+        self.map_ndarray[:,:,:] = 0
+
+        indices = ((self.centroids[:,0] >= Z - self.z_radius) * (self.centroids[:,0] <= Z + self.z_radius)).nonzero()[0]
+        for i in range(indices.shape[0]):
+            idx = indices[i]
+            y, x = self.centroids[idx,1:3]
+            idx += 1 # offset indices 0..N-1 as 1..N
+            tmpout[y, x, 0] = idx % 2**8
+            tmpout[y, x, 1] = (idx / 2**8) % 2**8
+            tmpout[y, x, 2] = (idx / 2**16) % 2**8
+
+        for dyslc, dxslc, syslc, sxslc in self.kernel_slices:
+            dst = self.map_ndarray[dyslc, dxslc, :]
+            dst_not_filled = (
+                (dst[:,:,0] == 0)
+                * (dst[:,:,1] == 0)
+                * (dst[:,:,2] == 0)
+            )[:,:,None]
+            dst += tmpout[ syslc, sxslc, :] * dst_not_filled
+
+        # pack measures into 3D grid
+        meas3d_flat = self.measures3d.reshape((256**3, 3))
+        meas3d_flat[1:self.measures.shape[0]+1,0:2] = self.measures[:,0:2]
+        if self.measures.shape[1] > 4:
+            meas3d_flat[1:self.measures.shape[0]+1,2] = self.measures[:,4]
+
+        # renormalize to [0,1]
+        self.measures3d[:,:] = self.measures3d[:,:] / self.properties['measures_divisor']
+
+        # pack statuses into 3D grid
+        status3d_flat = self.status3d.reshape((256**3,))
+
+        self.textures[1].set_data(self.map_ndarray)
+        self.textures[2].set_data(self.measures3d)
+        self.textures[3].set_data(self.status3d)
+        
+        return self.textures, self.map_ndarray, status3d_flat
+
+# prepare a simple quad to cover the viewport
+quad = np.zeros(4, dtype=[
+    ('a_position', np.float32, 2),
+    ('a_texcoord', np.float32, 2)
+])
+quad['a_position'] = np.array([[-1, -1], [+1, -1], [-1, +1], [+1, +1]])
+quad['a_texcoord'] = np.array([[0, 0], [1, 0], [0, 1], [1, 1]])
+
+vert_shader = """
+attribute vec2 a_position;
+attribute vec2 a_texcoord;
+varying vec2 v_texcoord;
+
+void main()
+{
+   v_texcoord = a_texcoord;
+   gl_Position = vec4(a_position, 0.0, 1.0);
+}
+"""
+
+def frag_shader(**kwargs):
+    return """
+uniform sampler2D u_image_texture;
+uniform sampler2D u_map_texture;
+uniform sampler3D u_measures_cube;
+uniform sampler3D u_status_cube;
+uniform float u_gain;
+uniform float u_pick_r;
+uniform float u_pick_g;
+uniform float u_pick_b;
+uniform float u_feature_level;
+uniform float u_neighbor_level;
+varying vec2 v_texcoord;
+
+void main()
+{
+   vec4 pixel = texture2D(u_image_texture, v_texcoord);
+   vec4 segment = texture2D(u_map_texture, v_texcoord);
+   vec4 picked;
+   vec4 measures;
+   vec4 result;
+   float status;
+
+   picked = vec4(u_pick_r, u_pick_g, u_pick_b, 0.0); // picked segment ID
+
+   result.rgba = %(colorxfer)s;
+
+   if ( any(greaterThan(segment.rgb, vec3(0))) ) {
+     // non-zero segment ID means we are in a segment...
+     measures = texture3D(u_measures_cube, segment.rgb);
+     status = texture3D(u_status_cube, segment.rgb).r * 255;
+
+     if ( all(equal(segment.rgb, picked.rgb)) ) {
+       // voxel is part of segment currently picked by user
+       if (status == 5) {
+         // segment is forced off, clickable
+         result.rgb = %(pick_off)s;
+       }
+       else if (status == 7) {
+         // segment is forced on, clickable
+         result.rgb = %(pick_on)s;
+       }
+       else {
+         result.rgb = %(pick_def)s;
+       }
+     }
+     else {
+       // voxel is part of segment not currently picked
+       if (status == 5) {
+         // segment is forced off, clickable
+         result.rgb = %(off)s;
+       }
+       else if (status == 7) {
+         // segment is forced on, clickable
+         result.rgb = %(on)s;
+       }
+       else if ( measures.r >= u_feature_level && measures.g <= u_neighbor_level ) {
+         // segment is within range
+         result.rgb = %(inrange)s;
+       }
+     }
+   }
+
+   gl_FragColor = result;
+}
+""" % kwargs
+
+def adjust_level(uniform, attribute, step=0.0005, altstep=None, tracenorm=True):
+    def helper(origmethod):
+        def wrapper(*args):
+            self = args[0]
+            event = args[1]
+            level = getattr(self, attribute)
+
+            if 'Alt' in event.modifiers:
+                if altstep is not None:
+                    delta = altstep
+                else:
+                    delta = 0.1 * step
+                    
+            if 'Shift' in event.modifiers:
+                level += step
+            else:
+                level -= step
+
+            setattr(self, attribute, level)
+            
+            self.program[uniform] = level
+
+            if tracenorm:
+                level = level * self.vol_slicer.properties['measures_divisor']
+            self.trace(attribute, level)
+
+            self.update()
+
+        wrapper.__doc__ = origmethod.__doc__
+        return wrapper
+    return helper
+
+class Canvas(app.Canvas):
+
+    def __init__(self, filename):
+        self.basename = os.path.basename(filename)
+        assert self.basename.endswith('.npz')
+        self.accession_id = self.basename[0:-4]
+        
+        self.vol_slicer = SynspyImageManager(filename)
+        self.vol_slicer.set_view()
+
+        D, H, W, Nc = self.vol_slicer.data.shape
+
+        app.Canvas.__init__(self, size=(W, H), keys='interactive')
+        self._hud_timer = None
+        
+        self.program = gloo.Program()
+        self.program.bind(gloo.VertexBuffer(quad))
+        self.textures, self.segment_map, self.segment_status = self.vol_slicer.get_textures(0)
+        self.program['u_image_texture'] = self.textures[0]
+        self.program['u_map_texture'] = self.textures[1]
+        self.program['u_measures_cube'] = self.textures[2]
+        self.program['u_status_cube'] = self.textures[3]
+
+        self.key_press_handlers = {
+            'B': self.toggle_blend,
+            'D': self.dump_or_report,
+            'F': self.adjust_feature_level,
+            'G': self.adjust_gain,
+            'H': self.help,
+            'L': self.load_csv,
+            'N': self.adjust_neighbor_level,
+            'R': self.reset,
+            'Up': self.adjust_depth,
+            'Down': self.adjust_depth,
+        }
+
+        self.frag_shaders = [
+            # green linear with binary segments (picked is brighter)
+            (
+                'green linear with binary segments',
+                frag_shader(
+                    colorxfer='vec4(0.0, pixel.r * u_gain, 0.0, 1.0)',
+                    pick_off= 'vec3(0.2, 1, 1)',
+                    pick_on=  'vec3(1, 0.2, 1)',
+                    pick_def= 'vec3(1, 1, 0.2)',
+                    off=      'vec3(0.2, 0.6, 0.6)',
+                    on=       'vec3(0.6, 0.2, 0.6)',
+                    inrange=  'vec3(0.6, 0.6, 0.2)',
+                )
+            ),
+            (
+                'gray intensity only',
+                frag_shader(
+                    colorxfer='vec4(pixel.r, pixel.r, pixel.r, 1.0/u_gain) * u_gain',
+                    pick_off= 'vec3(0.2, 1, 1)',
+                    pick_on=  'vec3(1, 0.2, 1)',
+                    pick_def= 'vec3(1, 1, 1)',
+                    off=      'result.rgb',
+                    on=       'result.rgb',
+                    inrange=  'result.rgb',
+                )
+            ),
+            (
+                'gray intensity with magenta classified synapses',
+                frag_shader(
+                    colorxfer='vec4(pixel.r, pixel.r, pixel.r, 1.0/u_gain) * u_gain',
+                    pick_off= 'vec3(0.2, 1, 1)',
+                    pick_on=  'vec3(1, 0.2, 1)',
+                    pick_def= 'vec3(1, 1, 1)',
+                    off=      'result.rgb',
+                    on=       'vec3(result.g, 0.2 * result.g, result.g) * 1.2',
+                    inrange=  'result.rgb',
+                )
+            )
+        ]
+
+        self.reset()
+
+        self.text_hud = visuals.TextVisual('', color="white", font_size=12 * self.font_scale, anchor_x="left", bold=True)
+        if not hasattr(self.text_hud, 'transforms'):
+            # temporary backwards compatibility
+            self.text_hud_transform = visuals.transforms.TransformSystem(self)
+
+        self.prev_size = None
+        self.set_viewport1((W, H))
+        
+        self.show()
+
+    def trace(self, attribute, value, mesg=None):
+        if type(value) is float:
+            value = '%.2f' % value
+        self.hud_items.append(
+            (attribute, mesg if mesg is not None else "%s: %s" % (attribute, value), datetime.datetime.now())
+        )
+
+    def help(self, event):
+        """Show help information (H)."""
+        self.hud_items = []
+        handlers = dict([ (handler, key) for key, handler in self.key_press_handlers.items() ]).items()
+        handlers.sort(key=lambda p: (len(p[1]), p[1]))
+
+        for mesg in [
+                'Click segments with mouse to toggle classification status.',
+                'Keyboard commands:',
+                '  Exit (ESC).',
+        ] + [ '  ' + p[0].__doc__ for p in handlers ]:
+            self.trace(mesg, '', mesg)
+
+        self.update()
+
+    def get_hud_text_pos_lists(self):
+        # expire old content
+        now = datetime.datetime.now()
+        
+        self.hud_items = [
+            (k, mesg, ts)
+            for k, mesg, ts in self.hud_items
+            if (now - ts).total_seconds() <= self.hud_age_s
+        ]
+
+        # remove duplicate keys retaining newest item (latest in list)
+        hud_items = []
+        hud_keys = set()
+        for k, mesg, ts in self.hud_items[::-1]:
+            if k not in hud_keys:
+                hud_keys.add(k)
+                hud_items.append((k, mesg, ts))
+        hud_items.reverse()
+
+        # build up display content
+        hud_text = []
+        hud_pos = []
+        for k, mesg, ts in hud_items:
+            hud_text.append(mesg)
+            hud_pos.append( np.array((5 * self.font_scale, (12 + len(hud_text) * 15) * self.font_scale)) )
+
+        return hud_text, hud_pos
+
+    def dump_or_report(self, event):
+        """Dump current parameters (d) or segments CSV file (D)."""
+        if 'Shift' in event.modifiers:
+            self.dump_csv(event)
+        else:
+            self.report(event)
+            
+    def report(self, event=None):
+        """Dump (D) current parameters."""
+        self.trace('Z', self.vol_slicer.last_Z)
+        self.trace('blend mode', self.frag_shaders[self.current_shader][0])
+        
+        for attribute, value in [
+                ('gain', self.gain),
+                ('feature_level', self.feature_level),
+                ('neighbor_level', self.neighbor_level),
+        ]:
+            self.trace(attribute, value)
+
+        if event is not None:
+            self.update()
+        
+    def reset(self, event=None):
+        """Reset (R) rendering mode and thresholds."""
+        self.hud_items = [] # (key, mesg, ts)
+        self.hud_age_s = 10
+
+        self.prev_pick_idx = 0
+        self.pick_idx = 0
+        self.gain = 1.0
+        self.feature_level = 0.0
+        self.neighbor_level = 0.0
+
+        self.current_shader = 0
+        self.program.set_shaders(vert_shader, self.frag_shaders[self.current_shader][1])
+
+        self.program['u_gain'] = self.gain
+        self.program['u_feature_level'] = self.feature_level
+        self.program['u_neighbor_level'] = self.neighbor_level
+
+        self.font_scale = 1
+
+        self.report()
+        
+        if self._hud_timer is not None:
+            self._hud_timer.stop()
+            self._hud_timer = None
+
+        if event is not None:
+            self.update()
+
+    def set_viewport1(self, window_size):
+        if self.prev_size == window_size:
+            return
+
+        self.prev_size = window_size
+
+        ww, wh = map(float, window_size)
+        dh, dw = map(float, self.vol_slicer.data.shape[1:3])
+
+        daspect = dw/dh
+        if ww/wh > daspect:
+            self.viewport1 = (ww - wh*daspect)/2, 0, wh*daspect, wh
+        else:
+            self.viewport1 = 0, (wh - ww/daspect)/2, ww, ww/daspect
+
+        gloo.set_viewport(*self.viewport1)
+
+    def adjust_gain(self, event):
+        """Increase (G) or decrease (g) image intensity gain."""
+        if event.key == 'G':
+            if 'Shift' in event.modifiers:
+                self.gain *= 1.25
+            else:
+                self.gain *= 1./1.25
+
+        print 'gain %f' % self.gain
+        self.trace('gain', self.gain)
+        self.program['u_gain'] = self.gain
+        self.update()
+
+    def toggle_blend(self, event):
+        """Cycle forward (b) or backward (B) through blending modes."""
+        if 'Shift' in event.modifiers:
+            sign = -1
+        else:
+            sign = 1
+        self.current_shader = (self.current_shader + 1 * sign) % len(self.frag_shaders)
+        self.program.set_shaders(vert_shader, self.frag_shaders[self.current_shader][1])
+        self.trace('blend mode', self.frag_shaders[self.current_shader][0])
+        self.update()
+
+    @adjust_level('u_feature_level', 'feature_level')
+    def adjust_feature_level(self, event):
+        """Increase (F) or decrease (f) feature threshold."""
+        pass
+        
+    @adjust_level('u_neighbor_level', 'neighbor_level')
+    def adjust_neighbor_level(self, event):
+        """Increase (N) or decrease (n) neighborhood threshold."""
+        pass
+
+    def on_resize(self, event):
+        self.set_viewport1(event.physical_size)
+
+        if hasattr(self.text_hud, 'transforms'):
+            self.text_hud.transforms.configure(canvas=self, viewport=(0, 0) + self.size)
+        else:
+            # temporary backwards compatibility
+            self.text_hud_transform = visuals.transforms.TransformSystem(self)
+
+        self.update()
+
+    def on_key_press(self, event):
+        handler = self.key_press_handlers.get(event.key)
+        if handler:
+            handler(event)
+        elif event.key in ['Shift', 'Escape', 'Alt', 'Control']:
+            pass
+        else:
+            print 'no handler for key %s' % event.key
+
+    def on_mouse_wheel(self, event):
+        Z = self.vol_slicer.last_Z - event.delta[1]
+        Z = clamp(Z, 0, self.vol_slicer.data.shape[0] - 1)
+        if Z != self.vol_slicer.last_Z:
+            self.vol_slicer.get_textures(int(Z))
+            self.trace('Z', int(Z))
+            self.update()
+
+    def adjust_depth(self, event):
+        """Increase (up-arrow) or decrease (down-arrow) Z slice position."""
+        if event.key == 'Up':
+            delta = -1
+        else:
+            delta = 1
+
+        Z = self.vol_slicer.last_Z + delta
+        Z = clamp(Z, 0, self.vol_slicer.data.shape[0] - 1)
+            
+        self.vol_slicer.get_textures(Z)
+        self.trace('Z', Z)
+        self.update()
+
+    def find_pick_idx(self, event):
+        X0, Y0, W, H = self.viewport1
+        dh, dw = map(float, self.segment_map.shape[0:2])
+        x, y = event.pos
+        x = int((x - X0) * (dw/W))
+        y = int((y - Y0) * (dh/H))
+        y = int(dh) - y # flip y to match norm. device coord system
+
+        if 0 <= x < dw and 0 <= y < dh:
+            self.pick_rgb = self.segment_map[y, x, 0:3]
+            self.pick_idx = int(
+                self.segment_map[y, x, 0]
+                + self.segment_map[y, x, 1] * 2**8
+                + self.segment_map[y, x, 2] * 2**16
+            )
+        else:
+            self.pick_rgb = self.segment_map[0, 0, 0:3]
+            self.pick_idx = 0
+
+        if self.pick_idx != self.prev_pick_idx:
+            self.update()
+            self.prev_pick_idx = self.pick_idx
+            
+    def on_mouse_press(self, event):
+        self.find_pick_idx(event)
+        
+    def on_mouse_release(self, event):
+        if self.pick_idx > 0:
+            b = {
+                # state-transitions for clicking centroids
+                0: 5, 5: 7, 7: 0
+            }[self.segment_status[self.pick_idx]]
+            self.segment_status[self.pick_idx] = b # track state for ourselves
+            self.textures[3].set_data( # poke into status_cube texture for renderer
+                np.array([[[b]]], dtype=np.uint8),
+                offset=tuple(self.pick_rgb[::-1]),
+                copy=True
+            )
+            self.update()
+
+    def csv_file_name(self):
+        return self.accession_id + '.segments.csv'
+
+    def load_csv(self, event):
+        """Load (L) segment classification from CSV file."""
+        csvfile = self.csv_file_name()
+        try:
+            status, saved_params = load_segment_status_from_csv(
+                self.vol_slicer.centroids,
+                self.vol_slicer.slice_origin,
+                csvfile
+            )
+            # shift everything to index+1
+            self.segment_status[1:self.vol_slicer.centroids.shape[0]+1] = status[:]
+            self.textures[3].set_data(self.segment_status.reshape((256,256,256)))
+            self.trace(
+                csvfile, 'loaded with %d/%d segments overridden' % (
+                    (self.segment_status > 0).nonzero()[0].shape[0],
+                    self.vol_slicer.centroids.shape[0]
+                )
+            )
+        except Exception, e:
+            self.trace(csvfile, 'load failed: ' + str(e))
+            raise
+        self.update()
+
+    def dump_csv(self, event):
+        """Dump (D) segment CSV file."""
+        csvfile = self.csv_file_name()
+        try:
+            dump_segment_info_to_csv(
+                self.vol_slicer.centroids,
+                self.vol_slicer.measures,
+                self.segment_status[1:self.vol_slicer.centroids.shape[0]+1],
+                self.vol_slicer.slice_origin,
+                csvfile
+            )
+            self.trace(
+                csvfile, 'dumped with %d/%d segments overridden' % (
+                    (self.segment_status > 0).nonzero()[0].shape[0],
+                    self.vol_slicer.centroids.shape[0]
+                )
+            )
+        except Exception, e:
+            self.trace(csvfile, 'dump failed: ' + str(e))
+        self.update()
+            
+    def on_mouse_move(self, event):
+        if not event.is_dragging:
+            # freeze pick during accidental drag
+            self.find_pick_idx(event)
+
+    def on_timer(self, event):
+        self.update()
+            
+    def on_draw(self, event):
+        self.program['u_pick_r'] = float(self.pick_idx % 256) / 255.0
+        self.program['u_pick_g'] = float(self.pick_idx / 2**8 % 256) / 255.0
+        self.program['u_pick_b'] = float(self.pick_idx / 2**16 % 256) / 255.0
+
+        # draw image slice
+        gloo.set_viewport(*self.viewport1)
+        gloo.clear(color=True, depth=True)
+        self.program.draw('triangle_strip')
+
+        # draw HUD
+        hud_lists = self.get_hud_text_pos_lists()
+        if hud_lists[0]:
+            gloo.set_viewport((0, 0) + self.physical_size)
+            
+            self.text_hud.text, self.text_hud.pos = hud_lists
+
+            if hasattr(self.text_hud, 'transforms'):
+                self.text_hud.draw()
+            else:
+                self.text_hud.draw(self.text_hud_transform)
+
+            if self._hud_timer is not None:
+                self._hud_timer.stop()
+                self._hud_timer = None
+
+            now = datetime.datetime.now()
+            self._hud_timer = app.Timer(
+                interval=(now - self.hud_items[0][2]).total_seconds(),
+                iterations=1,
+                start=True,
+                app=self.app,
+                connect=self.on_timer
+            )
+
+if __name__ == '__main__':
+    c = Canvas(sys.argv[1])
+    app.run()

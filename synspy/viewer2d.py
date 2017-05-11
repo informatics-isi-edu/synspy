@@ -354,6 +354,7 @@ class Canvas(app.Canvas):
 
         app.Canvas.__init__(self, size=(W, H), keys='interactive')
         self._hud_timer = None
+        self.hud_items = []
         
         self.program = gloo.Program()
         self.program.bind(gloo.VertexBuffer(quad))

@@ -8,7 +8,9 @@ import sys
 import os
 import numpy as np
 import json
+import atexit
 
+import time
 import datetime
 
 from vispy import gloo
@@ -57,7 +59,7 @@ class SynspyImageManager (object):
             / self.properties['image_grid'][1]
             / 2.0
         )
-        print 'kernel radii %d, %d, %d' % (self.z_radius, self.xy_radius, self.xy_radius)
+        #print 'kernel radii %d, %d, %d' % (self.z_radius, self.xy_radius, self.xy_radius)
 
         def dstslice(offset, limit):
             if offset < 0:
@@ -140,7 +142,7 @@ class SynspyImageManager (object):
 
         if self.textures is None:
             format, internalformat = self._get_texture_format(len(self.channels), 2)
-            print 'allocating textures...'
+            #print 'allocating textures...'
             self.textures = [
                 gloo.Texture2D(shape=(H, W, C), format=format, internalformat=internalformat),
                 gloo.Texture2D(shape=(H, W, 3), format='rgb', internalformat='rgb'),
@@ -155,7 +157,7 @@ class SynspyImageManager (object):
                 texture.wrapping = 'clamp_to_edge'
             
         elif self.last_channels == self.channels and self.last_Z == Z:
-            print 'reusing textures'
+            #print 'reusing textures'
             return self.textures
         else:
             #print 'regenerating texture'
@@ -363,11 +365,12 @@ class Canvas(app.Canvas):
 
         self.key_press_handlers = {
             'B': self.toggle_blend,
-            'D': self.dump_or_report,
+            #'D': self.dump_or_report,
+            'D': self.report,
             'F': self.adjust_feature_level,
             'G': self.adjust_gain,
             'H': self.help,
-            'L': self.load_csv,
+            #'L': self.load_csv,
             'N': self.adjust_neighbor_level,
             'R': self.reset,
             'Up': self.adjust_depth,
@@ -425,6 +428,27 @@ class Canvas(app.Canvas):
         self.set_viewport1((W, H))
         
         self.show()
+
+        # auto-load
+        self.load_csv()
+
+        # auto-dump
+        self.auto_dumped = False
+        @atexit.register
+        def shutdown():
+            if not self.auto_dumped:
+                sys.stderr.write('caught exit... dumping CSV...')
+                self.dump_csv()
+                sys.stderr.write('done.\n')
+
+    def on_close(self, event):
+        self.trace('Window close', 'dumping state...')
+        self.on_draw()
+        self.dump_csv()
+        self.auto_dumped = True
+        self.trace('Window close', 'closing in 5 seconds...')
+        self.on_draw()
+        time.sleep(5)
 
     def trace(self, attribute, value, mesg=None):
         if type(value) is float:
@@ -484,7 +508,7 @@ class Canvas(app.Canvas):
             self.report(event)
             
     def report(self, event=None):
-        """Dump (D) current parameters."""
+        """Dump (d) current parameters."""
         self.trace('Z', self.vol_slicer.last_Z)
         self.trace('blend mode', self.frag_shaders[self.current_shader][0])
         
@@ -499,7 +523,7 @@ class Canvas(app.Canvas):
             self.update()
         
     def reset(self, event=None):
-        """Reset (R) rendering mode and thresholds."""
+        """Reset (r) rendering mode and thresholds."""
         self.hud_items = [] # (key, mesg, ts)
         self.hud_age_s = 10
 
@@ -552,7 +576,6 @@ class Canvas(app.Canvas):
             else:
                 self.gain *= 1./1.25
 
-        print 'gain %f' % self.gain
         self.trace('gain', self.gain)
         self.program['u_gain'] = self.gain
         self.update()
@@ -663,7 +686,7 @@ class Canvas(app.Canvas):
     def csv_file_name(self):
         return self.accession_id + '.segments.csv'
 
-    def load_csv(self, event):
+    def load_csv(self, event=None):
         """Load (L) segment classification from CSV file."""
         csvfile = self.csv_file_name()
         try:
@@ -686,7 +709,7 @@ class Canvas(app.Canvas):
             raise
         self.update()
 
-    def dump_csv(self, event):
+    def dump_csv(self, event=None):
         """Dump (D) segment CSV file."""
         csvfile = self.csv_file_name()
         try:
@@ -695,7 +718,8 @@ class Canvas(app.Canvas):
                 self.vol_slicer.measures,
                 self.segment_status[1:self.vol_slicer.centroids.shape[0]+1],
                 self.vol_slicer.slice_origin,
-                csvfile
+                csvfile,
+                all_segments=False
             )
             self.trace(
                 csvfile, 'dumped with %d/%d segments overridden' % (
@@ -715,7 +739,7 @@ class Canvas(app.Canvas):
     def on_timer(self, event):
         self.update()
             
-    def on_draw(self, event):
+    def on_draw(self, event=None):
         self.program['u_pick_r'] = float(self.pick_idx % 256) / 255.0
         self.program['u_pick_g'] = float(self.pick_idx / 2**8 % 256) / 255.0
         self.program['u_pick_b'] = float(self.pick_idx / 2**16 % 256) / 255.0
@@ -749,6 +773,9 @@ class Canvas(app.Canvas):
                 app=self.app,
                 connect=self.on_timer
             )
+
+        if event is None:
+            self.swap_buffers()
 
 if __name__ == '__main__':
     c = Canvas(sys.argv[1])

@@ -16,7 +16,8 @@ import re
 import volspy.viewer as base
 from vispy import gloo, visuals
 
-from analyze import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
+from analyze.block import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
+from analyze.util import load_segment_status_from_csv, dump_segment_info_to_csv
 
 import tifffile
         
@@ -897,39 +898,23 @@ transparency factor: %f
         #print "%s dumped" % debug_name
 
         csv_name = self._csv_dump_filename()
+        saved_params = {
+            'Z': 'saved',
+            'Y': 'params',
+            'X': ('(core, vicinity, zerolvl, toplvl,'
+                  + ((measures.shape[1] == 5) and  'autofl' or '')
+                  + 'transp):'),
+            'raw core': self.floorlvl * (self.data_max - self.data_min) + self.data_min,
+            'raw hollow': self.nuclvl * (self.data_max - self.data_min) + self.data_min,
+            'DoG core': self.zerlvl * (self.data_max - self.data_min) + self.data_min,
+            'DoG hollow': self.toplvl * (self.data_max - self.data_min) + self.data_min,
+            'override': (self.transp),
+        }
+        if measures.shape[1] == 5:
+            saved_params['red'] = (self.msklvl * (self.data_max - self.data_min) + self.data_min
 
-        # correct dumped centroids to global coordinate space of unsliced source image
-        centroids = centroids + np.array(self.vol_cropper.slice_origin, np.int32)
+        dump_segment_info_to_csv(centroids, measures, status, self.vol_cropper.slice_origin, csv_name, saved_params)
 
-        csvfile = open(csv_name, 'w')
-        writer = csv.writer(csvfile)
-        writer.writerow(
-            ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
-            + ((measures.shape[1] == 5) and ('red',) or ())
-            + ('override',)
-        )
-        writer.writerow(
-            (
-                'saved',
-                'parameters',
-                ('(core, vicinity, zerolvl, toplvl,'
-                 + ((measures.shape[1] == 5) and  'autofl' or '')
-                 + 'transp):'),
-                self.floorlvl * (self.data_max - self.data_min) + self.data_min,
-                self.nuclvl * (self.data_max - self.data_min) + self.data_min,
-                self.zerlvl * (self.data_max - self.data_min) + self.data_min,
-                self.toplvl * (self.data_max - self.data_min) + self.data_min
-            )
-            + ((measures.shape[1] == 5) and (self.msklvl * (self.data_max - self.data_min) + self.data_min,) or ())
-            + (self.transp,)
-        )
-        for i in range(measures.shape[0]):
-            Z, Y, X = centroids[i]
-            writer.writerow( 
-                (Z, Y, X) + tuple(measures[i,m] for m in range(measures.shape[1])) + (status[i] or '',)
-            )
-        del writer
-        csvfile.close()
         msg = "%s dumped" % csv_name
         if self.hud_enable:
             self.volume_renderer.uniform_changes[msg] = None
@@ -939,53 +924,38 @@ transparency factor: %f
         """Load a segment list with manual override status values."""
         # assume that dump is ordered subset of current analysis
         csv_name = self._csv_dump_filename()
-        csvfile = open(csv_name, 'r')
-        reader = csv.DictReader(csvfile)
-        i = 0
+        status, saved_params = load_segment_status_from_csv(self.centroids, self.vol_cropper.slice_origin, csv_name)
+
+        if saved_params is not None:
+            ignore1, measures, ignore2, ignore3 = self.thresholded_segments()
+
+            self.floorlvl = (float(saved_params['raw core']) - self.data_min) / (self.data_max - self.data_min)
+            self.nuclvl = (float(saved_params['raw hollow']) - self.data_min) / (self.data_max - self.data_min)
+            self.zerlvl = (float(saved_params['DoG core']) - self.data_min) / (self.data_max - self.data_min)
+            self.toplvl = (float(saved_params['DoG hollow']) - self.data_min) / (self.data_max - self.data_min)
+
+            if measures.shape[1] == 5:
+                self.msklvl = (float(saved_params['red']) - self.data_min) / (self.data_max - self.data_min)
+
+            self.transp = float(saved_params['override'])
+
+            self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
+            self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
+            self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
+            self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
+            self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
+            self.volume_renderer.set_uniform('u_transp', self.transp)
+            self.update()
+
         self.centroids_batch.clear()
-        for row in reader:
+        override_indices = (status > 0).nonzero()[0]
+        for i in override_indices:
+            self._set_centroid_status(
+                self._pick_segment_to_rgb(i+1),
+                {1: 5, 3: 7, 5: 5, 7: 7}[status[i]]
+            )
+            self.centroids_batch.add(i)
 
-            # newer dump files have an extra saved-parameters row first...
-            if row['Z'] == 'saved' and row['Y'] == 'parameters':
-                ignore1, measures, ignore2, ignore3 = self.thresholded_segments()
-                
-                self.floorlvl = (float(row['raw core']) - self.data_min) / (self.data_max - self.data_min)
-                self.nuclvl = (float(row['raw hollow']) - self.data_min) / (self.data_max - self.data_min)
-                self.zerlvl = (float(row['DoG core']) - self.data_min) / (self.data_max - self.data_min)
-                self.toplvl = (float(row['DoG hollow']) - self.data_min) / (self.data_max - self.data_min)
-
-                if measures.shape[1] == 5:
-                    self.msklvl = (float(row['red']) - self.data_min) / (self.data_max - self.data_min)
-
-                self.transp = float(row['override'])
-                
-                self.volume_renderer.set_uniform('u_floorlvl', self.floorlvl)
-                self.volume_renderer.set_uniform('u_nuclvl', self.nuclvl)
-                self.volume_renderer.set_uniform('u_zerlvl', self.zerlvl)
-                self.volume_renderer.set_uniform('u_toplvl', self.toplvl)
-                self.volume_renderer.set_uniform('u_msklvl', self.msklvl)
-                self.volume_renderer.set_uniform('u_transp', self.transp)
-                self.update()
-                
-                continue
-
-            # convert global unsliced coordinates back into sliced image coordinates
-            Z = int(row['Z']) - self.vol_cropper.slice_origin[0]
-            Y = int(row['Y']) - self.vol_cropper.slice_origin[1]
-            X = int(row['X']) - self.vol_cropper.slice_origin[2]
-
-            # scan forward until we find same centroid, since CSV is a subset
-            while i < self.centroids.shape[0] and (Z, Y, X) != tuple(self.centroids[i]):
-                i += 1
-
-            assert i < self.centroids.shape[0], ("CSV dump does not match current image analysis!", csv_name)
-
-            if row['override']:
-                self._set_centroid_status(
-                    self._pick_segment_to_rgb(i+1),
-                    {1: 5, 3: 7, 5: 5, 7: 7}[int(row['override'])]
-                )
-                self.centroids_batch.add(i)
         msg = '%s loaded' % csv_name
         if self.hud_enable:
             self.volume_renderer.uniform_changes[msg] = None

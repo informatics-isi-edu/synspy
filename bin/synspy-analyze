@@ -6,7 +6,7 @@
 
 import sys
 
-from synspy.analyze import batch_analyze_cli
+from synspy.analyze.block import batch_analyze_cli
 
 if __name__ == '__main__':
     status = batch_analyze_cli(sys.argv[1])

@@ -448,6 +448,7 @@ class Canvas(app.Canvas):
         self.auto_dumped = True
         self.trace('Window close', 'closing in 5 seconds...')
         self.on_draw()
+        self.hud_drain(drain_all=True)
         time.sleep(5)
 
     def trace(self, attribute, value, mesg=None):
@@ -457,9 +458,34 @@ class Canvas(app.Canvas):
             (attribute, mesg if mesg is not None else "%s: %s" % (attribute, value), datetime.datetime.now())
         )
 
+    def hud_drain(self, drain_all=False):
+        # remove duplicate keys retaining newest item (latest in list)
+        hud_items = []
+        hud_keys = set()
+        for k, mesg, ts in self.hud_items[::-1]:
+            if k not in hud_keys:
+                hud_keys.add(k)
+                hud_items.append((k, mesg, ts))
+        hud_items.reverse()
+
+        # expire old content
+        now = datetime.datetime.now()
+        items = [
+            (k, mesg, ts, ((now - ts).total_seconds() <= self.hud_age_s) and not drain_all)
+            for k, mesg, ts in hud_items
+        ]
+        self.hud_items = [
+            (k, mesg, ts)
+            for k, mesg, ts, retain in items
+            if retain
+        ]
+        for k, mesg, ts, retain in items:
+            if not retain:
+                print mesg
+        
     def help(self, event):
         """Show help information (H)."""
-        self.hud_items = []
+        self.hud_drain(drain_all=True)
         handlers = dict([ (handler, key) for key, handler in self.key_press_handlers.items() ]).items()
         handlers.sort(key=lambda p: (len(p[1]), p[1]))
 
@@ -473,28 +499,12 @@ class Canvas(app.Canvas):
         self.update()
 
     def get_hud_text_pos_lists(self):
-        # expire old content
-        now = datetime.datetime.now()
-        
-        self.hud_items = [
-            (k, mesg, ts)
-            for k, mesg, ts in self.hud_items
-            if (now - ts).total_seconds() <= self.hud_age_s
-        ]
-
-        # remove duplicate keys retaining newest item (latest in list)
-        hud_items = []
-        hud_keys = set()
-        for k, mesg, ts in self.hud_items[::-1]:
-            if k not in hud_keys:
-                hud_keys.add(k)
-                hud_items.append((k, mesg, ts))
-        hud_items.reverse()
+        self.hud_drain()
 
         # build up display content
         hud_text = []
         hud_pos = []
-        for k, mesg, ts in hud_items:
+        for k, mesg, ts in self.hud_items:
             hud_text.append(mesg)
             hud_pos.append( np.array((5 * self.font_scale, (12 + len(hud_text) * 15) * self.font_scale)) )
 
@@ -524,7 +534,7 @@ class Canvas(app.Canvas):
         
     def reset(self, event=None):
         """Reset (r) rendering mode and thresholds."""
-        self.hud_items = [] # (key, mesg, ts)
+        self.hud_drain(drain_all=True)
         self.hud_age_s = 10
 
         self.prev_pick_idx = 0

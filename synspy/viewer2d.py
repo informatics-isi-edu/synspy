@@ -431,7 +431,10 @@ class Canvas(app.Canvas):
         self.show()
 
         # auto-load
-        self.load_csv()
+        try:
+            self.load_csv()
+        except:
+            pass
 
         # auto-dump
         self.auto_dumped = False

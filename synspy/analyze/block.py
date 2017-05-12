@@ -924,7 +924,7 @@ def batch_analyze_cli(fname):
     if centroids.dtype == np.int32 and centroids.max() < 2**16-1 and centroids.min() >= 0:
         centroids = centroids.astype(np.uint16)
 
-    dump_fname = '%s.roi.npz' % dump_prefix
+    dump_fname = '%s.npz' % dump_prefix
     outf = open(dump_fname, 'wb')
 
     np.savez(

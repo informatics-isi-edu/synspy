@@ -346,6 +346,8 @@ class Canvas(app.Canvas):
         self.basename = os.path.basename(filename)
         assert self.basename.endswith('.npz')
         self.accession_id = self.basename[0:-4]
+        self.dump_prefix = './%s.' % self.accession_id
+        self.dump_prefix = os.getenv('DUMP_PREFIX', self.dump_prefix)
         
         self.vol_slicer = SynspyImageManager(filename)
         self.vol_slicer.set_view()
@@ -698,7 +700,10 @@ class Canvas(app.Canvas):
             self.update()
 
     def csv_file_name(self):
-        return self.accession_id + '.segments.csv'
+        if self.vol_slicer.properties['synspy_nuclei_mode']:
+            return self.dump_prefix + 'nuclei.csv'
+        else:
+            return self.dump_prefix + 'synapses.csv'
 
     def load_csv(self, event=None):
         """Load (L) segment classification from CSV file."""

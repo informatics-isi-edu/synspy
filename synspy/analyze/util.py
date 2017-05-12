@@ -260,12 +260,13 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
             (
                 'saved',
                 'parameters',
-                saved_params.get('X', 'raw core'),
-                saved_params.get('X', 'raw hollow'),
-                saved_params.get('X', 'DoG core'),
-                saved_params.get('X', 'DoG hollow'),
+                saved_params.get('X', ''),
+                saved_params.get('raw core', ''),
+                saved_params.get('raw hollow', ''),
+                saved_params.get('DoG core', ''),
+                saved_params.get('DoG hollow', ''),
             )
-            + (saved_params.get('red'),) if 'red' in saved_params else ()
+            + ((saved_params.get('red', ''),) if 'red' in saved_params else ())
             + (saved_params.get('override', ''),)
         )
     if all_segments:

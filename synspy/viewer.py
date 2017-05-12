@@ -12,6 +12,7 @@ import os
 import math
 import csv
 import re
+import atexit
 
 import volspy.viewer as base
 from vispy import gloo, visuals
@@ -784,11 +785,17 @@ class Canvas(base.Canvas):
             print 'Using default WINDOW_SIZE=512x512'
             self.size = 512, 512
 
+        self.auto_dumped = False
         if self.auto_dump_load:
             try:
                 self.load_classified_segments(None)
-            except:
-                pass
+            except Exception, e:
+                print 'Error during auto-load: %s' % e
+
+            @atexit.register
+            def shutdown():
+                if not self.auto_dumped:
+                    self.on_close()
 
     def emit_notice(self, event):
         """Emit user-defined notices to heads-up display."""
@@ -874,7 +881,7 @@ transparency factor: %f
         else:
             return '%ssynapses.csv' % self.dump_prefix
 
-    def dump_classified_voxels(self, event):
+    def dump_classified_voxels(self, event=None):
         """Dump a segment list."""
 
         centroids, measures, status, indices = self.thresholded_segments()
@@ -911,9 +918,9 @@ transparency factor: %f
             'override': (self.transp),
         }
         if measures.shape[1] == 5:
-            saved_params['red'] = (self.msklvl * (self.data_max - self.data_min) + self.data_min
+            saved_params['red'] = (self.msklvl * (self.data_max - self.data_min) + self.data_min)
 
-        dump_segment_info_to_csv(centroids, measures, status, self.vol_cropper.slice_origin, csv_name, saved_params)
+        dump_segment_info_to_csv(centroids, measures, status, self.vol_cropper.slice_origin, csv_name, saved_params=saved_params)
 
         msg = "%s dumped" % csv_name
         if self.hud_enable:
@@ -1071,10 +1078,11 @@ transparency factor: %f
             self.pick_pos = None
             self.pick_click = False
 
-    def on_close(self, event):
+    def on_close(self, event=None):
         if self.auto_dump_load:
+            print 'Dumping state...'
             self.dump_classified_voxels(event)
-        print 'window closed'
+            self.auto_dumped = True
 
     @adjust_level('u_floorlvl', 'floorlvl', trace="feature threshold set to %(level).5f")
     def adjust_floor_level(self, event):

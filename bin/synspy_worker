@@ -14,6 +14,7 @@ import pytz
 import atexit
 import shutil
 import tempfile
+import subprocess
 import urllib
 import csv
 
@@ -23,6 +24,9 @@ servername = os.getenv('SYNSPY_SERVER', platform.uname()[1])
 # secret session cookie
 credfile = os.getenv('SYNSPY_CREDENTIALS', 'credentials.json')
 credentials = json.load(open(credfile))
+
+# handle to /dev/null we can use in Popen() calls below...
+fnull = open(os.devnull, 'r+b')
 
 # we want a temporary work space for our external processing scripts
 startup_working_dir = os.getcwd()
@@ -68,17 +72,39 @@ store = HatracStore(
 )
 
 ### Custom work to run on job events...
-def get_image_grid(img_url):
-    """Process input image URL and return voxel grid spacing triple."""
+def get_image(img_url):
+    """Download image from URL returning base file name"""
     m = re.match('^(?P<basename>[^:]+)(?P<v>[:][0-9A-Z]+)?$', os.path.basename(img_url))
     img_filename = m.groupdict()['basename']
-
-    # download image to temp dir
     store.get_obj(img_url, destfilename=img_filename)
+    return img_filename
 
+def get_image_grid(img_filename):
+    """Process input image URL and return voxel grid spacing triple."""
     I, md = load_image(img_filename)
-
     return I.micron_spacing
+
+def preprocess_roi(img_filename, subject_path, row):
+    """Analyze ROI and upload resulting NPZ file, returning NPZ URL."""
+    command = [ 'synspy-analyze', img_filename ]
+    env = {
+        'ZYX_SLICE': row['ZYX Slice'],
+        'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
+        'SYNSPY_NUCLEI_DETECT': dict(nucleic='true').get(row['Segmentation Mode'], 'false'),
+        'DUMP_PREFIX': './%s' % row['ID'],
+    }
+    sys.stderr.write('Using analysis environment %r\n' % (env,))
+    analysis = subprocess.Popen(command, stdin=fnull, env=env)
+    code = analysis.wait()
+    del analysis
+    if code != 0:
+        raise WorkerRuntimeError('Non-zero analysis exit status %s!' % code)
+
+    return store.put_loc(
+        '%s/%s.npz' % (subject_path, row['ID']),
+        '%s.npz' % row['ID'],
+        headers={'Content-Type': 'application/octet-stream'}
+    )
 
 def filter_synspy_csv(csv_url):
     """Process input CSV URL and return filtered CSV filename."""
@@ -150,18 +176,25 @@ def run_row_job(row):
 
         updated_row = {}
 
-        if row['URL'] is not None and \
-           (row['Z micron'] is None \
-            or row['Y micron'] is None \
-            or row['X micron'] is None):
-            micron_spacing = get_image_grid(row['URL'])
-            updated_row.update({
-                'Z micron': float(micron_spacing[0]),
-                'Y micron': float(micron_spacing[1]),
-                'X micron': float(micron_spacing[2])
-            })
+        if row['Status'] is None and row['URL'] is not None:
+            img_filename = get_image(row['URL'])
+
+            if row['URL'] is not None and \
+               (row['Z micron'] is None \
+                or row['Y micron'] is None \
+                or row['X micron'] is None):
+                micron_spacing = get_image_grid(img_filename)
+                updated_row.update({
+                    'Z micron': float(micron_spacing[0]),
+                    'Y micron': float(micron_spacing[1]),
+                    'X micron': float(micron_spacing[2])
+                })
+
+            if row['Npz URL'] is None:
+                updated_row['Npz URL'] = preprocess_roi(img_filename, subject_path, row)
+
             updated_row['Status'] = "analysis pending"
-        
+
         if row['Segments URL'] is not None and row['Segments Filtered URL'] is None:
             segments_filtered_file = filter_synspy_csv(row['Segments URL'])
             segments_filtered_url = store.put_loc(
@@ -170,6 +203,8 @@ def run_row_job(row):
                 headers={'Content-Type': 'text/csv'}
             )
             updated_row['Segments Filtered URL'] = segments_filtered_url
+            updated_row['Status'] = "processed"
+        elif row['Segments Filtered URL']:
             updated_row['Status'] = "processed"
 
         if updated_row:
@@ -219,11 +254,14 @@ def look_for_work():
     global idle_etag
 
     # state machine:
-    # Status is NULL -> Z/Y/X micron set and Status = "analysis pending" -> Status = "analysis complete" -> filtered URL set and Status = "processed"
+    # Status is NULL and image URL is not NULL and Classifier is not NULL
+    #  -> Z/Y/X micron set and Npz URL set and Status = "analysis pending"
+    #  -> Status = "analysis complete"
+    #  -> filtered URL set and Status = "processed"
 
-    claimable_work_url = '/attribute/I:=Zebrafish:Image/Zebrafish:Image%20Region/!I:URL::null::&(Z%20micron::null::;Y%20micron::null::;X%20micron::null::)&Status::null::;!Segments%20URL::null::&Segments%20Filtered%20URL::null::&Status=%22analysis%20complete%22/*,I:URL,I:Subject?limit=1'
+    claimable_work_url = '/attribute/I:=Zebrafish:Image/!URL::null::/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;!Segments%20URL::null::&Segments%20Filtered%20URL::null::&Status=%22analysis%20complete%22/*,I:URL,I:Subject?limit=1'
     status_update_url = '/attributegroup/Zebrafish:Image%20Region/ID;Status'
-    
+
     # this handled concurrent update for us to safely and efficiently claim a record
     idle_etag, batch = catalog.state_change_once(
         claimable_work_url,

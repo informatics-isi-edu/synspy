@@ -17,8 +17,8 @@ import atexit
 import volspy.viewer as base
 from vispy import gloo, visuals
 
-from analyze.block import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
-from analyze.util import load_segment_status_from_csv, dump_segment_info_to_csv
+from synspy.analyze.block import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
+from synspy.analyze.util import load_segment_status_from_csv, dump_segment_info_to_csv
 
 import tifffile
         
@@ -445,7 +445,7 @@ def adjust_level(uniform, attribute, step=0.0005, altstep=None, trace="%(uniform
             if trace:
                 if tracenorm:
                     level = level * (self.data_max - self.data_min) + self.data_min
-                print trace % dict(uniform=uniform, level=level)
+                print(trace % dict(uniform=uniform, level=level))
 
         wrapper.__doc__ = origmethod.__doc__
         return wrapper
@@ -459,14 +459,14 @@ class Canvas(base.Canvas):
     }.get(os.getenv('VOXEL_SAMPLE', '').lower(), 'linear')
 
     def splat_centroids(self, reduction, shape, centroids, centroid_measures):
-        splat_kern = compose_3d_kernel(map(
+        splat_kern = compose_3d_kernel(list(map(
             lambda d, s, r: gaussian_kernel(d/s/6./r),
             self.synapse_diam_microns,
             self.raw_image.micron_spacing,
             reduction
-        ))
+        )))
         splat_kern /= splat_kern.sum()
-        print "segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max()
+        print("segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max())
         segment_map = assign_voxels_opt(
             centroid_measures[:,0],
             np.array(centroids, dtype=np.int32) / np.array(reduction, dtype=np.int32),
@@ -536,19 +536,19 @@ class Canvas(base.Canvas):
 
         # get labeled voxels
         assert np.isnan(centroid_measures).sum() == 0
-        print "measures range", centroid_measures.min(axis=0), centroid_measures.max(axis=0)
-        print "centroids:", centroids.min(axis=0), centroids.max(axis=0)
-        print "view_image shape:", view_image.shape
-        print "view_image range", view_image.min(), view_image.max()
+        print("measures range", centroid_measures.min(axis=0), centroid_measures.max(axis=0))
+        print("centroids:", centroids.min(axis=0), centroids.max(axis=0))
+        print("view_image shape:", view_image.shape)
+        print("view_image range", view_image.min(), view_image.max())
 
         # align 3D textures for opengl?
         assert view_image.shape[3] < 4
-        result_shape = tuple(map(
+        result_shape = tuple(list(map(
             lambda s, m: s + s%m,
             view_image.shape[0:3],
             [1, 1, 4]
-        ) + [view_image.shape[3] >= 2 and 3 or 1])
-        print "results shape:", result_shape
+        )) + [view_image.shape[3] >= 2 and 3 or 1])
+        print("results shape:", result_shape)
 
         segment_map = self.splat_centroids(view_reduction, result_shape[0:3], centroids, centroid_measures)
         
@@ -565,7 +565,7 @@ class Canvas(base.Canvas):
         else:
             fmt = 'rgb'[0:nb]
 
-        print "voxel_class_texture %d segments, %d bytes, %s format" % (centroid_measures.shape[0], nb, fmt)
+        print("voxel_class_texture %d segments, %d bytes, %s format" % (centroid_measures.shape[0], nb, fmt))
             
         # pack least significant byte as R, then G, etc.
         segment_map_uint8 = np.zeros(segment_map.shape + (nb,), dtype=np.uint8)
@@ -635,12 +635,12 @@ class Canvas(base.Canvas):
             
         splits.append((datetime.datetime.now(), 'scalar volume'))
             
-        perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+        perf_vector = list(map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:]))
         for elapsed, desc in perf_vector:
-            print "%8.2fs %s task time" % (elapsed, desc)
+            print("%8.2fs %s task time" % (elapsed, desc))
         
-        print "measure counts:", centroid_measures.shape
-        print "packed data range: ", self.data_min, self.data_max
+        print("measure counts:", centroid_measures.shape)
+        print("packed data range: ", self.data_min, self.data_max)
 
         self.analyzer = analyzer
         self.syn_values = centroid_measures[:,0]
@@ -782,15 +782,15 @@ class Canvas(base.Canvas):
             self.size = tuple([ int(x) for x in os.getenv('WINDOW_SIZE', '').split('x') ])
             assert len(self.size) == 2, 'WINDOW_SIZE must have form WxH'
         except:
-            print 'Using default WINDOW_SIZE=512x512'
+            print('Using default WINDOW_SIZE=512x512')
             self.size = 512, 512
 
         self.auto_dumped = False
         if self.auto_dump_load:
             try:
                 self.load_classified_segments(None)
-            except Exception, e:
-                print 'Error during auto-load: %s' % e
+            except Exception as e:
+                print('Error during auto-load: %s' % e)
 
             @atexit.register
             def shutdown():
@@ -844,7 +844,7 @@ class Canvas(base.Canvas):
 
     def dump_parameters(self, event):
         """Dump current parameters."""
-        print """
+        print("""
 gain: %f
 zoom: %f
 color mode: %d %s
@@ -866,7 +866,7 @@ transparency factor: %f
             self.zerlvl * (self.data_max - self.data_min) + self.data_min,
             self.toplvl * (self.data_max - self.data_min) + self.data_min,
             self.transp
-            )
+            ))
 
     def dump_params_or_classified(self, event):
         """Dump current parameters ('d') or voxel classification ('D')."""
@@ -925,7 +925,7 @@ transparency factor: %f
         msg = "%s dumped" % csv_name
         if self.hud_enable:
             self.volume_renderer.uniform_changes[msg] = None
-        print msg
+        print(msg)
 
     def load_classified_segments(self, event):
         """Load a segment list with manual override status values."""
@@ -966,15 +966,12 @@ transparency factor: %f
         msg = '%s loaded' % csv_name
         if self.hud_enable:
             self.volume_renderer.uniform_changes[msg] = None
-        print msg
+        print(msg)
 
     def thresholded_segments(self):
         """Return subset of centroid data where centroids match thresholds."""
         # get thresholds from OpenGL back to absolute values
-        floorlvl, nuclvl, msklvl = map(
-            lambda x: x * (self.data_max - self.data_min) + self.data_min,
-            [self.floorlvl, self.nuclvl, self.msklvl]
-        )
+        floorlvl, nuclvl, msklvl = [x * (self.data_max - self.data_min) + self.data_min for x in [self.floorlvl, self.nuclvl, self.msklvl]]
 
         # a 1D bitmap of centroid inclusion
         matches = (
@@ -998,11 +995,11 @@ transparency factor: %f
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.float32)
 
         def render(v0, v1, ch):
-            print "rendering %d points to heatmap ch%d (%f ... %f) x (%f ... %f)" % (
+            print("rendering %d points to heatmap ch%d (%f ... %f) x (%f ... %f)" % (
                 len(v0), ch,
                 np.nanmin(v0), np.nanmax(v0),
                 np.nanmin(v1), np.nanmax(v1)
-            )
+            ))
             for i in range(len(v0)):
                 x = (IMAGE_SIZE-1) * v0[i]
                 y = (IMAGE_SIZE-1) * v1[i]
@@ -1011,8 +1008,8 @@ transparency factor: %f
 
             hmax = heatmap[:,:,ch].max()
             max_bins = np.argwhere(heatmap[:,:,ch] == hmax)[0:20]
-            print "heatmap ch%d max: %s" % (ch, hmax)
-            print "heatmap max %s at XY bins %s" % (hmax, max_bins)
+            print("heatmap ch%d max: %s" % (ch, hmax))
+            print("heatmap max %s at XY bins %s" % (hmax, max_bins))
 
         def normalize(m):
             m = np.clip(m, 0, np.inf)
@@ -1027,7 +1024,7 @@ transparency factor: %f
 
         # render thresholded peaks
         c, m, ignore1, ignore2 = self.thresholded_segments()
-        print c.shape, m.shape
+        print(c.shape, m.shape)
         m = normalize(m)
         m /= hmax
         render(m[:,0], m[:,1], 1)
@@ -1080,7 +1077,7 @@ transparency factor: %f
 
     def on_close(self, event=None):
         if self.auto_dump_load:
-            print 'Dumping state...'
+            print('Dumping state...')
             self.dump_classified_voxels(event)
             self.auto_dumped = True
 

@@ -23,7 +23,7 @@ def convNd_sparse(src, kernel, centroids):
 
     """
     results = []
-    kernel_radii = map(lambda w: w/2, kernel.shape)
+    kernel_radii = [w/2 for w in kernel.shape]
     for centroid in centroids:
         slc = tuple(
             slice(centroid[d] - kernel_radii[d], centroid[d] + kernel_radii[d] + 1)
@@ -52,7 +52,7 @@ def convNx1d(src, kernels):
         kernel_radius = kernel_width/2
 
         if kernel_radius < 1:
-            print "warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width)
+            print("warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width))
             continue
         elif kernel_radius > L:
             raise ValueError("dimension %d length %d too small for kernel %d" % (d, L, kernel_width))
@@ -82,7 +82,7 @@ def maxNx1d(src, lengths):
         kernel_radius = kernel_width/2
 
         if kernel_radius < 1:
-            print "warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width)
+            print("warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width))
             continue
         elif kernel_width > L:
             raise ValueError("dimension %d length %d too small for kernel %d" % (d, L, kernel_width))
@@ -108,7 +108,7 @@ def equitrim(arrays):
             minshape = a.shape
         else:
             assert len(minshape) == len(a.shape)
-            minshape = map(min, minshape, a.shape)
+            minshape = list(map(min, minshape, a.shape))
 
     for a in arrays:
         if a is None:
@@ -177,7 +177,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
     edge_val = syn_kernel_3d[D/2-1,0,W/2-1]
     limit = edge_val # + (center_val - edge_val) * 0.1
     mask_3d = syn_kernel_3d >= limit
-    mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
+    mask_3d[tuple([w/2 for w in mask_3d.shape])] = 1 # fill at least central voxel
     weights = syn_kernel_3d * mask_3d
 
     def splat_segment(label):
@@ -195,7 +195,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
                     upper = valid_shape[d]
                 return slice(lower,upper)
 
-            return tuple(map(helper, range(3)))
+            return tuple(map(helper, list(range(3))))
 
         def body_slice(centroid):
             # splats are cropped by boundaries of map
@@ -208,7 +208,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
                     upper -= (centroid[d] + body_shape[d]/2 + body_shape[d]%2) - valid_shape[d]
                 return slice(lower,upper)
 
-            return tuple(map(helper, range(3)))
+            return tuple(map(helper, list(range(3))))
 
         mslc = map_slice(centroid)
         bslc = body_slice(centroid)
@@ -219,7 +219,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
             segment_map[mslc] = segment_map[mslc] * (~segvoxels) + (label+1) * segvoxels
             gaussian_map[mslc] = gaussian_map[mslc] * (~segvoxels) + weighted[bslc] * segvoxels
         except:
-            print label, centroid, mslc, bslc, valid_shape, body_shape
+            print(label, centroid, mslc, bslc, valid_shape, body_shape)
 
     for label in range(len(syn_values)):
         splat_segment(label)

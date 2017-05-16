@@ -33,7 +33,7 @@ class SynspyImageManager (object):
 
     def __init__(self, filename):
         with np.load(filename) as parts:
-            self.properties = json.loads(parts['properties'].tostring())
+            self.properties = json.loads(parts['properties'].tostring().decode('utf8'))
             self.data = parts['voxels'].astype(np.float32) * np.float32(self.properties['voxel_divisor'])
             self.measures = parts['measures'].astype(np.float32) * np.float32(self.properties['measures_divisor'])
             self.centroids = parts['centroids'].astype(np.int32)
@@ -487,12 +487,12 @@ class Canvas(app.Canvas):
         ]
         for k, mesg, ts, retain in items:
             if not retain:
-                print mesg
+                print(mesg)
         
     def help(self, event):
         """Show help information (H)."""
         self.hud_drain(drain_all=True)
-        handlers = dict([ (handler, key) for key, handler in self.key_press_handlers.items() ]).items()
+        handlers = list(dict([ (handler, key) for key, handler in list(self.key_press_handlers.items()) ]).items())
         handlers.sort(key=lambda p: (len(p[1]), p[1]))
 
         for mesg in [
@@ -573,8 +573,8 @@ class Canvas(app.Canvas):
 
         self.prev_size = window_size
 
-        ww, wh = map(float, window_size)
-        dh, dw = map(float, self.vol_slicer.data.shape[1:3])
+        ww, wh = list(map(float, window_size))
+        dh, dw = list(map(float, self.vol_slicer.data.shape[1:3]))
 
         daspect = dw/dh
         if ww/wh > daspect:
@@ -635,7 +635,7 @@ class Canvas(app.Canvas):
         elif event.key in ['Shift', 'Escape', 'Alt', 'Control']:
             pass
         else:
-            print 'no handler for key %s' % event.key
+            print('no handler for key %s' % event.key)
 
     def on_mouse_wheel(self, event):
         Z = self.vol_slicer.last_Z - event.delta[1]
@@ -661,7 +661,7 @@ class Canvas(app.Canvas):
 
     def find_pick_idx(self, event):
         X0, Y0, W, H = self.viewport1
-        dh, dw = map(float, self.segment_map.shape[0:2])
+        dh, dw = list(map(float, self.segment_map.shape[0:2]))
         x, y = event.pos
         x = int((x - X0) * (dw/W))
         y = int((y - Y0) * (dh/H))
@@ -723,7 +723,7 @@ class Canvas(app.Canvas):
                     self.vol_slicer.centroids.shape[0]
                 )
             )
-        except Exception, e:
+        except Exception as e:
             self.trace(csvfile, 'load failed: ' + str(e))
             raise
         self.update()
@@ -746,7 +746,7 @@ class Canvas(app.Canvas):
                     self.vol_slicer.centroids.shape[0]
                 )
             )
-        except Exception, e:
+        except Exception as e:
             self.trace(csvfile, 'dump failed: ' + str(e))
         self.update()
             

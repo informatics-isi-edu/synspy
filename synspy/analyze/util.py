@@ -25,9 +25,9 @@ def gaussian_kernel(s):
     G = Gsigma(s) # G(x) gaussian function
     kernel_width = 2 * (int(6.0 * s - 1) / 2) + 1 # force always odd
     kernel_radius = (kernel_width - 1) / 2 # doesn't include central cell
-    kernel = map(G, range(-kernel_radius, kernel_radius+1))
+    kernel = list(map(G, list(range(-kernel_radius, kernel_radius+1))))
     mag = sum(kernel)
-    kernel = map(lambda x: x / mag, kernel)
+    kernel = [x / mag for x in kernel]
     return kernel
 
 def crop_centered(orig, newshape):
@@ -133,15 +133,15 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     """
     try:
         peak_factor = float(os.getenv('PEAKS_DIAM_FACTOR', 0.75))
-    except ValueError, te:
-        print 'ERROR: invalid PEAKS_DIAM_FACTOR environment value'
+    except ValueError as te:
+        print('ERROR: invalid PEAKS_DIAM_FACTOR environment value')
         raise
     
     # these are separated 1d gaussian kernels
-    syn_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize)
-    low_kernels = map(lambda d, s: gaussian_kernel(peak_factor*d/s/6.), synapse_diam_microns, gridsize)
-    vlow_kernels = map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize)
-    span_kernels = map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize)
+    syn_kernels = list(map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize))
+    low_kernels = list(map(lambda d, s: gaussian_kernel(peak_factor*d/s/6.), synapse_diam_microns, gridsize))
+    vlow_kernels = list(map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize))
+    span_kernels = list(map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize))
 
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
@@ -155,7 +155,7 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
 
     hollow_kernel = span_kernel * (pad_centered(core_kernel, span_kernel.shape) <= 0)
         
-    max_kernel = ones(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize), dtype=float32)
+    max_kernel = ones(list(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
 
     # sanity check kernel shapes
     for d in range(3):
@@ -179,7 +179,7 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     hollow_kernel /= hollow_kernel.sum()
 
     red_kernel = compose_3d_kernel(
-        map(lambda d, s: gaussian_kernel(d/s/6.), redblur_microns, gridsize)
+        list(map(lambda d, s: gaussian_kernel(d/s/6.), redblur_microns, gridsize))
     )
 
     return (
@@ -226,7 +226,7 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
         while i < centroids.shape[0] and (Z, Y, X) != tuple(centroids[i]):
             i += 1
             
-        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", csv_name)
+        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename)
 
         if row['override']:
             status[i] = int(row['override'])
@@ -248,7 +248,7 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
     """
     # correct dumped centroids to global coordinate space of unsliced source image
     centroids = centroids + np.array(offset_origin, np.int32)
-    csvfile = open(outfilename, 'wb')
+    csvfile = open(outfilename, 'w')
     writer = csv.writer(csvfile)
     writer.writerow(
         ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
@@ -270,7 +270,7 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
             + (saved_params.get('override', ''),)
         )
     if all_segments:
-        indices = range(measures.shape[0])
+        indices = list(range(measures.shape[0]))
     else:
         indices = (status > 0).nonzero()[0]
     for i in indices:

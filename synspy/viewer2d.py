@@ -253,6 +253,7 @@ uniform float u_pick_g;
 uniform float u_pick_b;
 uniform float u_feature_level;
 uniform float u_neighbor_level;
+uniform float u_black_level;
 varying vec2 v_texcoord;
 
 void main()
@@ -266,6 +267,7 @@ void main()
 
    picked = vec4(u_pick_r, u_pick_g, u_pick_b, 0.0); // picked segment ID
 
+   pixel.rgba = clamp(pixel.rgba - u_black_level, 0.0, 1.0);
    result.rgba = %(colorxfer)s;
 
    if ( any(greaterThan(segment.rgb, vec3(0))) ) {
@@ -376,6 +378,7 @@ class Canvas(app.Canvas):
             #'L': self.load_csv,
             'N': self.adjust_neighbor_level,
             'R': self.reset,
+            'T': self.adjust_black_level,
             'Up': self.adjust_depth,
             'Down': self.adjust_depth,
         }
@@ -530,6 +533,7 @@ class Canvas(app.Canvas):
         
         for attribute, value in [
                 ('gain', self.gain),
+                ('black_level', self.black_level),
                 ('feature_level', self.feature_level),
                 ('neighbor_level', self.neighbor_level),
         ]:
@@ -548,11 +552,13 @@ class Canvas(app.Canvas):
         self.gain = 1.0
         self.feature_level = 0.0
         self.neighbor_level = 0.0
+        self.black_level = 0.0
 
         self.current_shader = 0
         self.program.set_shaders(vert_shader, self.frag_shaders[self.current_shader][1])
 
         self.program['u_gain'] = self.gain
+        self.program['u_black_level'] = self.black_level
         self.program['u_feature_level'] = self.feature_level
         self.program['u_neighbor_level'] = self.neighbor_level
 
@@ -615,6 +621,11 @@ class Canvas(app.Canvas):
     @adjust_level('u_neighbor_level', 'neighbor_level')
     def adjust_neighbor_level(self, event):
         """Increase (N) or decrease (n) neighborhood threshold."""
+        pass
+
+    @adjust_level('u_black_level', 'black_level')
+    def adjust_black_level(self, event):
+        """Increase (T) or decrease (t) black level aka transparency zero point."""
         pass
 
     def on_resize(self, event):

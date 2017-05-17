@@ -775,8 +775,9 @@ class Canvas(app.Canvas):
         self.program['u_pick_b'] = float(self.pick_idx / 2**16 % 256) / 255.0
 
         # draw image slice
-        gloo.set_viewport(*self.viewport1)
+        gloo.set_clear_color((0, 0, 0), 1.0)
         gloo.clear(color=True, depth=True)
+        gloo.set_viewport(*self.viewport1)
         self.program.draw('triangle_strip')
 
         # draw HUD

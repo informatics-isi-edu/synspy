@@ -259,7 +259,7 @@ def look_for_work():
     #  -> Status = "analysis complete"
     #  -> filtered URL set and Status = "processed"
 
-    claimable_work_url = '/attribute/I:=Zebrafish:Image/!URL::null::/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;!Segments%20URL::null::&Segments%20Filtered%20URL::null::&Status=%22analysis%20complete%22/*,I:URL,I:Subject?limit=1'
+    claimable_work_url = '/attribute/I:=Zebrafish:Image/!URL::null::/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;!Segments%20URL::null::&Segments%20Filtered%20URL::null::&Status=%22analysis%20complete%22/*,I:URL,I:Subject?limit=1'
     status_update_url = '/attributegroup/Zebrafish:Image%20Region/ID;Status'
 
     # this handled concurrent update for us to safely and efficiently claim a record

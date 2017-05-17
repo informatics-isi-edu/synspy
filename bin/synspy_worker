@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 import json
-from deriva_common import PollingErmrestCatalog, HatracStore
+from deriva_common import PollingErmrestCatalog, HatracStore, urlquote
 from volspy.util import load_image
 import os
 import re
@@ -14,7 +14,6 @@ import pytz
 import atexit
 import shutil
 import tempfile
-import urllib
 import csv
 
 # server to talk to... defaults to our own FQDN
@@ -178,8 +177,8 @@ def run_row_job(row):
             # record analysis results in ermrest
             catalog.put(
                 '/attributegroup/Zebrafish:Image%%20Region/ID;%s' % ','.join([
-                    urllib.quote(col, safe='')
-                    for col in updated_row.keys()
+                    urlquote(col, safe='')
+                    for col in list(updated_row.keys())
                     if col != 'ID'
                 ]),
                 json=[updated_row]
@@ -236,7 +235,7 @@ def look_for_work():
     for row, claim in batch:
         try:
             run_row_job(row)
-        except Exception, e:
+        except Exception as e:
             # TODO: eat some exceptions and return True to continue?
             catalog.put(status_update_url, json=[{'ID': row['ID'], 'Status': "failed: %s" % e }])
             

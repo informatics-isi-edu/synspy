@@ -13,9 +13,9 @@ class SubprocessTask(AsyncTask):
 class ViewerTask(SubprocessTask):
     status_update_signal = pyqtSignal(bool, str, str)
 
-    def __init__(self, parent=None):
+    def __init__(self, executable, parent=None):
         super(SubprocessTask, self).__init__(parent)
-        self.executable = "/bin/synspy-viewer"
+        self.executable = executable
 
     def success_callback(self, rid, result):
         if rid != self.rid:

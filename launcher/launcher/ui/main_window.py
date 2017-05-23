@@ -4,14 +4,16 @@ import errno
 import logging
 import shutil
 import tempfile
+import platform
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
      QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget, table_widget, async_task
 from deriva_qt.auth_agent.ui.auth_window import AuthWindow
-from deriva_common import ErmrestCatalog, HatracStore, read_config, format_exception, urlquote
-from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, WORKLIST_UPDATE
+from deriva_common import ErmrestCatalog, HatracStore, read_config, format_exception, urlquote, resource_path
+from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
+    WORKLIST_UPDATE, WORKLIST_UPDATE_2D
 from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from launcher.impl.process_tasks import ViewerTask
 from launcher.ui import DEFAULT_CONFIG
@@ -28,7 +30,8 @@ class MainWindow(QMainWindow):
     server = None
     tempdir = None
     progress_update_signal = pyqtSignal(str)
-    
+    use_3D_viewer = False
+
     def __init__(self, config_path=None):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
@@ -120,11 +123,13 @@ class MainWindow(QMainWindow):
         keys = ["ID",
                 "Status",
                 "URL",
+                "Npz URL",
                 "ZYX Slice",
                 "Segmentation Mode",
                 "Segments URL",
+                "Segments Filtered URL",
                 "Subject"]
-        hidden = ["URL", "ZYX Slice", "Segmentation Mode", "Subject", "Segments URL"]
+        displayed = ["ID", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -141,7 +146,7 @@ class MainWindow(QMainWindow):
                     item.setText(value)
                     item.setToolTip(value)
                 self.ui.workList.setItem(rows, cols, item)
-                if key in hidden:
+                if key not in displayed:
                     self.ui.workList.hideColumn(cols)
                 cols += 1
             rows += 1
@@ -205,7 +210,8 @@ class MainWindow(QMainWindow):
 
     def downloadFiles(self):
         # if analysis in progress for this item and there is an existing segments file, download it first
-        segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments URL")
+        seg_url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
+        segments_url = self.ui.workList.getCurrentTableItemTextByName(seg_url)
         status = self.ui.workList.getCurrentTableItemTextByName("Status")
         if segments_url and "analysis in progress" == status:
             segments_filename = os.path.basename(segments_url).split(":")[0]
@@ -223,7 +229,8 @@ class MainWindow(QMainWindow):
 
     def downloadInputFile(self):
         # get the main TIFF file for analysis if not already cached
-        url = self.ui.workList.getCurrentTableItemTextByName("URL")
+        input_url = "URL" if self.use_3D_viewer else "Npz URL"
+        url = self.ui.workList.getCurrentTableItemTextByName(input_url)
         filename = os.path.basename(url).split(":")[0]
         destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not os.path.isfile(destfile):
@@ -238,6 +245,14 @@ class MainWindow(QMainWindow):
         else:
             self.onRetrieveInputFileResult(True, "The file [%s] already exists" % destfile, None, destfile)
 
+    def getSubprocessPath(self):
+        executable = "synspy-viewer" if self.use_3D_viewer else "synspy-viewer2d"
+        if platform.system() == "Windows":
+            base_path = None
+        else:
+            base_path = "/bin"
+        return os.path.normpath(resource_path(executable, base_path))
+
     def executeViewer(self, file_path):
         self.updateStatus("Executing viewer...")
         env = os.environ
@@ -247,7 +262,7 @@ class MainWindow(QMainWindow):
         env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
             "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
-        viewerTask = ViewerTask()
+        viewerTask = ViewerTask(self.getSubprocessPath())
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
         viewerTask.run(file_path, self.tempdir, env)
 
@@ -398,11 +413,13 @@ class MainWindow(QMainWindow):
                 "One or more required files were not uploaded successfully.")
             return
         state = result[0]
+        url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
         body = [{"ID": self.ui.workList.getCurrentTableItemTextByName("ID"),
-                 "Segments URL": result[1], "Status":  state[1]}]
+                 url: result[1], "Status":  state[1]}]
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
-        updateTask.update(WORKLIST_UPDATE, json=body)
+        update_template = WORKLIST_UPDATE if self.use_3D_viewer else WORKLIST_UPDATE_2D
+        updateTask.update(update_template, json=body)
 
     @pyqtSlot(bool, str, str, object)
     def onCatalogUpdateResult(self, success, status, detail, result):

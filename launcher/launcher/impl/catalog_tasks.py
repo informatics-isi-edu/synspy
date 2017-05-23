@@ -8,6 +8,7 @@ WORKLIST_QUERY = "/attributegroup/U:=Synapse:Person/Identities=%s/T:=(Zebrafish:
 
 WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Segments URL,Status"
 
+WORKLIST_UPDATE_2D = "/attributegroup/Zebrafish:Image Region/ID;Segments Filtered URL,Status"
 
 class CatalogTask(AsyncTask):
     def __init__(self, catalog, parent=None):

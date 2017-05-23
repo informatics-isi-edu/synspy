@@ -9,13 +9,14 @@ import numpy as np
 import datetime
 
 import os
+import sys
 import math
 import csv
 import re
 import atexit
 
 import volspy.viewer as base
-from vispy import gloo, visuals
+from vispy import app, gloo, visuals
 
 from synspy.analyze.block import BlockedAnalyzerOpt, assign_voxels_opt, compose_3d_kernel, gaussian_kernel, batch_analyze, get_mode_and_footprints
 from synspy.analyze.util import load_segment_status_from_csv, dump_segment_info_to_csv
@@ -1151,3 +1152,11 @@ transparency factor: %f
             else:
                 self.text_overlay.draw(self.text_overlay_transform)
 
+
+def main():
+    c = Canvas(sys.argv[1])
+    c.show()
+    app.run()
+
+if __name__ == '__main__':
+    sys.exit(main())

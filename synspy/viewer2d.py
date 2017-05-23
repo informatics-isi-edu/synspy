@@ -808,6 +808,11 @@ class Canvas(app.Canvas):
         if event is None:
             self.swap_buffers()
 
-if __name__ == '__main__':
+
+def main():
     c = Canvas(sys.argv[1])
+    c.show()
     app.run()
+
+if __name__ == '__main__':
+    sys.exit(main())

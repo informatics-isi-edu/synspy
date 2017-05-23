@@ -16,7 +16,6 @@ setup(
     maintainer_email='misd-support@isi.edu',
     version="0.1.0",
     packages=find_packages(),
-    package_data={'launcher': ['conf/*.*']},
     entry_points={
         'console_scripts': [
             'synspy-launcher = launcher.__main__:main'

@@ -68,6 +68,9 @@ class MainWindow(QMainWindow):
         # create working dir (tempdir)
         self.tempdir = tempfile.mkdtemp(prefix="synspy_")
 
+        # determine viewer mode
+        self.use_3D_viewer = True if config.get("viewer_mode", "2d").lower() == "3d" else False
+
         # save config
         self.config = config
 

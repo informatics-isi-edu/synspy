@@ -4,21 +4,25 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 setup(
     name="synspy",
     description="synaptic image segmentation",
     version="0.1-prerelease",
-    packages=["synspy", "synspy.analyze"],
+    packages=find_packages(),
     scripts=[
         "bin/synspy-analyze",
-        "bin/synspy-viewer",
-        "bin/synspy-viewer2d",
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy_worker"
     ],
+    entry_points={
+        'console_scripts': [
+            'synspy-viewer = synspy.viewer:main',
+            'synspy-viewer2d = synspy.viewer2d:main'
+        ]
+    },
     requires=["volspy", "vispy", "numpy", "pyopencl", "tifffile"],
     maintainer_email="support@misd.isi.edu",
     license='(new) BSD',

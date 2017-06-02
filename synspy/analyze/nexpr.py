@@ -32,7 +32,7 @@ def convNx1d(src, kernels):
         kernel_radius = kernel_width/2
 
         if kernel_radius < 1:
-            print "warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width)
+            print("warning: dimension %d kernel %d is too small, has no effect" % (d, kernel_width))
             continue
         elif kernel_radius > L:
             raise ValueError("dimension %d length %d too small for kernel %d" % (d, L, kernel_width))

@@ -52,19 +52,19 @@ def csv2pointcloud(filename):
     # filtered array where manual classification is true
     fa = a[ (a[:,3] == 3) | (a[:,3] == 7) ]
     if fa.shape[0] > 5:
-        print 'From %s using %s manually classified points' % (filename, fa.shape[0])
+        print('From %s using %s manually classified points' % (filename, fa.shape[0]))
         a = fa
     else:
-        print 'From %s using all %s detected points' % (filename, a.shape[0])
+        print('From %s using all %s detected points' % (filename, a.shape[0]))
     pc = pcl.PointCloud()
     pc.from_array(a[:,0:3])
     return pc
 
 def register(filenames):
-    pointclouds = map(csv2pointcloud, filenames)
-    arrays = map(np.asarray, pointclouds)
+    pointclouds = list(map(csv2pointcloud, filenames))
+    arrays = list(map(np.asarray, pointclouds))
 
-    segment_sizes = map(float, os.getenv('SEGMENT_SIZES', '30,4').split(','))
+    segment_sizes = list(map(float, os.getenv('SEGMENT_SIZES', '30,4').split(',')))
     assert len(segment_sizes) == 2
     
     results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0])
@@ -72,10 +72,10 @@ def register(filenames):
     M = results[1]
 
     parts = decompose_matrix(M.T)
-    print parts
+    print(parts)
     angles = parts[2]
-    print angles
-    print 'VIEW_ROTATE="%s"' % ','.join(map(lambda r: str(r * 180./math.pi), angles))
+    print(angles)
+    print('VIEW_ROTATE="%s"' % ','.join([str(r * 180./math.pi) for r in angles]))
     
     nuc1 = arrays[0]
     nuc2 = transform_points(M, arrays[1])

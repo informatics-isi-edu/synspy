@@ -9,6 +9,7 @@ import numpy
 
 import pyopencl as cl
 import pyopencl.array as cl_array
+from functools import reduce
 
 # ugly hack: try to choose context automatically
 #
@@ -34,7 +35,7 @@ idx = vendor_platform_idx.get(
 )
 if idx is not None:
     answers = ['%d' % idx]
-    print 'synspy: choosing %s' % platforms[idx]
+    print('synspy: choosing %s' % platforms[idx])
 else:
     answers = None
 
@@ -677,7 +678,7 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
     cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
     limit = edge_val #+ (cent_val - edge_val) * 0.1
     mask_3d = syn_kernel_3d >= limit
-    mask_3d[tuple(map(lambda w: w/2, mask_3d.shape))] = 1 # fill at least central voxel
+    mask_3d[tuple([w/2 for w in mask_3d.shape])] = 1 # fill at least central voxel
     kernel = syn_kernel_3d * mask_3d
 
     # trim off zero-padded border to reduce per-feature work size
@@ -708,11 +709,11 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
 
     kernel = trim(kernel)
     if gridsize:
-        print "assigning voxels with %fx%fx%f micron core bbox" % tuple(map(
+        print("assigning voxels with %fx%fx%f micron core bbox" % tuple(map(
             lambda v, r: v * r,
             kernel.shape,
             gridsize
-        ))
+        )))
     
     assert syn_values.ndim == 1
     assert centroids.ndim == 2

@@ -4,7 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-import np as numpylib
+from . import np as numpylib
 import re
 import datetime
 import sys
@@ -22,6 +22,7 @@ import csv
 from volspy.util import bin_reduce, load_and_mangle_image
 
 from .util import *
+from functools import reduce
 
 class BlockedAnalyzer (object):
     """Analyze image using block decomposition for scalability.
@@ -53,7 +54,7 @@ class BlockedAnalyzer (object):
         return a1 * a2
 
     def sum_labeled(self, src, labels, n):
-        return ndimage.sum(src, labels, range(n))
+        return ndimage.sum(src, labels, list(range(n)))
 
     def __init__(self, image, synapse_diam_micron, vicinity_diam_micron, maskblur_micron, view_reduction, desired_block_size=None):
         if desired_block_size is None:
@@ -62,13 +63,13 @@ class BlockedAnalyzer (object):
                 assert len(desired_block_size) == 3
             except:
                 desired_block_size = (384,384,450)
-            print "Using %s voxel preferred sub-block size. Override with ZYX_BLOCK_SIZE='int,int,int'" % (desired_block_size,)
+            print("Using %s voxel preferred sub-block size. Override with ZYX_BLOCK_SIZE='int,int,int'" % (desired_block_size,))
 
         view_mode = os.getenv('VIEW_MODE', 'raw')
         if view_mode.lower() not in ['raw', 'dog']:
             raise ValueError('Unknown VIEW_MODE "%s"' % view_mode)
         self.view_raw = view_mode.lower() == 'raw'
-        print "Using %s viewing mode. Override with VIEW_MODE=raw or VIEW_MODE=dog." % (self.view_raw and 'raw' or 'dog')
+        print("Using %s viewing mode. Override with VIEW_MODE=raw or VIEW_MODE=dog." % (self.view_raw and 'raw' or 'dog'))
         
         self.image = image
         self.view_reduction = view_reduction
@@ -95,11 +96,11 @@ class BlockedAnalyzer (object):
             np.zeros((3,), dtype=np.int32)
         )
 
-        print "Kernel radii %s, %s implies max-border %s" % (
+        print("Kernel radii %s, %s implies max-border %s" % (
             [tuple(radii_3x1d(k)) for k in self.kernels_3x1d],
             [tuple(radii_3d(k)) for k in self.kernels_3d],
             self.max_border_widths
-        )
+        ))
         
         self.block_size, self.num_blocks = self.find_blocking(desired_block_size)
         
@@ -118,12 +119,12 @@ class BlockedAnalyzer (object):
             for d in range(3)
         )
 
-        print "Using %s blocks of size %s to process %s into %s" % (
+        print("Using %s blocks of size %s to process %s into %s" % (
             self.num_blocks,
             self.block_size,
             self.image.shape,
             self.dst_shape
-            )
+            ))
 
     def block_slice_src(self, blockpos):
         """Return slice for source block.
@@ -236,11 +237,11 @@ class BlockedAnalyzer (object):
                     raise ValueError("Dimension %d, length %d, smaller than desired block size %d but not divisible by reduction %d" % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
             # prefer desired_block_size or something a bit smaller
-            for w in xrange(desired_block_size[d], max(desired_block_size[d]/2, 2*self.max_border_widths[d]), -1):
+            for w in range(desired_block_size[d], max(desired_block_size[d]/2, 2*self.max_border_widths[d]), -1):
                 if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
                     return w, self.image.shape[d] / w
             # also consider something larger
-            for w in xrange(max(desired_block_size[d], 2*self.max_border_widths[d]), desired_block_size[d]*2):
+            for w in range(max(desired_block_size[d], 2*self.max_border_widths[d]), desired_block_size[d]*2):
                 if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
                     return w, self.image.shape[d] / w
             raise ValueError("No blocking found for image dimension %d, length %d, desired block size %d, reduction %d"
@@ -254,7 +255,7 @@ class BlockedAnalyzer (object):
                 w, n = find_blocking_1d(d)
             except ValueError:
                 # try trimming one voxel and repeating
-                print "WARNING: trimming image dimension %d to try to find divisible block size" % d
+                print("WARNING: trimming image dimension %d to try to find divisible block size" % d)
                 axis_size = self.view_reduction[d]*(min(desired_block_size[d], self.image.shape[d])/self.view_reduction[d])
                 trimmed_shape = axis_size*(self.image.shape[d]/axis_size)
                 trim_slice = tuple(
@@ -272,11 +273,11 @@ class BlockedAnalyzer (object):
                         
     def volume_process(self):
         view_image = zeros(tuple(
-            map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction)
+            list(map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction))
             + [self.image.shape[-1]]
         ), dtype=np.float32)
 
-        print "Allocated %s %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, view_image.dtype, map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction), self.view_reduction, self.image.shape, self.image.micron_spacing)
+        print("Allocated %s %s view_image with %s voxel size for %s reduction of %s source image with %s voxel size." % (view_image.shape, view_image.dtype, list(map(lambda a, b: a*b, self.image.micron_spacing, self.view_reduction)), self.view_reduction, self.image.shape, self.image.micron_spacing))
 
         centroids = None
         centroid_measures = None
@@ -298,7 +299,7 @@ class BlockedAnalyzer (object):
             else:
                 centroids = np.concatenate((centroids, cent))
                 centroid_measures = np.concatenate((centroid_measures, meas))
-                perf_vector = map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf)
+                perf_vector = list(map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf))
             done_blocks += 1
             progress = int(100 * done_blocks / total_blocks)
             for i in range(last_progress, progress, 2):
@@ -312,10 +313,10 @@ class BlockedAnalyzer (object):
         total = 0.
         for elapsed, desc in perf_vector:
             total += elapsed
-            print "%8.2fs %s task time" % (elapsed, desc)
-        print "%8.2fs TOTAL processing time" % total
+            print("%8.2fs %s task time" % (elapsed, desc))
+        print("%8.2fs TOTAL processing time" % total)
 
-        print "Found %d centroids" % len(centroids)
+        print("Found %d centroids" % len(centroids))
             
         return view_image, centroids, centroid_measures
 
@@ -353,7 +354,7 @@ class BlockedAnalyzer (object):
         ]
 
         if len(max_inputs) > 1:
-            crop_shape = map(min, *[img.shape for img in max_inputs])
+            crop_shape = list(map(min, *[img.shape for img in max_inputs]))
         else:
             crop_shape = max_inputs[0].shape
 
@@ -362,17 +363,17 @@ class BlockedAnalyzer (object):
         if self.view_raw:
             view_image = crop_centered(
                 image,
-                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+                list(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)) + [image.shape[3]]
             )
         else:
             # caller expects view_image to have same number of channels as raw image
             view_image = zeros(
-                tuple(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]),
+                tuple(list(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)) + [image.shape[3]]),
                 dtype=dog.dtype
             )
             view_image[:,:,:,0] = crop_centered(
                 dog,
-                map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+                list(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths))
             )
             splits.append((datetime.datetime.now(), 'view image DoG'))
 
@@ -418,7 +419,7 @@ class BlockedAnalyzer (object):
         for d in range(3):
             coords = self.array_mult(
                 array(
-                    range(0, peaks.shape[d]) 
+                    list(range(0, peaks.shape[d])) 
                 ).astype('float32')[
                     [ None for i in range(d) ]  # add dims before axis
                     + [ slice(None) ]              # get axis
@@ -436,7 +437,7 @@ class BlockedAnalyzer (object):
                 )
 
         # centroids are in block peaks grid
-        centroids = zip(*centroid_components)
+        centroids = list(zip(*centroid_components))
 
         filtered_centroids = []
         if centroids:
@@ -456,7 +457,7 @@ class BlockedAnalyzer (object):
             # image_centroids are in block image grid
             image_centroids = centroids + array(self.max_border_widths, int32)
             # dog_centroids are in difference-of-gaussians grid
-            dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
+            dog_centroids = centroids + array(list(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape)))
             # global_centroids are in self.image grid
             global_centroids = (
                 array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
@@ -505,7 +506,7 @@ class BlockedAnalyzer (object):
         centroid_measures = np.column_stack(tuple(centroid_measures))
         splits.append((datetime.datetime.now(), 'stack centroid measures'))
 
-        perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+        perf_vector = list(map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:]))
         return view_image, global_centroids, centroid_measures, perf_vector
 
     def fwhm_estimate(self, synapse, centroids, syn_vals, vcn_vals, noise):
@@ -581,7 +582,7 @@ BlockedAnalyzerOpt = BlockedAnalyzer
 assign_voxels_opt = numpylib.assign_voxels
 
 try:
-    import nexpr as numerexprlib
+    from . import nexpr as numerexprlib
     class BlockedAnalyzerNumerexpr (BlockedAnalyzer):
 
         def convNx1d(self, *args):
@@ -595,7 +596,7 @@ except:
     pass
 
 try:
-    import ocl as opencllib
+    from . import ocl as opencllib
     class BlockedAnalyzerOpenCL (BlockedAnalyzerOpt):
 
         def convNx1d(self, *args):
@@ -663,7 +664,7 @@ try:
             ]
 
             if len(max_inputs) > 1:
-                crop_shape = map(min, *[img.shape for img in max_inputs])
+                crop_shape = list(map(min, *[img.shape for img in max_inputs]))
             else:
                 crop_shape = max_inputs[0].shape
 
@@ -672,12 +673,12 @@ try:
             if self.view_raw:
                 view_image = crop_centered(
                     image,
-                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths) + [image.shape[3]]
+                    list(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)) + [image.shape[3]]
                 )
             else:
                 view_image = crop_centered(
                     dog,
-                    map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths)
+                    list(map(lambda w, b: w-2*b, image.shape[0:3], self.max_border_widths))
                 )
                 view_image = view_image[:,:,:,None]
                 splits.append((datetime.datetime.now(), 'view image DoG'))
@@ -735,7 +736,7 @@ try:
                     )
 
             # centroids are in block peaks grid
-            centroids = zip(*centroid_components)
+            centroids = list(zip(*centroid_components))
 
             filtered_centroids = []
             if centroids:
@@ -754,7 +755,7 @@ try:
                 # image_centroids are in block image grid
                 image_centroids = centroids + array(self.max_border_widths, int32)
                 # dog_centroids are in difference-of-gaussians grid
-                dog_centroids = centroids + array(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape))
+                dog_centroids = centroids + array(list(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape)))
                 # global_centroids are in self.image grid
                 global_centroids = (
                     array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)
@@ -838,7 +839,7 @@ try:
             centroid_measures = np.column_stack(tuple(centroid_measures))
             splits.append((datetime.datetime.now(), 'stack centroid measures'))
 
-            perf_vector = map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:])
+            perf_vector = list(map(lambda t0, t1: ((t1[0]-t0[0]).total_seconds(), t1[1]), splits[0:-1], splits[1:]))
             return view_image, global_centroids, centroid_measures, perf_vector
 
     BlockedAnalyzerOpt = BlockedAnalyzerOpenCL
@@ -935,6 +936,6 @@ def batch_analyze_cli(fname):
         measures=measures
     )
     outf.close()
-    print 'Dumped ROI analysis data to %s' % dump_fname
+    print('Dumped ROI analysis data to %s' % dump_fname)
 
     return 0

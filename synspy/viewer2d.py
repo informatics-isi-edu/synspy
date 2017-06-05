@@ -248,12 +248,13 @@ uniform sampler2D u_map_texture;
 uniform sampler3D u_measures_cube;
 uniform sampler3D u_status_cube;
 uniform float u_gain;
-uniform float u_pick_r;
-uniform float u_pick_g;
-uniform float u_pick_b;
+uniform float u_drag_button;
 uniform float u_feature_level;
 uniform float u_neighbor_level;
 uniform float u_black_level;
+uniform vec3 u_pick;
+uniform vec2 u_paint_center;
+uniform vec2 u_paint_radii2_inv;
 varying vec2 v_texcoord;
 
 void main()
@@ -263,12 +264,17 @@ void main()
    vec4 picked;
    vec4 measures;
    vec4 result;
+   vec2 ellipse_test;
    float status;
 
-   picked = vec4(u_pick_r, u_pick_g, u_pick_b, 0.0); // picked segment ID
+   picked = vec4(u_pick.r, u_pick.g, u_pick.b, 0.0); // picked segment ID
 
    pixel.rgba = clamp(pixel.rgba - u_black_level, 0.0, 1.0);
    result.rgba = %(colorxfer)s;
+
+   ellipse_test = v_texcoord.xy - u_paint_center;
+   ellipse_test = ellipse_test * ellipse_test;
+   ellipse_test = ellipse_test * u_paint_radii2_inv;
 
    if ( any(greaterThan(segment.rgb, vec3(0))) ) {
      // non-zero segment ID means we are in a segment...
@@ -303,6 +309,12 @@ void main()
          // segment is within range
          result.rgb = %(inrange)s;
        }
+
+     }
+   }
+   else {
+     if ( u_drag_button > 0 && (ellipse_test.x + ellipse_test.y) < 1.0 ) {
+       result.rgb = vec3(1,1,1) - result.rgb;
      }
    }
 
@@ -367,6 +379,8 @@ class Canvas(app.Canvas):
         self.program['u_map_texture'] = self.textures[1]
         self.program['u_measures_cube'] = self.textures[2]
         self.program['u_status_cube'] = self.textures[3]
+
+        self.mouse_button_offset = 0
 
         self.key_press_handlers = {
             'B': self.toggle_blend,
@@ -500,6 +514,8 @@ class Canvas(app.Canvas):
 
         for mesg in [
                 'Click segments with mouse to toggle classification status.',
+                'Drag primary (i.e. left) button to set "true" segments en masse.',
+                'Drag secondary (i.e. right) button to set "false" segments en masse.',
                 'Keyboard commands:',
                 '  Exit (ESC).',
         ] + [ '  ' + p[0].__doc__ for p in handlers ]:
@@ -547,8 +563,13 @@ class Canvas(app.Canvas):
         self.hud_drain(drain_all=True)
         self.hud_age_s = 10
 
+        self.prev_paint_center = (-1000, -1000)
+        self.paint_center = self.prev_paint_center
+
         self.prev_pick_idx = 0
         self.pick_idx = 0
+        self.drag_button = 0
+
         self.gain = 1.0
         self.feature_level = 0.0
         self.neighbor_level = 0.0
@@ -561,6 +582,7 @@ class Canvas(app.Canvas):
         self.program['u_black_level'] = self.black_level
         self.program['u_feature_level'] = self.feature_level
         self.program['u_neighbor_level'] = self.neighbor_level
+        self.program['u_paint_center'] = self.paint_center
 
         self.font_scale = 1
 
@@ -581,6 +603,21 @@ class Canvas(app.Canvas):
 
         ww, wh = list(map(float, window_size))
         dh, dw = list(map(float, self.vol_slicer.data.shape[1:3]))
+
+        self.paint_radii_tex = (
+            5.0 / self.vol_slicer.properties['image_grid'][2],
+            5.0 / self.vol_slicer.properties['image_grid'][1]
+        )
+
+        self.paint_radii_texn = (
+            self.paint_radii_tex[0] / dw,
+            self.paint_radii_tex[1] / dh,
+        )
+
+        self.program['u_paint_radii2_inv'] = tuple([
+            1.0 / x**2
+            for x in self.paint_radii_texn
+        ])
 
         daspect = dw/dh
         if ww/wh > daspect:
@@ -670,6 +707,90 @@ class Canvas(app.Canvas):
         self.trace('Z', Z)
         self.update()
 
+    def find_paint_center(self, event):
+        X0, Y0, W, H = [ float(x) for x in self.viewport1 ]
+        dh, dw = [ float(x) for x in self.segment_map.shape[0:2] ]
+        x, y = event.pos
+        x = (x - X0) * (1.0/W)
+        y = (y - Y0) * (1.0/H)
+        y = 1.0 - y
+
+        self.paint_center = (x, y)
+        self.program['u_paint_center'] = self.paint_center
+
+        self.drag_button = event.button + self.mouse_button_offset
+        self.pick_idx = 0
+
+        if self.paint_center != self.prev_paint_center \
+           or self.pick_idx != self.prev_pick_idx:
+            self.update()
+            self.prev_paint_center = self.paint_center
+            self.prev_pick_idx = self.pick_idx
+
+    def paint_segments(self, event):
+        X0, Y0, W, H = self.viewport1
+        dh, dw = list(map(float, self.segment_map.shape[0:2]))
+        x, y = event.pos
+        x = int((x - X0) * (dw/W))
+        y = int((y - Y0) * (dh/H))
+        y = int(dh) - y # flip y to match norm. device coord system
+        xr, yr = self.paint_radii_tex
+
+        def mkslc(c, r, w):
+            return slice(
+                int(max(c - r - 1, 0)),
+                int(min(c + r + 2, w))
+            )
+
+        # slice out bounding box for paint brush circle (ellipse in texture space)
+        map_slc = (
+            mkslc(y, yr, dh),
+            mkslc(x, xr, dw),
+            slice(0, 3)
+        )
+        smap = self.segment_map[map_slc]
+
+        # create map of X, Y coords for each pixel in segment map bounding box
+        coords = np.ones( (map_slc[0].stop - map_slc[0].start, map_slc[1].stop - map_slc[1].start, 2), np.float32)
+        coords[:,:,0] *= np.arange(map_slc[0].start, map_slc[0].stop)[:,None] # Y coord range
+        coords[:,:,1] *= np.arange(map_slc[1].start, map_slc[1].stop)[None,:] # X coord range
+
+        # turn it into a 1D problem
+        coords_y = coords[:,:,0].flatten()
+        coords_x = coords[:,:,1].flatten()
+        smap = smap.reshape(-1,3)
+
+        # efficiently solve ellipse equation for area under brush
+        coords_y = coords_y - np.float32(y)
+        coords_y2 = coords_y * coords_y
+        coords_x = coords_x - np.float32(x)
+        coords_x2 = coords_x * coords_x
+        in_ellipse = (
+            (coords_y2 * np.float32(1.0/yr**2)
+             + coords_x2 * np.float32(1.0/xr**2))
+            < 1.0
+        ).nonzero()[0]
+
+        # extract segment IDs under brush
+        paint_rgb = smap[in_ellipse,:]
+        paint_idx = paint_rgb[:,0] + paint_rgb[:,1] * 2**8 + paint_rgb[:,2] * 2**16
+
+        # set new segment status for affected segment IDs
+        newval = {1: 7, 2: 5}[self.drag_button]
+        anychanged = False
+        for i in range(paint_idx.shape[0]):
+            if self.segment_status[paint_idx[i]] != newval:
+                self.segment_status[paint_idx[i]] = newval
+                self.textures[3].set_data(
+                    np.array([[[newval]]], dtype=np.uint8),
+                    offset=tuple(paint_rgb[i, ::-1]),
+                    copy=True
+                )
+                anychanged = True
+
+        if anychanged:
+            self.update()
+ 
     def find_pick_idx(self, event):
         X0, Y0, W, H = self.viewport1
         dh, dw = list(map(float, self.segment_map.shape[0:2]))
@@ -695,6 +816,9 @@ class Canvas(app.Canvas):
             
     def on_mouse_press(self, event):
         self.find_pick_idx(event)
+        if event.button == 0:
+            self.mouse_button_offset = 1
+        self.drag_button = event.button + self.mouse_button_offset
         
     def on_mouse_release(self, event):
         if self.pick_idx > 0:
@@ -708,7 +832,9 @@ class Canvas(app.Canvas):
                 offset=tuple(self.pick_rgb[::-1]),
                 copy=True
             )
-            self.update()
+        if self.drag_button:
+            self.drag_button = 0
+        self.update()
 
     def csv_file_name(self):
         if self.vol_slicer.properties['synspy_nuclei_mode']:
@@ -762,17 +888,24 @@ class Canvas(app.Canvas):
         self.update()
             
     def on_mouse_move(self, event):
-        if not event.is_dragging:
-            # freeze pick during accidental drag
+        if event.is_dragging:
+            if event.button == 0:
+                self.mouse_button_offset = 1
+            self.find_paint_center(event)
+            self.paint_segments(event)
+        else:
             self.find_pick_idx(event)
 
     def on_timer(self, event):
         self.update()
             
     def on_draw(self, event=None):
-        self.program['u_pick_r'] = float(self.pick_idx % 256) / 255.0
-        self.program['u_pick_g'] = float(self.pick_idx / 2**8 % 256) / 255.0
-        self.program['u_pick_b'] = float(self.pick_idx / 2**16 % 256) / 255.0
+        self.program['u_pick'] = (
+            float(self.pick_idx % 256) / 255.0,
+            float(self.pick_idx / 2**8 % 256) / 255.0,
+            float(self.pick_idx / 2**16 % 256) / 255.0
+        )
+        self.program['u_drag_button'] = self.drag_button
 
         # draw image slice
         gloo.set_clear_color((0, 0, 0), 1.0)

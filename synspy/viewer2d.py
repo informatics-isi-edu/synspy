@@ -605,8 +605,8 @@ class Canvas(app.Canvas):
         dh, dw = list(map(float, self.vol_slicer.data.shape[1:3]))
 
         self.paint_radii_tex = (
-            5.0 / self.vol_slicer.properties['image_grid'][2],
-            5.0 / self.vol_slicer.properties['image_grid'][1]
+            2.5 / self.vol_slicer.properties['image_grid'][2],
+            2.5 / self.vol_slicer.properties['image_grid'][1]
         )
 
         self.paint_radii_texn = (
@@ -614,10 +614,8 @@ class Canvas(app.Canvas):
             self.paint_radii_tex[1] / dh,
         )
 
-        self.program['u_paint_radii2_inv'] = tuple([
-            1.0 / x**2
-            for x in self.paint_radii_texn
-        ])
+        # defer this to on_mouse_press so we can scale differently for each button
+        self.program['u_paint_radii2_inv'] = (0, 0)
 
         daspect = dw/dh
         if ww/wh > daspect:
@@ -736,6 +734,10 @@ class Canvas(app.Canvas):
         y = int(dh) - y # flip y to match norm. device coord system
         xr, yr = self.paint_radii_tex
 
+        # scale radii by button number 1 or 2
+        xr *= self.drag_button
+        yr *= self.drag_button
+
         def mkslc(c, r, w):
             return slice(
                 int(max(c - r - 1, 0)),
@@ -819,6 +821,11 @@ class Canvas(app.Canvas):
         if event.button == 0:
             self.mouse_button_offset = 1
         self.drag_button = event.button + self.mouse_button_offset
+        self.program['u_paint_radii2_inv'] = tuple([
+            # scale radii by drag_button which is 1 or 2
+            1.0 / (self.drag_button * x)**2
+            for x in self.paint_radii_texn
+        ])
         
     def on_mouse_release(self, event):
         if self.pick_idx > 0:

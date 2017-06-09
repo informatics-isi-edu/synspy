@@ -81,7 +81,7 @@ def get_image(img_url):
 
 def get_image_grid(img_filename):
     """Process input image URL and return voxel grid spacing triple."""
-    I, md = load_image(img_filename)
+    I, md = load_image(str(img_filename))
     return I.micron_spacing
 
 def preprocess_roi(img_filename, subject_path, row):

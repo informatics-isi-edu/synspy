@@ -17,6 +17,7 @@ import tempfile
 import subprocess
 import urllib
 import csv
+import synspy
 
 # server to talk to... defaults to our own FQDN
 servername = os.getenv('SYNSPY_SERVER', platform.uname()[1])
@@ -175,6 +176,7 @@ def run_row_job(row):
         subject_path = '/hatrac/Zf/%s' % row['Subject']
 
         updated_row = {}
+        new_history = []
 
         if row['Status'] is None and row['URL'] is not None:
             img_filename = get_image(row['URL'])
@@ -192,6 +194,7 @@ def run_row_job(row):
 
             if row['Npz URL'] is None:
                 updated_row['Npz URL'] = preprocess_roi(img_filename, subject_path, row)
+                new_history.append("synspy-analyze")
 
             updated_row['Status'] = "analysis pending"
 
@@ -209,6 +212,11 @@ def run_row_job(row):
 
         if updated_row:
             updated_row['ID'] = row['ID']
+            new_history.append("synspy_worker")
+            updated_row['History'] = row.get('History', []) + [
+                {"program": prog, "version": synspy.__version__, "ts": datetime.datetime.now(pytz.utc).isoformat()}
+                for prog in new_history
+            ]
             
             # record analysis results in ermrest
             catalog.put(

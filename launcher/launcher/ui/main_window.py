@@ -19,7 +19,7 @@ from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_U
 from launcher.impl.process_tasks import ViewerTask
 from launcher.ui import DEFAULT_CONFIG, CURATORS
 from launcher import resources
-from synspy import version
+from synspy import __version__
 
 
 # noinspection PyArgumentList

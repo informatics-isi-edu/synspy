@@ -5,11 +5,12 @@
 #
 
 from setuptools import setup, find_packages
+from synspy import __version__
 
 setup(
     name="synspy",
     description="synaptic image segmentation",
-    version="0.1-prerelease",
+    version=__version__,
     packages=find_packages(),
     scripts=[
         "bin/synspy-analyze",

@@ -1,0 +1,6 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/images">
+      <file alias="synapse.png">images/synapse.png</file>
+  </qresource>
+</RCC>

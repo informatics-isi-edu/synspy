@@ -1,7 +1,7 @@
 import os
 import subprocess
 from PyQt5.QtCore import pyqtSignal
-from deriva_common import format_exception, DEFAULT_HEADERS
+from deriva_common import format_exception
 from deriva_qt.common.async_task import async_execute, AsyncTask
 
 
@@ -11,21 +11,23 @@ class SubprocessTask(AsyncTask):
 
 
 class ViewerTask(SubprocessTask):
-    status_update_signal = pyqtSignal(bool, str, str)
+    status_update_signal = pyqtSignal(bool, str, str, bool)
 
-    def __init__(self, executable, parent=None):
+    def __init__(self, executable, is_owner, parent=None):
         super(SubprocessTask, self).__init__(parent)
         self.executable = executable
+        self.is_owner = is_owner
 
     def success_callback(self, rid, result):
         if rid != self.rid:
             return
-        self.status_update_signal.emit(True, "Viewer subprocess execution success.", "")
+        self.status_update_signal.emit(True, "Viewer subprocess execution success.", "", self.is_owner)
 
     def error_callback(self, rid, error):
         if rid != self.rid:
             return
-        self.status_update_signal.emit(False, "Viewer subprocess execution failed", format_exception(error))
+        self.status_update_signal.emit(
+            False, "Viewer subprocess execution failed", format_exception(error), self.is_owner)
 
     def run(self, file_path, working_dir=os.getcwd(), env=None):
         self.init_request()

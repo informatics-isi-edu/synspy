@@ -845,9 +845,9 @@ class Canvas(app.Canvas):
 
     def csv_file_name(self):
         if self.vol_slicer.properties['synspy_nuclei_mode']:
-            return self.dump_prefix + 'nuclei.csv'
+            return self.dump_prefix + 'nuclei-only.csv'
         else:
-            return self.dump_prefix + 'synapses.csv'
+            return self.dump_prefix + 'synapses-only.csv'
 
     def load_csv(self, event=None):
         """Load (L) segment classification from CSV file."""

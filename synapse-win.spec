@@ -50,4 +50,5 @@ exe = EXE(launcher_pyz,
           debug=False,
           strip=False,
           upx=False,
-          console=True)
+          console=False,
+          icon='launcher/launcher/images/synapse.ico')

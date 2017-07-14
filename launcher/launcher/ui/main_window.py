@@ -7,16 +7,19 @@ import tempfile
 import platform
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
-     QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView
+    QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget, table_widget, async_task
 from deriva_qt.auth_agent.ui.auth_window import AuthWindow
-from deriva_common import ErmrestCatalog, HatracStore, read_config, format_exception, urlquote, resource_path
+from deriva_common import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
+    resource_path
 from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
-    WORKLIST_UPDATE, WORKLIST_UPDATE_2D
+    WORKLIST_UPDATE, WORKLIST_UPDATE_2D, WORKLIST_CURATOR_QUERY, WORKLIST_STATUS_UPDATE
 from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from launcher.impl.process_tasks import ViewerTask
-from launcher.ui import DEFAULT_CONFIG
+from launcher.ui import DEFAULT_CONFIG, CURATORS
+from launcher import resources
+from synspy import version
 
 
 # noinspection PyArgumentList
@@ -27,10 +30,12 @@ class MainWindow(QMainWindow):
     store = None
     catalog = None
     identity = None
+    attributes = None
     server = None
     tempdir = None
     progress_update_signal = pyqtSignal(str)
     use_3D_viewer = False
+    curator_mode = False
 
     def __init__(self, config_path=None):
         super(MainWindow, self).__init__()
@@ -43,6 +48,8 @@ class MainWindow(QMainWindow):
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
+            self.ui.actionRefresh.setEnabled(False)
+            self.ui.actionOptions.setEnabled(False)
             self.ui.actionLogout.setEnabled(False)
 
     def configure(self, config_path):
@@ -71,8 +78,15 @@ class MainWindow(QMainWindow):
         # determine viewer mode
         self.use_3D_viewer = True if config.get("viewer_mode", "2d").lower() == "3d" else False
 
+        # curator mode?
+        curator_mode = config.get("curator_mode")
+        if not curator_mode:
+            config["curator_mode"] = False
+        self.curator_mode = config.get("curator_mode")
+
         # save config
         self.config = config
+        write_config(self.config_path, self.config)
 
     def getSession(self):
         qApp.setOverrideCursor(Qt.WaitCursor)
@@ -91,6 +105,7 @@ class MainWindow(QMainWindow):
     def enableControls(self):
         self.ui.actionLaunch.setEnabled(True)
         self.ui.actionRefresh.setEnabled(True)
+        self.ui.actionOptions.setEnabled(self.authWindow.authenticated())
         self.ui.actionLogin.setEnabled(not self.authWindow.authenticated())
         self.ui.actionLogout.setEnabled(self.authWindow.authenticated())
         self.ui.actionExit.setEnabled(True)
@@ -99,6 +114,7 @@ class MainWindow(QMainWindow):
     def disableControls(self):
         self.ui.actionLaunch.setEnabled(False)
         self.ui.actionRefresh.setEnabled(False)
+        self.ui.actionOptions.setEnabled(False)
         self.ui.actionLogin.setEnabled(False)
         self.ui.actionLogout.setEnabled(False)
         self.ui.actionExit.setEnabled(False)
@@ -122,9 +138,17 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("All background tasks terminated successfully")
 
+    def is_curator(self):
+        for attr in self.attributes:
+            if attr.get('id') == CURATORS:
+                return True
+        return False
+
     def displayWorklist(self, worklist):
         keys = ["ID",
+                "Classifier",
                 "Status",
+                "Identities",
                 "URL",
                 "Npz URL",
                 "ZYX Slice",
@@ -132,16 +156,32 @@ class MainWindow(QMainWindow):
                 "Segments URL",
                 "Segments Filtered URL",
                 "Subject"]
-        displayed = ["ID", "Status"]
+        self.ui.workList.clear()
+        self.ui.workList.setRowCount(0)
+        self.ui.workList.setColumnCount(0)
+        displayed = ["ID", "Classifier", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
+        self.ui.workList.removeAction(self.ui.markIncompleteAction)
+        if self.is_curator() and self.curator_mode:
+            self.ui.workList.addAction(self.ui.markIncompleteAction)
+
         rows = 0
         for row in worklist:
+            value = row.get("Status")
+            if not (value == "analysis pending" or value == "analysis in progress") \
+                    and not (self.is_curator() and self.curator_mode):
+                self.ui.workList.hideRow(rows)
             cols = 0
             for key in keys:
                 item = QTableWidgetItem()
-                if key == "URL" or key == "Subject":
+                if key == "Classifier":
+                    value = row['user'][0]['Full Name']
+                elif key == "Identities":
+                    value = row['user'][0]['Identities']
+                    item.setData(Qt.UserRole, value)
+                elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
                 else:
                     value = row.get(key)
@@ -149,15 +189,20 @@ class MainWindow(QMainWindow):
                     item.setText(value)
                     item.setToolTip(value)
                 self.ui.workList.setItem(rows, cols, item)
-                if key not in displayed:
-                    self.ui.workList.hideColumn(cols)
                 cols += 1
             rows += 1
+
+        cols = 0
+        for key in keys:
+            if key not in displayed:
+                self.ui.workList.hideColumn(cols)
+            cols += 1
 
         self.ui.workList.setHorizontalHeaderLabels(keys)  # add header names
         self.ui.workList.horizontalHeader().setDefaultAlignment(Qt.AlignLeft)  # set alignment
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
+        self.ui.workList.sortByColumn(2, Qt.AscendingOrder)
         if (self.ui.workList.rowCount() > 0) and self.identity:
             self.ui.actionLaunch.setEnabled(True)
         else:
@@ -211,12 +256,12 @@ class MainWindow(QMainWindow):
             self.ui.workList.removeRow(row)
             return
 
-    def downloadFiles(self):
-        # if analysis in progress for this item and there is an existing segments file, download it first
+    def retrieveFiles(self):
+        # if there is an existing segments file, download it first, otherwise just initiate the input file download
         seg_url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
         segments_url = self.ui.workList.getCurrentTableItemTextByName(seg_url)
         status = self.ui.workList.getCurrentTableItemTextByName("Status")
-        if segments_url and "analysis in progress" == status:
+        if segments_url:
             segments_filename = os.path.basename(segments_url).split(":")[0]
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
             self.updateStatus("Downloading file: [%s]" % segments_destfile)
@@ -228,12 +273,20 @@ class MainWindow(QMainWindow):
                 destfile=segments_destfile,
                 progress_callback=self.downloadCallback)
         else:
-            self.downloadInputFile()
+            self.retrieveInputFile()
 
-    def downloadInputFile(self):
+    def retrieveInputFile(self):
         # get the main TIFF file for analysis if not already cached
         input_url = "URL" if self.use_3D_viewer else "Npz URL"
         url = self.ui.workList.getCurrentTableItemTextByName(input_url)
+        if not url and not self.use_3D_viewer:
+            self.resetUI("Unable to launch 2D viewer due to missing NPZ file for %s." %
+                         self.ui.workList.getCurrentTableItemTextByName("ID"))
+            self.serverProblemMessageBox(
+                "2D viewer requires NPZ data to be present!",
+                "The launcher is currently configured to execute the 2D viewer, which requires NPZ files for input. " +
+                "No NPZ file could be found on the server for this task.")
+            return
         filename = os.path.basename(url).split(":")[0]
         destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not os.path.isfile(destfile):
@@ -265,7 +318,9 @@ class MainWindow(QMainWindow):
         env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
             "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
-        viewerTask = ViewerTask(self.getSubprocessPath())
+        identities = self.ui.workList.getTableItemByName(
+            self.ui.workList.getCurrentTableRow(), "Identities").data(Qt.UserRole)
+        viewerTask = ViewerTask(self.getSubprocessPath(), self.identity in identities)
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
         viewerTask.run(file_path, self.tempdir, env)
 
@@ -281,9 +336,9 @@ class MainWindow(QMainWindow):
             return
         seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if seg_mode == "synaptic":
-            extension = ".synapses.csv"
+            extension = ".synapses.csv" if self.use_3D_viewer else ".synapses-only.csv"
         elif seg_mode == "nucleic":
-            extension = ".nuclei.csv"
+            extension = ".nuclei.csv" if self.use_3D_viewer else ".nuclei-only.csv"
         else:
             self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
             return
@@ -293,10 +348,19 @@ class MainWindow(QMainWindow):
         file_path = os.path.abspath(os.path.join(self.tempdir, file_name))
 
         # upload to object store
+        self.updateStatus("Uploading file %s to server..." % file_name)
         self.progress_update_signal.connect(self.updateProgress)
         uploadTask = FileUploadTask(self.store)
         uploadTask.status_update_signal.connect(self.onUploadFileResult)
         uploadTask.upload(hatrac_path, file_path, update_state, callback=self.uploadCallback)
+
+    def markIncomplete(self):
+        ID = self.ui.workList.getCurrentTableItemTextByName("ID")
+        body = [{"ID": ID, "Status":  "analysis in progress"}]
+        self.updateStatus("Updating task status for %s..." % ID)
+        updateTask = CatalogUpdateTask(self.catalog)
+        updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
+        updateTask.update(WORKLIST_STATUS_UPDATE, json=body)
 
     @pyqtSlot()
     def taskTriggered(self):
@@ -327,11 +391,14 @@ class MainWindow(QMainWindow):
         qApp.restoreOverrideCursor()
         if success:
             self.identity = result["client"]["id"]
+            self.attributes = result["attributes"]
             display_name = result["client"]["full_name"]
             self.setWindowTitle("%s (%s - %s)" % (self.windowTitle(), self.server, display_name))
             self.ui.actionLaunch.setEnabled(True)
             self.ui.actionLogout.setEnabled(True)
             self.ui.actionLogin.setEnabled(False)
+            if not self.is_curator():
+                self.curator_mode = self.config["curator_mode"] = False
             self.on_actionRefresh_triggered()
         else:
             self.updateStatus(status, detail)
@@ -344,7 +411,7 @@ class MainWindow(QMainWindow):
         if self.tempdir:
             shutil.rmtree(self.tempdir)
         self.tempdir = tempfile.mkdtemp(prefix="synspy_")
-        self.downloadFiles()
+        self.retrieveFiles()
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
@@ -352,14 +419,14 @@ class MainWindow(QMainWindow):
             try:
                 os.remove(file_path)
             except Exception as e:
-                logging.warning("Unable to remove file [%s]: %s", (file_path, format_exception(e)))
+                logging.warning("Unable to remove file [%s]: %s" % (file_path, format_exception(e)))
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to download required input file",
                 "The in-progress analysis file was not downloaded successfully.")
             return
 
-        self.downloadInputFile()
+        self.retrieveInputFile()
 
     @pyqtSlot(bool, str, str, str)
     def onRetrieveInputFileResult(self, success, status, detail, file_path):
@@ -367,7 +434,7 @@ class MainWindow(QMainWindow):
             try:
                 os.remove(file_path)
             except Exception as e:
-                logging.warning("Unable to remove file [%s]: %s", (file_path, format_exception(e)))
+                logging.warning("Unable to remove file [%s]: %s" % (file_path, format_exception(e)))
             self.resetUI(status, detail)
             self.serverProblemMessageBox(
                 "Unable to download required input file",
@@ -376,10 +443,14 @@ class MainWindow(QMainWindow):
 
         self.executeViewer(file_path)
 
-    @pyqtSlot(bool, str, str)
-    def onSubprocessExecuteResult(self, success, status, detail):
+    @pyqtSlot(bool, str, str, bool)
+    def onSubprocessExecuteResult(self, success, status, detail, is_owner):
         qApp.restoreOverrideCursor()
         if not success:
+            self.resetUI(status, detail)
+            return
+
+        if not is_owner:
             self.resetUI(status, detail)
             return
 
@@ -417,8 +488,9 @@ class MainWindow(QMainWindow):
             return
         state = result[0]
         url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
-        body = [{"ID": self.ui.workList.getCurrentTableItemTextByName("ID"),
-                 url: result[1], "Status":  state[1]}]
+        ID = self.ui.workList.getCurrentTableItemTextByName("ID")
+        body = [{"ID": ID, url: result[1], "Status":  state[1]}]
+        self.updateStatus("Updating task status for %s..." % ID)
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
         update_template = WORKLIST_UPDATE if self.use_3D_viewer else WORKLIST_UPDATE_2D
@@ -445,7 +517,10 @@ class MainWindow(QMainWindow):
         self.updateStatus("Refreshing worklist...")
         queryTask = CatalogQueryTask(self.catalog)
         queryTask.status_update_signal.connect(self.onRefreshResult)
-        queryTask.query(WORKLIST_QUERY % urlquote(self.identity, ""))
+        if self.is_curator() and self.curator_mode:
+            queryTask.query(WORKLIST_CURATOR_QUERY)
+        else:
+            queryTask.query(WORKLIST_QUERY % urlquote(self.identity, ""))
 
     @pyqtSlot(bool, str, str, object)
     def onRefreshResult(self, success, status, detail, result):
@@ -476,9 +551,57 @@ class MainWindow(QMainWindow):
         pass
 
     @pyqtSlot()
+    def on_actionOptions_triggered(self):
+        OptionsDialog.getOptions(self)
+
+    @pyqtSlot()
     def on_actionExit_triggered(self):
         self.closeEvent()
         QCoreApplication.quit()
+
+
+class OptionsDialog(QDialog):
+    def __init__(self, parent):
+        super(OptionsDialog, self).__init__(parent)
+        self.refreshWorklist = False
+        self.setWindowTitle("Options")
+        self.setWindowIcon(QIcon(":/images/synapse.png"))
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        layout = QVBoxLayout(self)
+
+        curator_mode = QCheckBox("&Curator Mode", parent)
+        curator_mode.setChecked(parent.curator_mode)
+        layout.addWidget(curator_mode)
+        if not parent.is_curator():
+            curator_mode.setEnabled(False)
+        curator_mode.toggled.connect(self.onCuratorModeToggled)
+        use_3D_viewer = QCheckBox("Use &3D Viewer", parent)
+        use_3D_viewer.setChecked(parent.use_3D_viewer)
+        layout.addWidget(use_3D_viewer)
+        if platform.system() != "Linux":
+            use_3D_viewer.setEnabled(False)
+        use_3D_viewer.toggled.connect(self.onUse3DViewerToggled)
+
+    @pyqtSlot(bool)
+    def onCuratorModeToggled(self, toggled):
+        parent = self.parent()
+        parent.curator_mode = toggled
+        parent.config["curator_mode"] = toggled
+        self.refreshWorklist = True
+
+    @pyqtSlot(bool)
+    def onUse3DViewerToggled(self, toggled):
+        parent = self.parent()
+        parent.use_3D_viewer = toggled
+        parent.config["viewer_mode"] = "3D" if toggled else "2D"
+
+    @staticmethod
+    def getOptions(parent):
+        dialog = OptionsDialog(parent)
+        dialog.exec_()
+        write_config(parent.config_path, parent.config)
+        if dialog.refreshWorklist:
+            parent.on_actionRefresh_triggered()
 
 
 # noinspection PyArgumentList
@@ -492,7 +615,7 @@ class MainWindowUI(object):
         # Main Window
         MainWin.setObjectName("MainWindow")
         MainWin.setWindowTitle(MainWin.tr(self.title))
-        # MainWin.setWindowIcon(QIcon(":/images/bag.png"))
+        MainWin.setWindowIcon(QIcon(":/images/synapse.png"))
         MainWin.resize(640, 600)
         self.centralWidget = QWidget(MainWin)
         self.centralWidget.setObjectName("centralWidget")
@@ -523,6 +646,8 @@ class MainWindowUI(object):
         self.workList.horizontalHeader().setStretchLastSection(True)
         # self.workList.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.workList.setSortingEnabled(True)  # allow sorting
+        self.workList.setContextMenuPolicy(Qt.ActionsContextMenu)
+        self.workList.doubleClicked.connect(MainWin.on_actionLaunch_triggered)
         self.splitter.addWidget(self.workList)
 
         # Log Widget
@@ -558,6 +683,13 @@ class MainWindowUI(object):
         self.actionRefresh.setToolTip(MainWin.tr("Refresh the work list"))
         self.actionRefresh.setShortcut(MainWin.tr("Ctrl+R"))
 
+        # Options
+        self.actionOptions = QAction(MainWin)
+        self.actionOptions.setObjectName("actionOptions")
+        self.actionOptions.setText(MainWin.tr("Options"))
+        self.actionOptions.setToolTip(MainWin.tr("Configuration Options"))
+        self.actionOptions.setShortcut(MainWin.tr("Ctrl+P"))
+
         # Login
         self.actionLogin = QAction(MainWin)
         self.actionLogin.setObjectName("actionLogin")
@@ -586,6 +718,10 @@ class MainWindowUI(object):
         self.actionHelp.setToolTip(MainWin.tr("Help"))
         self.actionHelp.setShortcut(MainWin.tr("Ctrl+H"))
 
+        # Mark Incomplete
+        self.markIncompleteAction = QAction('Mark Incomplete', self.workList)
+        self.markIncompleteAction.triggered.connect(MainWin.markIncomplete)
+
     # Tool Bar
 
         self.mainToolBar = QToolBar(MainWin)
@@ -600,6 +736,10 @@ class MainWindowUI(object):
         # Reload
         self.mainToolBar.addAction(self.actionRefresh)
         self.actionRefresh.setIcon(qApp.style().standardIcon(QStyle.SP_BrowserReload))
+
+        # Options
+        self.mainToolBar.addAction(self.actionOptions)
+        self.actionOptions.setIcon(qApp.style().standardIcon(QStyle.SP_FileDialogDetailedView))
 
         # this spacer right justifies everything that comes after it
         spacer = QWidget()

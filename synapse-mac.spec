@@ -47,7 +47,7 @@ exe = EXE(launcher_pyz,
           debug=env.get("DEBUG", False),
           strip=False,
           upx=False,
-          console=True)
+          console=False)
 
 coll = COLLECT(exe,
                launcher.binaries,
@@ -60,6 +60,7 @@ coll = COLLECT(exe,
 
 app = BUNDLE(coll,
          name='Synapse Launcher.app',
+         icon='launcher/launcher/images/synapse.icns',
          bundle_identifier='org.qt-project.Qt.QtWebEngineCore',
          info_plist={
             'CFBundleDisplayName': 'Synapse Launcher Utility',

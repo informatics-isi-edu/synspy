@@ -878,39 +878,19 @@ transparency factor: %f
 
     def _csv_dump_filename(self):
         if self.do_nuclei:
-            return '%snuclei.csv' % self.dump_prefix
+            return '%snuclei-only.csv' % self.dump_prefix
         else:
-            return '%ssynapses.csv' % self.dump_prefix
+            return '%ssynapses-only.csv' % self.dump_prefix
 
     def dump_classified_voxels(self, event=None):
         """Dump a segment list."""
-
-        centroids, measures, status, indices = self.thresholded_segments()
-
-        # splat classified centroids
-        #dtype = np.uint16
-        #dmax = 1./self.raw_image.max() * (2**16-1)
-        #result = np.zeros( self.raw_image.shape[0:3] + (3,), dtype ) # RGB debug image
-        #result[:,:,:,2] = self.raw_image[:,:,:,0] * dmax
-        #segment_map = self.splat_centroids((1,1,1), result.shape[0:3], centroids, measures)
-
-        # shift blue to green for segmented voxels
-        #result[:,:,:,1] = result[:,:,:,2] * (segment_map > 0)
-        #result[:,:,:,2] -= result[:,:,:,2] * (segment_map > 0)
-        
-        #result = np.sqrt(result)
-        #result = (result * ((2**8-1)/result.max())).astype(np.uint8)
-
-        #debug_name = '%sdebug.tiff' % self.dump_prefix
-        #tifffile.imsave(debug_name, result)
-        #print "%s dumped" % debug_name
 
         csv_name = self._csv_dump_filename()
         saved_params = {
             'Z': 'saved',
             'Y': 'params',
             'X': ('(core, vicinity, zerolvl, toplvl,'
-                  + ((measures.shape[1] == 5) and  'autofl' or '')
+                  + ((self.centroid_measures.shape[1] == 5) and  'autofl' or '')
                   + 'transp):'),
             'raw core': self.floorlvl * (self.data_max - self.data_min) + self.data_min,
             'raw hollow': self.nuclvl * (self.data_max - self.data_min) + self.data_min,
@@ -918,10 +898,10 @@ transparency factor: %f
             'DoG hollow': self.toplvl * (self.data_max - self.data_min) + self.data_min,
             'override': (self.transp),
         }
-        if measures.shape[1] == 5:
+        if self.centroid_measures.shape[1] == 5:
             saved_params['red'] = (self.msklvl * (self.data_max - self.data_min) + self.data_min)
 
-        dump_segment_info_to_csv(centroids, measures, status, self.vol_cropper.slice_origin, csv_name, saved_params=saved_params)
+        dump_segment_info_to_csv(self.centroids, self.centroid_measures[1:self.centroid_measures.shape[0]+1], self.centroid_status[1:self.centroid_measures.shape[0]+1], self.vol_cropper.slice_origin, csv_name, saved_params=saved_params, all_segments=False)
 
         msg = "%s dumped" % csv_name
         if self.hud_enable:

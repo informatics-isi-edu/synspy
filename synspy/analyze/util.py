@@ -226,7 +226,7 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
         while i < centroids.shape[0] and (Z, Y, X) != tuple(centroids[i]):
             i += 1
             
-        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename)
+        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename, row)
 
         if row['override']:
             status[i] = int(row['override'])

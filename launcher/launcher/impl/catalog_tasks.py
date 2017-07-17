@@ -2,16 +2,15 @@ from PyQt5.QtCore import pyqtSignal
 from deriva_common import format_exception, DEFAULT_HEADERS
 from deriva_qt.common.async_task import async_execute, AsyncTask
 
-WORKLIST_QUERY = "/attributegroup/U:=Synapse:Person/Identities=%s/T:=(Zebrafish:Image Region:Classifier)/" \
-                 "!ZYX Slice::null::/I:=(Source Image)/!T:Npz URL::null::/$T/*;source_image:=array(I:*),user:=array(U:*)"
+WORKLIST_QUERY = \
+    "/attributegroup/U:=Synapse:Person/Identities=%s/T:=(Zebrafish:Image Region:Classifier)/" \
+    "!ZYX Slice::null::/I:=(Source Image)/!T:Npz URL::null::/$T/*;source_image:=array(I:*),user:=array(U:*)"
 
 WORKLIST_CURATOR_QUERY = \
     "/attributegroup/U:=Synapse:Person/T:=(Zebrafish:Image Region:Classifier)/" \
     "!ZYX Slice::null::/I:=(Source Image)/!T:Npz URL::null::/$T/*;source_image:=array(I:*),user:=array(U:*)"
 
-WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Segments URL,Status"
-
-WORKLIST_UPDATE_2D = "/attributegroup/Zebrafish:Image Region/ID;Segments Filtered URL,Status"
+WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Segments Filtered URL,Status,History"
 
 WORKLIST_STATUS_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Status"
 

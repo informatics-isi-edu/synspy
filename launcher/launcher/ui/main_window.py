@@ -5,6 +5,8 @@ import logging
 import shutil
 import tempfile
 import platform
+import datetime
+import pytz
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
     QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu
@@ -14,12 +16,12 @@ from deriva_qt.auth_agent.ui.auth_window import AuthWindow
 from deriva_common import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
     resource_path
 from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
-    WORKLIST_UPDATE, WORKLIST_UPDATE_2D, WORKLIST_CURATOR_QUERY, WORKLIST_STATUS_UPDATE
+    WORKLIST_UPDATE, WORKLIST_CURATOR_QUERY, WORKLIST_STATUS_UPDATE
 from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from launcher.impl.process_tasks import ViewerTask
 from launcher.ui import DEFAULT_CONFIG, CURATORS
 from launcher import resources
-from synspy import __version__
+from synspy import __version__ as synspy_version
 
 
 # noinspection PyArgumentList
@@ -147,6 +149,7 @@ class MainWindow(QMainWindow):
     def displayWorklist(self, worklist):
         keys = ["ID",
                 "Classifier",
+                "Subject Issue Date",
                 "Status",
                 "Identities",
                 "URL",
@@ -155,11 +158,12 @@ class MainWindow(QMainWindow):
                 "Segmentation Mode",
                 "Segments URL",
                 "Segments Filtered URL",
-                "Subject"]
+                "Subject",
+                "History"]
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
         self.ui.workList.setColumnCount(0)
-        displayed = ["ID", "Classifier", "Status"]
+        displayed = ["ID", "Classifier", "Subject Issue Date", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -183,6 +187,11 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.UserRole, value)
                 elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
+                elif key == "History":
+                    value = row.get(key)
+                    if not value:
+                        value = []
+                    item.setData(Qt.UserRole, value)
                 else:
                     value = row.get(key)
                 if isinstance(value, str):
@@ -202,7 +211,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.horizontalHeader().setDefaultAlignment(Qt.AlignLeft)  # set alignment
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
-        self.ui.workList.sortByColumn(2, Qt.AscendingOrder)
+        self.ui.workList.sortByColumn(2, Qt.DescendingOrder)
         if (self.ui.workList.rowCount() > 0) and self.identity:
             self.ui.actionLaunch.setEnabled(True)
         else:
@@ -258,9 +267,7 @@ class MainWindow(QMainWindow):
 
     def retrieveFiles(self):
         # if there is an existing segments file, download it first, otherwise just initiate the input file download
-        seg_url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
-        segments_url = self.ui.workList.getCurrentTableItemTextByName(seg_url)
-        status = self.ui.workList.getCurrentTableItemTextByName("Status")
+        segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments Filtered URL")
         if segments_url:
             segments_filename = os.path.basename(segments_url).split(":")[0]
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
@@ -336,9 +343,9 @@ class MainWindow(QMainWindow):
             return
         seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if seg_mode == "synaptic":
-            extension = ".synapses.csv" if self.use_3D_viewer else ".synapses-only.csv"
+            extension = ".synapses-only.csv"
         elif seg_mode == "nucleic":
-            extension = ".nuclei.csv" if self.use_3D_viewer else ".nuclei-only.csv"
+            extension = ".nuclei-only.csv"
         else:
             self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
             return
@@ -487,14 +494,19 @@ class MainWindow(QMainWindow):
                 "One or more required files were not uploaded successfully.")
             return
         state = result[0]
-        url = "Segments URL" if self.use_3D_viewer else "Segments Filtered URL"
         ID = self.ui.workList.getCurrentTableItemTextByName("ID")
-        body = [{"ID": ID, url: result[1], "Status":  state[1]}]
+        history = self.ui.workList.getTableItemByName(
+            self.ui.workList.getCurrentTableRow(), "History").data(Qt.UserRole)
+        history.append({
+            "program": "synspy-viewer" if self.use_3D_viewer else "synspy-viewer2d",
+            "version": synspy_version,
+            "ts": datetime.datetime.now(pytz.utc).isoformat()
+        })
+        body = [{"ID": ID, "Segments Filtered URL": result[1], "Status":  state[1], "History":history}]
         self.updateStatus("Updating task status for %s..." % ID)
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
-        update_template = WORKLIST_UPDATE if self.use_3D_viewer else WORKLIST_UPDATE_2D
-        updateTask.update(update_template, json=body)
+        updateTask.update(WORKLIST_UPDATE, json=body)
 
     @pyqtSlot(bool, str, str, object)
     def onCatalogUpdateResult(self, success, status, detail, result):

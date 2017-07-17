@@ -7,6 +7,7 @@
 """
 
 from setuptools import setup, find_packages
+from synspy import __version__
 
 setup(
     name="synspy-launcher",
@@ -14,7 +15,7 @@ setup(
     url='https://github.com/informatics-isi-edu/synspy/launcher',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='misd-support@isi.edu',
-    version="0.1.0",
+    version=__version__,
     packages=find_packages(),
     entry_points={
         'console_scripts': [
@@ -29,6 +30,7 @@ setup(
         'tempfile',
         'shutil',
         'subprocess',
+        'pytz',
         'deriva_common',
         'deriva_qt',
         'PyQt5'],

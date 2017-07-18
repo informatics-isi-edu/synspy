@@ -149,7 +149,11 @@ def filter_synspy_csv(csv_url):
     filtered_file.close()
     
     return filtered_filename
-    
+
+def coalesce(*args):
+    for arg in args:
+        if arg is not None:
+            return arg
 
 def run_row_job(row):
     """Do idempotent filtering on cropped image record.
@@ -213,7 +217,7 @@ def run_row_job(row):
         if updated_row:
             updated_row['ID'] = row['ID']
             new_history.append("synspy_worker")
-            updated_row['History'] = row.get('History', []) + [
+            updated_row['History'] = coalesce(row.get('History'), []) + [
                 {"program": prog, "version": synspy.__version__, "ts": datetime.datetime.now(pytz.utc).isoformat()}
                 for prog in new_history
             ]

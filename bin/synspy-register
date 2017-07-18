@@ -71,12 +71,22 @@ def register(filenames):
     assert results[0], "point-cloud registration did not converge"
     M = results[1]
 
+    print('VIEW_MATRIX="%s"' % (
+        '[%s]' % ', '.join([
+            '[%s]' % ', '.join([
+                "%f" % M[i,j]
+                for j in range(4)
+            ])
+            for i in range(4)
+        ])
+    ))
+
     parts = decompose_matrix(M.T)
-    print(parts)
+    #print(parts)
     angles = parts[2]
-    print(angles)
+    #print(angles)
     print('VIEW_ROTATE="%s"' % ','.join([str(r * 180./math.pi) for r in angles]))
-    
+
     nuc1 = arrays[0]
     nuc2 = transform_points(M, arrays[1])
 

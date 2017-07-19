@@ -29,26 +29,35 @@ def transform_points(M, a):
 
     return a2
 
-def draw_points(view, a, face_color, size=10):
+def draw_points(view, a, weights, face_color, size=10):
     scatter = visuals.Markers()
-    scatter.set_data(a, edge_color=None, face_color=face_color, size=size)
+    scatter.set_gl_state(depth_test=True)
+    scatter.antialias = False
+    colors = np.zeros((weights.shape[0], 4), np.float32)
+    for i in range(3):
+        colors[:,i] = weights
+    colors[:,3] = 1.0
+    colors[:,:] *= np.array(face_color, np.float32)
+    scatter.set_data(a, edge_color=None, face_color=colors, edge_width=0, size=size)
     view.add(scatter)
 
-def csv2pointcloud(filename):
+def csv2pointcloud_weights(filename):
     cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
     cols = tuple(cols.split(','))
+    wcol = 'raw core'
     assert len(cols) == 3
     grid = os.getenv('SEGMENTS_ZYX_GRID', '1,1,1')
-    grid = np.array(tuple(map(float, grid.split(','))) + (1,), dtype=np.float32)
-    assert grid.shape == (4,), grid.shape
+    grid = np.array(tuple(map(float, grid.split(','))), dtype=np.float32)
+    assert grid.shape == (3,), grid.shape
     f = open(filename, 'r')
     rows = []
     for row in csv.DictReader(f):
         if row[cols[0]] == 'saved':
             continue
-        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]]), int(row.get('override', 0) or '0')) )
+        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]]), int(row.get('override', 0) or '0'), float(row[wcol])) )
     a = np.asarray(rows, dtype=np.float32)
-    a[:0:3] *= grid
+    print a.shape
+    a[:,0:3] *= grid
     # filtered array where manual classification is true
     fa = a[ (a[:,3] == 3) | (a[:,3] == 7) ]
     if fa.shape[0] > 5:
@@ -58,11 +67,24 @@ def csv2pointcloud(filename):
         print('From %s using all %s detected points' % (filename, a.shape[0]))
     pc = pcl.PointCloud()
     pc.from_array(a[:,0:3])
-    return pc
+    return pc, a[:,4]
 
 def register(filenames):
-    pointclouds = list(map(csv2pointcloud, filenames))
+    pointcloud_weights = list(map(csv2pointcloud_weights, filenames))
+    pointclouds = list(map(lambda tup: tup[0], pointcloud_weights))
     arrays = list(map(np.asarray, pointclouds))
+    weights = list(map(lambda tup: tup[1], pointcloud_weights))
+
+    maxweight0 = reduce(max, map(lambda a: a.max(), weights[0:2]), 1.0)
+    for w in weights[0:2]:
+        w[:] *= np.float32(1.0/maxweight0)
+        #w[:] = np.sqrt(w[:])
+
+    if len(weights) == 4:
+        maxweight1 = reduce(max, map(lambda a: a.max(), weights[2:4]), 1.0)
+        for w in weights[2:4]:
+            w[:] *= np.float32(1.0/maxweight1)
+            #w[:] = np.sqrt(w[:])
 
     segment_sizes = list(map(float, os.getenv('SEGMENT_SIZES', '30,4').split(',')))
     assert len(segment_sizes) == 2
@@ -118,15 +140,16 @@ def register(filenames):
         syn1 = (syn1 - origin)/scale
         syn2 = (syn2 - origin)/scale
         
-    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True)
+    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
     view = canvas.central_widget.add_view()
+    view.set_gl_state(depth_test=True)
 
-    draw_points(view, nuc1, (0,1,1,0.1), segment_sizes[0])
-    draw_points(view, nuc2, (1,1,0,0.1), segment_sizes[0])
+    draw_points(view, nuc1, weights[0], (0,1,1,0.1), segment_sizes[0])
+    draw_points(view, nuc2, weights[1], (1,1,0,0.1), segment_sizes[0])
 
     if len(arrays) == 4:
-        draw_points(view, syn1, (0,1,1,1), segment_sizes[1])
-        draw_points(view, syn2, (1,1,0,1), segment_sizes[1])
+        draw_points(view, syn1, weights[2], (0,0.9,0.9,0.9), segment_sizes[1])
+        draw_points(view, syn2, weights[3], (1,1,0,0.9), segment_sizes[1])
     
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'turntable'

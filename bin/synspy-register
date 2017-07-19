@@ -40,6 +40,7 @@ def draw_points(view, a, weights, face_color, size=10):
     colors[:,:] *= np.array(face_color, np.float32)
     scatter.set_data(a, edge_color=None, face_color=colors, edge_width=0, size=size)
     view.add(scatter)
+    return scatter
 
 def csv2pointcloud_weights(filename):
     cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
@@ -141,16 +142,36 @@ def register(filenames):
         syn2 = (syn2 - origin)/scale
         
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
+
+    scatters = []
+
+    def key_press(event):
+        if event.key in {'1', '2', '3', '4'}:
+            idx = {str(i+1): i for i in range(4)}[event.key]
+            for s in scatters[idx:idx+1]:
+                s.visible = not s.visible
+        canvas.update()
+
+    canvas.events.key_press.connect(key_press)
+
     view = canvas.central_widget.add_view()
     view.set_gl_state(depth_test=True)
 
-    draw_points(view, nuc1, weights[0], (0,1,1,0.1), segment_sizes[0])
-    draw_points(view, nuc2, weights[1], (1,1,0,0.1), segment_sizes[0])
+    scatters.append(
+        draw_points(view, nuc1, weights[0], (0,1,1,0.1), segment_sizes[0])
+    )
+    scatters.append(
+        draw_points(view, nuc2, weights[1], (1,1,0,0.1), segment_sizes[0])
+    )
 
     if len(arrays) == 4:
-        draw_points(view, syn1, weights[2], (0,0.9,0.9,0.9), segment_sizes[1])
-        draw_points(view, syn2, weights[3], (1,1,0,0.9), segment_sizes[1])
-    
+        scatters.append(
+            draw_points(view, syn1, weights[2], (0,0.9,0.9,0.9), segment_sizes[1])
+        )
+        scatters.append(
+            draw_points(view, syn2, weights[3], (1,1,0,0.9), segment_sizes[1])
+        )
+
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'turntable'
     vispy.app.run()

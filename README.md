@@ -140,6 +140,10 @@ We have only rudimentary support for registering multiple images for expert user
 5. View the resulting alignment and judge quality.
 6. Capture the transformation matrix printed to standard output if desired.
 
+In the interactive viewer, the `1` ... `4` keys can be pressed to
+toggle the visibility of the pointcloud from the first ... fourth CSV
+argument, respectively.
+
 The transformation matrix can be applied the second image or its
 features (the *after* image in this example). We do not currently
 provide any tools to do this transformation since there are too many

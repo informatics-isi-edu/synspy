@@ -574,6 +574,10 @@ class Canvas(app.Canvas):
         self.feature_level = 0.0
         self.neighbor_level = 0.0
         self.black_level = 0.0
+        # for compatibility with 3d viewer, save these unused values
+        self.saved_opacity = 0.8
+        self.saved_redlvl = 0.0
+        self.saved_toplvl = self.vol_slicer.maxval
 
         self.current_shader = 0
         self.program.set_shaders(vert_shader, self.frag_shaders[self.current_shader][1])
@@ -867,6 +871,22 @@ class Canvas(app.Canvas):
                     self.vol_slicer.centroids.shape[0]
                 )
             )
+            if saved_params is not None:
+                for attr, col in [
+                        ("feature_level", "raw core"),
+                        ("neighbor_level", "raw hollow"),
+                        ("black_level", "DoG core"),
+                ]:
+                    value = float(saved_params[col])
+                    self.trace(attr, value)
+                    value = value / self.vol_slicer.properties['measures_divisor']
+                    setattr(self, attr, value)
+                    self.program['u_%s' % attr] = value
+
+                self.saved_toplvl = float(saved_params['DoG hollow'])
+                if self.vol_slicer.measures.shape[1] == 5:
+                    self.saved_redlvl = float(saved_params['red'])
+                self.saved_opacity = float(saved_params['override'])
         except Exception as e:
             self.trace(csvfile, 'load failed: ' + str(e))
             raise
@@ -876,12 +896,28 @@ class Canvas(app.Canvas):
         """Dump (D) segment CSV file."""
         csvfile = self.csv_file_name()
         try:
+            saved_params = {
+                'Z': 'saved',
+                'Y': 'params',
+                'X': ('(core, vicinity, zerolvl, toplvl,'
+                      + (' autfl,' if self.vol_slicer.measures.shape[1] == 5 else '')
+                      + ' transp):'),
+                'raw core': self.feature_level * self.vol_slicer.properties['measures_divisor'],
+                'raw hollow': self.neighbor_level * self.vol_slicer.properties['measures_divisor'],
+                'DoG core': self.black_level * self.vol_slicer.properties['measures_divisor'],
+                'DoG hollow': self.saved_toplvl,
+                'override': self.saved_opacity,
+            }
+            if self.vol_slicer.measures.shape[1] == 5:
+                saved_params['red'] = self.saved_redlvl
+
             dump_segment_info_to_csv(
                 self.vol_slicer.centroids,
                 self.vol_slicer.measures,
                 self.segment_status[1:self.vol_slicer.centroids.shape[0]+1],
                 self.vol_slicer.slice_origin,
                 csvfile,
+                saved_params=saved_params,
                 all_segments=False
             )
             self.trace(

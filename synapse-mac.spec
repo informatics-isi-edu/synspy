@@ -2,6 +2,8 @@
 
 block_cipher = None
 
+from os import environ as env
+
 viewer = Analysis(['synspy/viewer2d.py'],
 	               pathex=[],
 	               binaries=None,
@@ -47,7 +49,7 @@ exe = EXE(launcher_pyz,
           debug=env.get("DEBUG", False),
           strip=False,
           upx=False,
-          console=False)
+          console=env.get("DEBUG", False))
 
 coll = COLLECT(exe,
                launcher.binaries,

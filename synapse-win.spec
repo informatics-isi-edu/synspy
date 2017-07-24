@@ -2,6 +2,8 @@
 
 block_cipher = None
 
+from os import environ as env
+
 viewer = Analysis(['synspy/viewer2d.py'],
 	               pathex=[],
 	               binaries=None,
@@ -22,7 +24,7 @@ viewer_exe = EXE(viewer_pyz,
 		         viewer.datas,
 		         viewer.dependencies,
 		         name='synspy-viewer2d',
-		         debug=False,
+		         debug=env.get("DEBUG", False),
 		         strip=False,
 		         upx=True,
 		         console=True)
@@ -47,8 +49,8 @@ exe = EXE(launcher_pyz,
           launcher.datas,
           launcher.dependencies,
           name='synspy-launcher.exe',
-          debug=False,
+          debug=env.get("DEBUG", False),
           strip=False,
           upx=False,
-          console=False,
+          console=env.get("DEBUG", False),
           icon='launcher/launcher/images/synapse.ico')

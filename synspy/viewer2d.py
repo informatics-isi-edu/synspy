@@ -469,10 +469,9 @@ class Canvas(app.Canvas):
         self.on_draw()
         self.dump_csv()
         self.auto_dumped = True
-        self.trace('Window close', 'closing in 5 seconds...')
+        self.trace('Window close', 'closing...')
         self.on_draw()
         self.hud_drain(drain_all=True)
-        time.sleep(5)
 
     def trace(self, attribute, value, mesg=None):
         if type(value) is float:

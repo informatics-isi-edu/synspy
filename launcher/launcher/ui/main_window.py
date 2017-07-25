@@ -9,7 +9,8 @@ import datetime
 import pytz
 from PyQt5.QtCore import Qt, QCoreApplication, QMetaObject, QThreadPool, pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QMessageBox, QStyle, QSplitter, \
-    QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu
+    QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu, QHBoxLayout, \
+    QLabel, QLineEdit, QPushButton, QFileDialog
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget, table_widget, async_task
 from deriva_qt.auth_agent.ui.auth_window import AuthWindow
@@ -325,9 +326,10 @@ class MainWindow(QMainWindow):
         env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
             "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
+        output_path = os.path.join(os.path.dirname(self.config_path), "viewer.log")
         identities = self.ui.workList.getTableItemByName(
             self.ui.workList.getCurrentTableRow(), "Identities").data(Qt.UserRole)
-        viewerTask = ViewerTask(self.getSubprocessPath(), self.identity in identities)
+        viewerTask = ViewerTask(self.getSubprocessPath(), self.identity in identities, proc_output_path=output_path)
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
         viewerTask.run(file_path, self.tempdir, env)
 
@@ -579,7 +581,22 @@ class OptionsDialog(QDialog):
         self.setWindowTitle("Options")
         self.setWindowIcon(QIcon(":/images/synapse.png"))
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setMinimumWidth(400)
+        self.resize(400, 100)
         layout = QVBoxLayout(self)
+
+        self.horizontalLayout = QHBoxLayout()
+        self.pathLabel = QLabel("Downloads:")
+        self.horizontalLayout.addWidget(self.pathLabel)
+        self.pathTextBox = QLineEdit()
+        self.pathTextBox.setReadOnly(True)
+        self.cache_path = os.path.expanduser(os.path.normpath(parent.config.get("cache_dir", ".")))
+        self.pathTextBox.setText(os.path.normpath(self.cache_path))
+        self.horizontalLayout.addWidget(self.pathTextBox)
+        self.browseButton = QPushButton("Browse", parent)
+        self.browseButton.clicked.connect(self.on_actionBrowse_triggered)
+        self.horizontalLayout.addWidget(self.browseButton)
+        layout.addLayout(self.horizontalLayout)
 
         curator_mode = QCheckBox("&Curator Mode", parent)
         curator_mode.setChecked(parent.curator_mode)
@@ -594,6 +611,7 @@ class OptionsDialog(QDialog):
             use_3D_viewer.setEnabled(False)
         use_3D_viewer.toggled.connect(self.onUse3DViewerToggled)
 
+
     @pyqtSlot(bool)
     def onCuratorModeToggled(self, toggled):
         parent = self.parent()
@@ -606,6 +624,18 @@ class OptionsDialog(QDialog):
         parent = self.parent()
         parent.use_3D_viewer = toggled
         parent.config["viewer_mode"] = "3D" if toggled else "2D"
+
+    @pyqtSlot()
+    def on_actionBrowse_triggered(self):
+        parent = self.parent()
+        dialog = QFileDialog()
+        path = dialog.getExistingDirectory(self,
+                                           "Select Directory",
+                                           self.cache_path,
+                                           QFileDialog.ShowDirsOnly)
+        if path:
+            self.pathTextBox.setText(os.path.normpath(path))
+            parent.config["cache_dir"] = os.path.normpath(path)
 
     @staticmethod
     def getOptions(parent):

@@ -3,6 +3,7 @@
 block_cipher = None
 
 from os import environ as env
+from synspy import __version__ as ver
 
 viewer = Analysis(['synspy/viewer2d.py'],
 	               pathex=[],
@@ -24,10 +25,10 @@ viewer_exe = EXE(viewer_pyz,
 		         viewer.datas,
 		         viewer.dependencies,
 		         name='synspy-viewer2d',
-                 debug=env.get("DEBUG", False),
 		         strip=False,
 		         upx=False,
-		         console=True)
+                 debug=env.get("DEBUG", False),
+		         console=env.get("DEBUG", False))
 
 launcher = Analysis(['launcher/launcher/__main__.py'],
 	               pathex=[],
@@ -46,9 +47,9 @@ exe = EXE(launcher_pyz,
           launcher.scripts,
           exclude_binaries=True,
           name='Synapse Launcher',
-          debug=env.get("DEBUG", False),
           strip=False,
           upx=False,
+          debug=env.get("DEBUG", False),
           console=env.get("DEBUG", False))
 
 coll = COLLECT(exe,
@@ -66,7 +67,7 @@ app = BUNDLE(coll,
          bundle_identifier='org.qt-project.Qt.QtWebEngineCore',
          info_plist={
             'CFBundleDisplayName': 'Synapse Launcher Utility',
-            'CFBundleShortVersionString':'0.1.0',
+            'CFBundleShortVersionString':ver,
             'NSPrincipalClass':'NSApplication',
             'NSHighResolutionCapable': 'True'
          })

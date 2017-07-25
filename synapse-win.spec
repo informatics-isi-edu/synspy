@@ -24,10 +24,10 @@ viewer_exe = EXE(viewer_pyz,
 		         viewer.datas,
 		         viewer.dependencies,
 		         name='synspy-viewer2d',
-		         debug=env.get("DEBUG", False),
 		         strip=False,
 		         upx=True,
-		         console=True)
+		         debug=env.get("DEBUG", False),
+		         console=env.get("DEBUG", False))
 
 launcher = Analysis(['launcher/launcher/__main__.py'],
 	               pathex=[],
@@ -49,8 +49,8 @@ exe = EXE(launcher_pyz,
           launcher.datas,
           launcher.dependencies,
           name='synspy-launcher.exe',
-          debug=env.get("DEBUG", False),
           strip=False,
           upx=False,
+          debug=env.get("DEBUG", False),
           console=env.get("DEBUG", False),
           icon='launcher/launcher/images/synapse.ico')

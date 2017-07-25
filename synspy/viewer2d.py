@@ -671,7 +671,7 @@ class Canvas(app.Canvas):
         self.set_viewport1(event.physical_size)
 
         if hasattr(self.text_hud, 'transforms'):
-            self.text_hud.transforms.configure(canvas=self, viewport=(0, 0) + self.size)
+            self.text_hud.transforms.configure(canvas=self, viewport=(0, 0) + event.physical_size)
         else:
             # temporary backwards compatibility
             self.text_hud_transform = visuals.transforms.TransformSystem(self)
@@ -713,8 +713,8 @@ class Canvas(app.Canvas):
         X0, Y0, W, H = [ float(x) for x in self.viewport1 ]
         dh, dw = [ float(x) for x in self.segment_map.shape[0:2] ]
         x, y = event.pos
-        x = (x - X0) * (1.0/W)
-        y = (y - Y0) * (1.0/H)
+        x = (x * self.pixel_scale - X0) * (1.0/W)
+        y = (y * self.pixel_scale - Y0) * (1.0/H)
         y = 1.0 - y
 
         self.paint_center = (x, y)
@@ -733,8 +733,8 @@ class Canvas(app.Canvas):
         X0, Y0, W, H = self.viewport1
         dh, dw = list(map(float, self.segment_map.shape[0:2]))
         x, y = event.pos
-        x = int((x - X0) * (dw/W))
-        y = int((y - Y0) * (dh/H))
+        x = int((x * self.pixel_scale - X0) * (dw/W))
+        y = int((y * self.pixel_scale - Y0) * (dh/H))
         y = int(dh) - y # flip y to match norm. device coord system
         xr, yr = self.paint_radii_tex
 
@@ -801,8 +801,8 @@ class Canvas(app.Canvas):
         X0, Y0, W, H = self.viewport1
         dh, dw = list(map(float, self.segment_map.shape[0:2]))
         x, y = event.pos
-        x = int((x - X0) * (dw/W))
-        y = int((y - Y0) * (dh/H))
+        x = int((x * self.pixel_scale - X0) * (dw/W))
+        y = int((y * self.pixel_scale - Y0) * (dh/H))
         y = int(dh) - y # flip y to match norm. device coord system
 
         if 0 <= x < dw and 0 <= y < dh:

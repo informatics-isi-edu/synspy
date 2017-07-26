@@ -40,12 +40,19 @@ class ViewerTask(SubprocessTask):
 
     @staticmethod
     def _execute(executable, file_path, working_dir, proc_output_path=None, env=None):
+        out = subprocess.PIPE
         if proc_output_path:
-            out = open(proc_output_path, "wb")
-        else:
-            out = subprocess.PIPE
+            try:
+                out = open(proc_output_path, "wb")
+            except OSError:
+                pass
         command = [executable, file_path]
-        process = subprocess.Popen(command, cwd=working_dir, env=env, stdout=out, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command,
+                                   cwd=working_dir,
+                                   env=env,
+                                   stdin=subprocess.PIPE,
+                                   stdout=out,
+                                   stderr=subprocess.STDOUT)
         ret = process.wait()
         try:
             out.flush()

@@ -212,6 +212,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.horizontalHeader().setDefaultAlignment(Qt.AlignLeft)  # set alignment
         self.ui.workList.resizeColumnToContents(0)
         self.ui.workList.resizeColumnToContents(1)
+        self.ui.workList.resizeColumnToContents(2)
         self.ui.workList.sortByColumn(2, Qt.DescendingOrder)
         if (self.ui.workList.rowCount() > 0) and self.identity:
             self.ui.actionLaunch.setEnabled(True)
@@ -658,7 +659,7 @@ class MainWindowUI(object):
         MainWin.setObjectName("MainWindow")
         MainWin.setWindowTitle(MainWin.tr(self.title))
         MainWin.setWindowIcon(QIcon(":/images/synapse.png"))
-        MainWin.resize(640, 600)
+        MainWin.resize(800, 600)
         self.centralWidget = QWidget(MainWin)
         self.centralWidget.setObjectName("centralWidget")
         MainWin.setCentralWidget(self.centralWidget)

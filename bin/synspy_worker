@@ -91,7 +91,7 @@ def preprocess_roi(img_filename, subject_path, row):
     env = {
         'ZYX_SLICE': row['ZYX Slice'],
         'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
-        'SYNSPY_NUCLEI_DETECT': dict(nucleic='true').get(row['Segmentation Mode'], 'false'),
+        'SYNSPY_DETECT_NUCLEI': dict(nucleic='true').get(row['Segmentation Mode'], 'false'),
         'DUMP_PREFIX': './%s' % row['ID'],
     }
     sys.stderr.write('Using analysis environment %r\n' % (env,))

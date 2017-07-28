@@ -879,7 +879,7 @@ def batch_analyze_cli(fname):
          DUMP_PREFIX: defaults to './basename' where '.ome.tiff' suffix has been stripped
          ZYX_SLICE: selects ROI within full image
          ZYX_IMAGE_GRID: overrides image grid step metadata
-         SYNSPY_NUCLEI_DETECT: 'true' for nuclei mode, else synapse mode
+         SYNSPY_DETECT_NUCLEI: 'true' for nuclei mode, else synapse mode
 
        Output NPZ array keys:
          'properties.json': various metadata as 1D uint8 array of UTF-8 JSON data

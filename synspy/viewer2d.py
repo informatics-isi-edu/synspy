@@ -191,8 +191,8 @@ class SynspyImageManager (object):
             y, x = self.centroids[idx,1:3]
             idx += 1 # offset indices 0..N-1 as 1..N
             tmpout[y, x, 0] = idx % 2**8
-            tmpout[y, x, 1] = (idx / 2**8) % 2**8
-            tmpout[y, x, 2] = (idx / 2**16) % 2**8
+            tmpout[y, x, 1] = (idx // 2**8) % 2**8
+            tmpout[y, x, 2] = (idx // 2**16) % 2**8
 
         for dyslc, dxslc, syslc, sxslc in self.kernel_slices:
             dst = self.map_ndarray[dyslc, dxslc, :]
@@ -944,8 +944,8 @@ class Canvas(app.Canvas):
     def on_draw(self, event=None):
         self.program['u_pick'] = (
             float(self.pick_idx % 256) / 255.0,
-            float(self.pick_idx / 2**8 % 256) / 255.0,
-            float(self.pick_idx / 2**16 % 256) / 255.0
+            float(self.pick_idx // 2**8 % 256) / 255.0,
+            float(self.pick_idx // 2**16 % 256) / 255.0
         )
         self.program['u_drag_button'] = self.drag_button
 

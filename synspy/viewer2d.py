@@ -12,6 +12,7 @@ import atexit
 
 import time
 import datetime
+from functools import reduce
 
 from vispy import gloo
 from vispy import app
@@ -88,6 +89,18 @@ class SynspyImageManager (object):
         ]
         # sort so we can splat centroids from center outward to assign texels
         self.kernel_slices.sort(key=lambda p: p[0]**2 + p[1]**2)
+
+        self.kernel_radius = reduce(
+            max,
+            [
+                max(abs(yoff), abs(xoff))
+                for yoff, xoff in self.kernel_slices
+            ],
+            0
+        )
+        self.kernel_splat = np.zeros((2*self.kernel_radius+1, 2*self.kernel_radius+1), dtype=np.uint8)
+        for yoff, xoff in self.kernel_slices:
+            self.kernel_splat[self.kernel_radius+yoff, self.kernel_radius+xoff] = 1
 
         self.kernel_slices = [
             (dstslice(yoff, H), dstslice(xoff, W),
@@ -186,22 +199,48 @@ class SynspyImageManager (object):
         self.map_ndarray[:,:,:] = 0
 
         indices = ((self.centroids[:,0] >= Z - self.z_radius) * (self.centroids[:,0] <= Z + self.z_radius)).nonzero()[0]
-        for i in range(indices.shape[0]):
-            idx = indices[i]
-            y, x = self.centroids[idx,1:3]
-            idx += 1 # offset indices 0..N-1 as 1..N
-            tmpout[y, x, 0] = idx % 2**8
-            tmpout[y, x, 1] = (idx // 2**8) % 2**8
-            tmpout[y, x, 2] = (idx // 2**16) % 2**8
 
-        for dyslc, dxslc, syslc, sxslc in self.kernel_slices:
-            dst = self.map_ndarray[dyslc, dxslc, :]
-            dst_not_filled = (
-                (dst[:,:,0] == 0)
-                * (dst[:,:,1] == 0)
-                * (dst[:,:,2] == 0)
-            )[:,:,None]
+        if indices.shape[0] > len(self.kernel_slices):
+            # optimized for a bunch of points spread around a little
+            for i in range(indices.shape[0]):
+                idx = indices[i]
+                y, x = self.centroids[idx,1:3]
+                idx += 1 # offset indices 0..N-1 as 1..N
+                tmpout[y, x, 0] = idx % 2**8
+                tmpout[y, x, 1] = (idx // 2**8) % 2**8
+                tmpout[y, x, 2] = (idx // 2**16) % 2**8
+
+            for dyslc, dxslc, syslc, sxslc in self.kernel_slices:
+                dst = self.map_ndarray[dyslc, dxslc, :]
+                dst_not_filled = (
+                    (dst[:,:,0] == 0)
+                    * (dst[:,:,1] == 0)
+                    * (dst[:,:,2] == 0)
+                )[:,:,None]
             dst += tmpout[ syslc, sxslc, :] * dst_not_filled
+        else:
+            # optimized for fewer points spread around a lot
+            for i in range(indices.shape[0]):
+                idx = indices[i]
+                y, x = self.centroids[idx,1:3]
+                idx += 1 # offset 0..N-1 as 1..N
+                r = idx % 2**8
+                g = (idx // 2**8) % 2**8
+                b = (idx // 2**16) % 2**8
+                if self.kernel_radius < y < (self.map_ndarray.shape[0] - self.kernel_radius) \
+                   and self.kernel_radius < x < (self.map_ndarray.shape[1] - self.kernel_radius):
+                    dslc = (
+                        slice(y-self.kernel_radius, y+self.kernel_radius+1),
+                        slice(x-self.kernel_radius, x+self.kernel_radius+1),
+                    )
+                    dst_not_filled = (
+                        (self.map_ndarray[dslc + (0,)] == 0)
+                        * (self.map_ndarray[dslc + (1,)] == 0)
+                        * (self.map_ndarray[dslc + (2,)] == 0)
+                    )
+                    self.map_ndarray[dslc + (0,)] = r * dst_not_filled * self.kernel_splat + self.map_ndarray[dslc + (0,)]
+                    self.map_ndarray[dslc + (1,)] = g * dst_not_filled * self.kernel_splat + self.map_ndarray[dslc + (1,)]
+                    self.map_ndarray[dslc + (2,)] = b * dst_not_filled * self.kernel_splat + self.map_ndarray[dslc + (2,)]
 
         # pack measures into 3D grid
         meas3d_flat = self.measures3d.reshape((256**3, 3))

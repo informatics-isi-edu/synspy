@@ -42,14 +42,17 @@ def draw_points(view, a, weights, face_color, size=10):
     view.add(scatter)
     return scatter
 
+cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
+cols = tuple(cols.split(','))
+assert len(cols) == 3
+
+grid = list(os.getenv('SEGMENTS_ZYX_GRID', '1,1,1').split(','))
+grid.reverse()
+grid = np.array(tuple(map(float, grid)), dtype=np.float32)
+assert grid.shape == (3,), grid.shape
+
 def csv2pointcloud_weights(filename):
-    cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
-    cols = tuple(cols.split(','))
     wcol = 'raw core'
-    assert len(cols) == 3
-    grid = os.getenv('SEGMENTS_ZYX_GRID', '1,1,1')
-    grid = np.array(tuple(map(float, grid.split(','))), dtype=np.float32)
-    assert grid.shape == (3,), grid.shape
     f = open(filename, 'r')
     rows = []
     for row in csv.DictReader(f):

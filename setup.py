@@ -16,6 +16,7 @@ setup(
         "bin/synspy-analyze",
         "bin/synspy-reclassify",
         "bin/synspy-register",
+        "bin/synspy-register-batch",
         "bin/synspy_worker"
     ],
     entry_points={

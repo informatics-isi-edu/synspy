@@ -1,0 +1,194 @@
+#!/usr/bin/python
+#
+# Copyright 2015 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import os
+import sys
+import pcl
+import pcl.registration
+import numpy as np
+import csv
+from MDAnalysis.lib.transformations import decompose_matrix
+import math
+
+def transform_points(M, a):
+    assert a.shape[1] == 3
+    a1 = np.zeros((a.shape[0], 4), dtype=np.float32)
+    a2 = np.zeros(a.shape, dtype=np.float32)
+    
+    a1[:,0:3] = a
+    a1[:,3] = 1.0
+    
+    for i in range(a1.shape[0]):
+        p = np.dot(M, a1[i])
+        a2[i,:] = p[0:3] / p[3]
+
+    return a2
+
+cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
+cols = tuple(cols.split(','))
+assert len(cols) == 3
+
+grid = list(os.getenv('SEGMENTS_ZYX_GRID', '1,1,1').split(','))
+grid.reverse()
+grid = np.array(tuple(map(float, grid)), dtype=np.float32)
+grid_inv = list(os.getenv('SEGMENTS_ZYX_GRID', '1,1,1').split(','))
+grid_inv = np.array(tuple(map(float, grid_inv)), dtype=np.float32)
+assert grid.shape == (3,), grid.shape
+
+def csv2pointcloud_weights(filename):
+    wcol = 'raw core'
+    f = open(filename, 'r')
+    rows = []
+    for row in csv.DictReader(f):
+        if row[cols[0]] == 'saved':
+            continue
+        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]]), int(row.get('override', 0) or '0'), float(row[wcol])) )
+    a = np.asarray(rows, dtype=np.float32)
+    print a.shape
+    a[:,0:3] *= grid
+    # filtered array where manual classification is true
+    fa = a[ (a[:,3] == 3) | (a[:,3] == 7) ]
+    if fa.shape[0] > 5:
+        print('From %s using %s manually classified points' % (filename, fa.shape[0]))
+        a = fa
+    else:
+        print('From %s using all %s detected points' % (filename, a.shape[0]))
+    pc = pcl.PointCloud()
+    pc.from_array(a[:,0:3])
+    return pc, a[:,4]
+
+def dump_transformed(srcfilenames, rawarrays, xform_arrays):
+    for fi in range(len(srcfilenames)):
+        if fi%2 == 0:
+            print 'dumping scaled version of %s' % srcfilenames[fi]
+            infile = open(srcfilenames[fi])
+            outfile = open('processed-%s' % srcfilenames[fi], 'w')
+            writer = csv.writer(outfile)
+            i = 0
+            hdrs = None
+            for row in csv.DictReader(infile):
+                if hdrs is None:
+                    hdrs = list(row.keys())
+                    hdrs.sort(key=lambda k: (k in cols, k[0:3] == 'raw', k[0:3] == 'DoG'), reverse=True)
+                    hdrs = tuple(hdrs)
+                    writer.writerow(hdrs)
+                if row[cols[0]] == 'saved':
+                    continue
+                assert row['override'] in ('3', '7')
+                check = ((rawarrays[fi][i][2], rawarrays[fi][i][1], rawarrays[fi][i][0]),
+                         (np.float32(row[cols[0]])*grid_inv[0], np.float32(row[cols[1]])*grid_inv[1], np.float32(row[cols[2]])*grid_inv[2]))
+                assert check[0] == check[1], check
+                writer.writerow(tuple([
+                    rawarrays[fi][i][2],
+                    rawarrays[fi][i][1],
+                    rawarrays[fi][i][0],
+                ] + [
+                    row[k]
+                    for k in hdrs[3:]
+                ]))
+                i += 1
+            del writer
+            infile.close()
+            outfile.close()
+        else:
+            print 'dumping transformed version of %s' % srcfilenames[fi]
+            infile = open(srcfilenames[fi])
+            outfile = open('processed-%s' % srcfilenames[fi], 'w')
+            writer = csv.writer(outfile)
+            i = 0
+            hdrs = None
+            for row in csv.DictReader(infile):
+                if hdrs is None:
+                    hdrs = list(row.keys())
+                    hdrs.sort(key=lambda k: (k in cols, k[0:3] == 'raw', k[0:3] == 'DoG'), reverse=True)
+                    hdrs = tuple(hdrs)
+                    writer.writerow(hdrs)
+                if row[cols[0]] == 'saved':
+                    continue
+                assert row['override'] in ('3', '7')
+                check = ((rawarrays[fi][i][2], rawarrays[fi][i][1], rawarrays[fi][i][0]),
+                         (np.float32(row[cols[0]])*grid_inv[0], np.float32(row[cols[1]])*grid_inv[1], np.float32(row[cols[2]])*grid_inv[2]))
+                assert check[0] == check[1], check
+                writer.writerow(tuple([
+                    xform_arrays[fi][i][2],
+                    xform_arrays[fi][i][1],
+                    xform_arrays[fi][i][0],
+                ] + [
+                    row[k]
+                    for k in hdrs[3:]
+                ]))
+                i += 1
+            del writer
+            infile.close()
+            outfile.close()
+
+def register(filenames):
+    pointcloud_weights = list(map(csv2pointcloud_weights, filenames))
+    pointclouds = list(map(lambda tup: tup[0], pointcloud_weights))
+    arrays = list(map(np.asarray, pointclouds))
+
+    results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0])
+    assert results[0], "point-cloud registration did not converge"
+    M = results[1]
+
+    f = open('matrix.txt', 'w')
+    f.write('VIEW_MATRIX="%s"\n' % (
+        '[%s]' % ', '.join([
+            '[%s]' % ', '.join([
+                "%f" % M[i,j]
+                for j in range(4)
+            ])
+            for i in range(4)
+        ])
+    ))
+    f.close()
+
+    parts = decompose_matrix(M.T)
+    #print(parts)
+    angles = parts[2]
+    #print(angles)
+    print('VIEW_ROTATE="%s"' % ','.join([str(r * 180./math.pi) for r in angles]))
+
+    nuc1 = arrays[0]
+    nuc2 = transform_points(M, arrays[1])
+
+    # sanity check that our transform is using same math as pcl did
+    diff = nuc2 - results[2]
+    assert diff.min() == 0
+    assert diff.max() == 0
+
+    bbox = np.zeros((2,3), dtype=np.float32)
+    bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
+    bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
+    if len(arrays) == 4:
+        syn1 = arrays[2]
+        syn2 = transform_points(M, arrays[3])
+        bbox[0,:] = np.minimum(syn1.min(axis=0), bbox[0,:])
+        bbox[0,:] = np.minimum(syn2.min(axis=0), bbox[0,:])
+        bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
+        bbox[1,:] = np.minimum(syn2.max(axis=0), bbox[1,:])
+    else:
+        syn1 = None
+        syn2 = None
+
+    dump_transformed(filenames, arrays, (nuc1, nuc2, syn1, syn2))
+        
+    origin = (bbox[1,:] - bbox[0,:]) / 2
+    scale = origin.max()
+    
+    nuc1 = (nuc1 - origin)/scale
+    nuc2 = (nuc2 - origin)/scale
+    if len(arrays) == 4:
+        syn1 = (syn1 - origin)/scale
+        syn2 = (syn2 - origin)/scale
+        
+    return 0
+    
+if __name__ == '__main__':
+    assert len(sys.argv) >= 3, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
+    assert len(sys.argv) <= 5, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
+    result = register(sys.argv[1:])
+    sys.exit(result)

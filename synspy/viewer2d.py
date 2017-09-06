@@ -217,7 +217,8 @@ class SynspyImageManager (object):
                     * (dst[:,:,1] == 0)
                     * (dst[:,:,2] == 0)
                 )[:,:,None]
-            dst += tmpout[ syslc, sxslc, :] * dst_not_filled
+                dst += tmpout[ syslc, sxslc, :] * dst_not_filled
+            # end loop (synspy#33 was indentation regression on previous line!)
         else:
             # optimized for fewer points spread around a lot
             for i in range(indices.shape[0]):

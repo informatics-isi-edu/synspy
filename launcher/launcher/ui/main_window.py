@@ -214,10 +214,6 @@ class MainWindow(QMainWindow):
         self.ui.workList.resizeColumnToContents(1)
         self.ui.workList.resizeColumnToContents(2)
         self.ui.workList.sortByColumn(2, Qt.DescendingOrder)
-        if (self.ui.workList.rowCount() > 0) and self.identity:
-            self.ui.actionLaunch.setEnabled(True)
-        else:
-            self.ui.actionLaunch.setEnabled(False)
 
     def getCacheDir(self):
         cwd = os.getcwd()
@@ -545,6 +541,11 @@ class MainWindow(QMainWindow):
         else:
             self.resetUI(status, detail)
 
+        if (self.ui.workList.rowCount() > 0) and self.identity:
+            self.ui.actionLaunch.setEnabled(True)
+        else:
+            self.ui.actionLaunch.setEnabled(False)
+
     @pyqtSlot()
     def on_actionLogin_triggered(self):
         self.authWindow.show()
@@ -658,7 +659,6 @@ class MainWindowUI(object):
         # Main Window
         MainWin.setObjectName("MainWindow")
         MainWin.setWindowTitle(MainWin.tr(self.title))
-        MainWin.setWindowIcon(QIcon(":/images/synapse.png"))
         MainWin.resize(800, 600)
         self.centralWidget = QWidget(MainWin)
         self.centralWidget.setObjectName("centralWidget")

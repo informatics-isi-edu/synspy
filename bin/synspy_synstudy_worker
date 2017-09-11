@@ -1,0 +1,39 @@
+#!/usr/bin/python
+#
+# Copyright 2015-2017 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import synspy
+from synspy.worker import coalesce, WorkerRuntimeError
+
+class SynapticStudyWorker (synspy.worker.Worker):
+
+    # Image Pair Study state machine:
+    # -> Status NULL and IP.Status="aligned" and S1.Status="processed" and S2.Status="processed"
+    # -> Status="processing..." (claimed to generate aligned files)
+    #    -> Status="aligned" (alignment complete)
+    #       Region 1 URL set
+    #       Region 2 URL set
+    # *-> Status={"failed": "reason"}
+
+    get_claimable_work_url = '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL'
+    put_claim_url = '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status'
+    put_row_update_baseurl = '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID'
+
+    def run_row_job(self):
+        try:
+            s1_url, s2_url = self.register_synapses(self.row['S1_URL'], self.row['S2_URL'])
+            updated_row = {
+                'ID': self.row['ID'],
+                'Region 1 URL': s1_url,
+                'Region 2 URL': s2_url,
+                'Status': "aligned"
+            }
+            self.put_row_update(updated_row)
+            sys.stderr.write('Processing complete.\n')
+        finally:
+            self.cleanup()
+
+SynapticStudyWorker.blocking_poll()

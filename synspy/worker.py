@@ -4,19 +4,22 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-import json
 from deriva_common import PollingErmrestCatalog, HatracStore, urlquote
 from volspy.util import load_image
-import os
-import subprocess
-import re
-import csv
 import sys
 import traceback
 import platform
 import atexit
 import shutil
 import tempfile
+import os
+import subprocess
+import re
+import csv
+import json
+import numpy as np
+from . import register
+from .analyze import util
 
 def coalesce(*args):
     for arg in args:
@@ -95,18 +98,18 @@ class Worker (object):
             del self.working_dirs[self.working_dir]
             self.working_dir = None
 
-    def get_image(self, img_url):
-        """Download image from URL returning base file name"""
+    def get_file(self, url):
+        """Download file from URL returning local file name"""
         # short-cut, read file directly out of local hatrac
-        img_filename = '/var/www' + img_url
-        if os.path.isfile(img_filename):
-            return img_filename
+        filename = '/var/www' + url
+        if os.path.isfile(filename):
+            return filename
         else:
             # but fall back to HTTPS for remote workers...
-            m = re.match('^(?P<basename>[^:]+)(?P<v>[:][0-9A-Z]+)?$', os.path.basename(img_url))
-            img_filename = m.groupdict()['basename']
-            self.store.get_obj(img_url, destfilename=img_filename)
-            return img_filename
+            m = re.match('^(?P<basename>[^:]+)(?P<v>[:][0-9A-Z]+)?$', os.path.basename(url))
+            filename = m.groupdict()['basename']
+            self.store.get_obj(url, destfilename=filename)
+            return filename
 
     def get_image_info(self, img_filename):
         """Extract image resolution and shape."""
@@ -181,11 +184,80 @@ class Worker (object):
         del writer
         filtered_file.close()
 
-        return store.put_loc(
+        return self.store.put_loc(
             '%s/%s' % (self.subject_path, segments_filtered_file),
             segments_filtered_file,
             headers={'Content-Type': 'text/csv'}
         )
+
+    def register_nuclei(self, n1_url, n2_url, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7)):
+        """Register nuclei files returning alignment matrix and processed and uploaded pointcloud URLs.
+
+           Returns:
+             M, n1_url, n2_url
+        """
+        n1_filename = self.get_file(n1_url)
+        n2_filename = self.get_file(n2_url)
+        nuc1cmsp = util.load_segment_info_from_csv(n1_filename, zyx_scale, filter_status=filter_status)
+        nuc2cmsp = util.load_segment_info_from_csv(n2_filename, zyx_scale, filter_status=filter_status)
+        M, angles = register.align_centroids(nuc1cmsp[0], nuc2cmsp[0])
+        nuc2cmsp = (register.transform_centroids(M, nuc2cmsp[0]),) + nuc2cmsp[1:]
+        n1_outfile = '%s-n1-registered.csv' % self.row['ID']
+        n2_outfile = '%s-n2-registered.csv' % self.row['ID']
+        register.dump_registered_file_pair(
+            (n1_outfile, n2_outfile),
+            (nuc1cmsp, nuc2cmsp)
+        )
+        n1_url = self.store.put_loc(
+            '%s/%s' % (self.subject_path, n1_outfile),
+            n1_outfile,
+            headers={'Content-Type': 'text/csv'}
+        )
+        n2_url = self.store.put_loc(
+            '%s/%s' % (self.subject_path, n2_outfile),
+            n2_outfile,
+            headers={'Content-Type': 'text/csv'}
+        )
+        return M, n1_url, n2_url
+
+    def matrix_to_prejson(self, M):
+        return [
+            [
+                float(M[i,j])
+                for j in range(4)
+            ]
+            for i in range(4)
+        ]
+
+    def register_synapses(self, s1_url, s2_url, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7)):
+        """Register synaptic files using image pair alignment, returning URLs of processed and uploaded pointcloud URLs.
+
+           Returns:
+             s1_url, s2_url
+        """
+        s1_filename = self.get_file(s1_url)
+        s2_filename = self.get_file(s2_url)
+        syn1cmsp = util.load_segment_info_from_csv(s1_filename, zyx_scale, filter_status=filter_status)
+        syn2cmsp = util.load_segment_info_from_csv(s2_filename, zyx_scale, filter_status=filter_status)
+        M = np.array(self.row['Alignment'], dtype=np.float64)
+        syn2cmsp = (register.transform_centroids(M, syn2cmsp[0]),) + syn2cmsp[1:]
+        s1_outfile = '%s-s1-registered.csv' % self.row['ID']
+        s2_outfile = '%s-s2-registered.csv' % self.row['ID']
+        register.dump_registered_file_pair(
+            (s1_outfile, s2_outfile),
+            (syn1cmsp, syn2cmsp)
+        )
+        s1_url = self.store.put_loc(
+            '%s/%s' % (self.subject_path, s1_outfile),
+            s1_outfile,
+            headers={'Content-Type': 'text/csv'}
+        )
+        s2_url = self.store.put_loc(
+            '%s/%s' % (self.subject_path, s2_outfile),
+            s2_outfile,
+            headers={'Content-Type': 'text/csv'}
+        )
+        return s1_url, s2_url
 
     get_claimable_work_url = None # GET URL returning row(s) to claim
     put_claim_url = None  # PUT URL to claim work

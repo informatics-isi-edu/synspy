@@ -28,7 +28,7 @@ class ImageWorker (synspy.worker.Worker):
     def run_row_job(self):
         try:
             assert self.row['URL'], self.row
-            img_filename = self.get_image(self.row['URL'])
+            img_filename = self.get_file(self.row['URL'])
             zyx_spacing, czyx_shape = self.get_image_info(img_filename)
             zyx_spacing = {
                 axis: spacing

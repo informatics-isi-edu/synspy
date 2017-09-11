@@ -4,6 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
+import sys
 import synspy
 from synspy.worker import coalesce, WorkerRuntimeError
 
@@ -56,7 +57,7 @@ class ImageRegionWorker (synspy.worker.Worker):
                     pass
 
             if self.row['Npz URL'] is None and zyx_slice is not None:
-                img_filename = self.get_image(self.row['URL'])
+                img_filename = self.get_file(self.row['URL'])
                 updated_row['Npz URL'] = self.preprocess_roi(img_filename, zyx_slice)
                 updated_row['Status'] = "analysis pending"
 

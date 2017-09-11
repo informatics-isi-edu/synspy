@@ -193,6 +193,61 @@ def radii_3x1d(k3x1d):
 def radii_3d(k3d):
     return np.array([d/2 for d in k3d.shape], dtype=np.int32)
 
+def centroids_zx_swap(centroids):
+    """Return a copy of centroids array with Z and X swapped, e.g. ZYX<->XYZ."""
+    copy = np.zeros(centroids.shape, dtype=centroids.dtype)
+    copy[:,0] = centroids[:,2]
+    copy[:,1] = centroids[:,1]
+    copy[:,2] = centroids[:,0]
+    return copy
+
+def load_segment_info_from_csv(infilename, zyx_grid_scale=None, zx_swap=False, filter_status=None):
+    """Load a segment list and return content as arrays.
+
+    """
+    csvfile = open(infilename, 'rb')
+    reader = csv.DictReader(csvfile)
+    centroids = []
+    measures = []
+    status = []
+    saved_params = None
+    for row in reader:
+        # newer dump files have an extra saved-parameters row first...
+        if row['Z'] == 'saved' and row['Y'] == 'parameters':
+            saved_params = row
+            continue
+
+        centroids.append(
+            (int(row['Z']), int(row['Y']), int(row['X']))
+        )
+        measures.append(
+            (float(row['raw core']), float(row['raw hollow']), float(row['DoG core']), float(row['DoG hollow']))
+            + (float(row['red']) if 'red' in row else ())
+        )
+        status.append(
+            int(row['override']) if row['override'] else 0
+        )
+    centroids = np.array(centroids, dtype=np.int32)
+    measures = np.array(measures, dtype=np.float32)
+    status = np.array(status, dtype=np.uint8)
+    if zyx_grid_scale is not None:
+        zyx_grid_scale = np.array(zyx_grid_scale, dtype=np.float32)
+        assert zyx_grid_scale.shape == (3,)
+        centroids = (centroids * zyx_grid_scale).astype(np.float32)
+    if filter_status is not None:
+        filter_idx = np.zeros(status.shape, dtype=np.bool)
+        for value in filter_status:
+            filter_idx += (status == value)
+        centroids = centroids[filter_idx]
+        measures = measures[filter_idx]
+        status = status[filter_idx]
+    return (
+        centroids_zx_swap(centroids) if zx_swap else centroids,
+        measures,
+        status,
+        saved_params
+    )
+
 def load_segment_status_from_csv(centroids, offset_origin, infilename):
     """Load a segment list with manual override status values validating against expected centroid list.
 
@@ -205,36 +260,26 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
          status array (1D),
          saved params dict or None
     """
+    csv_centroids, csv_measures, csv_status, saved_params = load_segment_info_from_csv(infilename)
+    csv_centroids -= np.array(offset_origin, dtype=np.int32)
+
     # assume that dump is ordered subset of current analysis
-    csvfile = open(infilename, 'r')
-    reader = csv.DictReader(csvfile)
-    i = 0
     status = np.zeros((centroids.shape[0],), dtype=np.uint8)
-    saved_params = None
-    for row in reader:
-        # newer dump files have an extra saved-parameters row first...
-        if row['Z'] == 'saved' and row['Y'] == 'parameters':
-            saved_params = row
-            continue
 
-        # convert global unsliced coordinates back into sliced image coordinates
-        Z = int(row['Z']) - offset_origin[0]
-        Y = int(row['Y']) - offset_origin[1]
-        X = int(row['X']) - offset_origin[2]
-
+    i = 0
+    for row in range(csv_centroids.shape[0]):
         # scan forward until we find same centroid, since CSV is a subset
-        while i < centroids.shape[0] and (Z, Y, X) != tuple(centroids[i]):
+        while i < centroids.shape[0] and tuple(csv_centroids[row]) != tuple(centroids[i]):
             i += 1
             
-        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename, row)
+        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename, csv_centroids[row])
 
-        if row['override']:
-            status[i] = int(row['override'])
+        if csv_status[row]:
+            status[i] = csv_status[row]
 
-    csvfile.close()
     return status, saved_params
 
-def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfilename, saved_params=None, all_segments=True):
+def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfilename, saved_params=None, all_segments=True, zx_swap=False, zyx_grid_scale=None, filter_status=None):
     """Load a segment list with manual override status values validating against expected centroid list.
 
        Arguments:
@@ -244,11 +289,20 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
          offset_origin: CSV coordinates = offset_origin + centroid coordinates
          outfilename: file to open to write CSV content
          saved_params: dict or None if saving threshold params row
-         all_segments: True: dump all, False: dump only when status > 0
+         all_segments: True: dump all, False: dump only when matching filter_status values
+         zx_swap: True: input centroids are in X,Y,Z order
+         zyx_grid_scale: input centroids have been scaled by these coefficients in Z,Y,X order
+         filter_status: set of values to include in outputs or None implies all non-zero values
     """
+    if zx_swap:
+        centroids = centroids_zx_swap(centroids)
+    if zyx_grid_scale is not None:
+        zyx_grid_scale = np.array(zyx_grid_scale, dtype=np.float32)
+        assert zyx_grid_scale.shape == (3,)
+        centroids = centroids * zyx_grid_scale
     # correct dumped centroids to global coordinate space of unsliced source image
     centroids = centroids + np.array(offset_origin, np.int32)
-    csvfile = open(outfilename, 'w')
+    csvfile = open(outfilename, 'wb')
     writer = csv.writer(csvfile)
     writer.writerow(
         ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
@@ -269,10 +323,18 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
             + ((saved_params.get('red', ''),) if 'red' in saved_params else ())
             + (saved_params.get('override', ''),)
         )
+
+    filter_idx = np.zeros(status.shape, dtype=np.bool)
     if all_segments:
-        indices = list(range(measures.shape[0]))
+        filter_idx += np.bool(1)
+    elif filter_status is not None:
+        for value in filter_status:
+            filter_idx += (status == value)
     else:
-        indices = (status > 0).nonzero()[0]
+        filter_idx += (status > 0)
+
+    indices = (status > 0).nonzero()[0]
+
     for i in indices:
         Z, Y, X = centroids[i]
         writer.writerow( 

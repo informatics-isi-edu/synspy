@@ -1,0 +1,51 @@
+#!/usr/bin/python
+#
+# Copyright 2015-2017 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import synspy.worker
+
+#
+# This worker script performs async work on Zebrafish:Image
+#
+
+class ImageWorker (synspy.worker.Worker):
+
+    # Image state machine:
+    # Status is NULL and image URL is not NULL
+    # -> Status="pre-processing..." (claimed)
+    #    -> Status="ready"
+    #       ZYX Spacing=[0.4,0.26,0.26]
+    #       CZYX Shape=[C,D,H,W]
+    #    -> Status={"failed": "reason"}
+
+    get_claimable_work_url = '/entity/Zebrafish:Image/Status::null::;Status=null/!URL::null::?limit=1'
+    put_claim_url = '/attributegroup/Zebrafish:Image/ID;Status'
+    put_row_update_baseurl = '/attributegroup/Zebrafish:Image/ID'
+
+    def run_row_job(self):
+        try:
+            assert self.row['URL'], self.row
+            img_filename = self.get_image(self.row['URL'])
+            zyx_spacing, czyx_shape = self.get_image_info(img_filename)
+            zyx_spacing = {
+                axis: spacing
+                for axis, spacing in zip(['z','y','x'], zyx_spacing)
+            }
+            czyx_shape = {
+                axis: span
+                for axis, span in zip(['c','z','y','x'], czyx_shape)
+            }
+            self.put_row_update({
+                'ID': self.row['ID'],
+                'ZYX Spacing': zyx_spacing,
+                'CZYX Shape': czyx_shape,
+                'Status': "ready",
+            })
+            sys.stderr.write('Processing complete.\n')
+        finally:
+            self.cleanup()
+
+ImageWorker.blocking_poll()

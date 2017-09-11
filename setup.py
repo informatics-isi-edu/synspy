@@ -17,7 +17,8 @@ setup(
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy-register-batch",
-        "bin/synspy_worker"
+        "bin/synspy_image_worker",
+        "bin/synspy_region_worker",
     ],
     entry_points={
         'console_scripts': [

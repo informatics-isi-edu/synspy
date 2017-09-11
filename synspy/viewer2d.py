@@ -409,7 +409,7 @@ class Canvas(app.Canvas):
 
         D, H, W, Nc = self.vol_slicer.data.shape
 
-        app.Canvas.__init__(self, size=(W, H), keys='interactive')
+        app.Canvas.__init__(self, size=(min(800, W), min(800, H)), keys='interactive')
         self._hud_timer = None
         self.hud_items = []
         
@@ -486,7 +486,7 @@ class Canvas(app.Canvas):
             self.text_hud_transform = visuals.transforms.TransformSystem(self)
 
         self.prev_size = None
-        self.set_viewport1((W, H))
+        self.set_viewport1((min(800, W), min(800, H)))
         
         self.show()
 

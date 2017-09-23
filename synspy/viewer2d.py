@@ -9,6 +9,7 @@ import os
 import numpy as np
 import json
 import atexit
+import traceback
 
 import time
 import datetime
@@ -928,6 +929,8 @@ class Canvas(app.Canvas):
                 self.saved_opacity = float(saved_params['override'])
         except Exception as e:
             self.trace(csvfile, 'load failed: ' + str(e))
+            et, ev, tb = sys.exc_info()
+            print(traceback.format_exception(et, ev, tb))
             raise
         self.update()
 

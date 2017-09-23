@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright 2015 University of Southern California
+# Copyright 2015-2017 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -15,19 +15,19 @@ from vispy.scene import visuals
 from MDAnalysis.lib.transformations import decompose_matrix
 import math
 
-def transform_points(M, a):
-    assert a.shape[1] == 3
-    a1 = np.zeros((a.shape[0], 4), dtype=np.float32)
-    a2 = np.zeros(a.shape, dtype=np.float32)
-    
-    a1[:,0:3] = a
-    a1[:,3] = 1.0
-    
-    for i in range(a1.shape[0]):
-        p = np.dot(M, a1[i])
-        a2[i,:] = p[0:3] / p[3]
+from synspy.analyze.util import centroids_zx_swap
+from synspy.register import get_env_grid_scale, register
 
-    return a2
+def get_env_splat_sizes():
+    segment_sizes = list(map(float, os.getenv('SEGMENT_SIZES', '30,4').split(',')))
+    assert len(segment_sizes) == 2
+    return segment_sizes
+
+def renormalize_inplace(arrays):
+    maxweight = reduce(max, map(lambda a: np.percentile(a, 90), arrays), 1.0)
+    for w in arrays:
+        w[:] = w[:] * np.float32(1.0/maxweight)
+        w[:] = w[:] * (w[:] < 1.0) + (w[:] >= 1.0)
 
 def draw_points(view, a, weights, face_color, size=10):
     scatter = visuals.Markers()
@@ -42,60 +42,11 @@ def draw_points(view, a, weights, face_color, size=10):
     view.add(scatter)
     return scatter
 
-cols = os.getenv('SEGMENTS_ZYX_COLS', 'Z,Y,X')
-cols = tuple(cols.split(','))
-assert len(cols) == 3
-
-grid = list(os.getenv('SEGMENTS_ZYX_GRID', '1,1,1').split(','))
-grid.reverse()
-grid = np.array(tuple(map(float, grid)), dtype=np.float32)
-assert grid.shape == (3,), grid.shape
-
-def csv2pointcloud_weights(filename):
-    wcol = 'raw core'
-    f = open(filename, 'r')
-    rows = []
-    for row in csv.DictReader(f):
-        if row[cols[0]] == 'saved':
-            continue
-        rows.append( (float(row[cols[2]]), float(row[cols[1]]), float(row[cols[0]]), int(row.get('override', 0) or '0'), float(row[wcol])) )
-    a = np.asarray(rows, dtype=np.float32)
-    print a.shape
-    a[:,0:3] *= grid
-    # filtered array where manual classification is true
-    fa = a[ (a[:,3] == 3) | (a[:,3] == 7) ]
-    if fa.shape[0] > 5:
-        print('From %s using %s manually classified points' % (filename, fa.shape[0]))
-        a = fa
-    else:
-        print('From %s using all %s detected points' % (filename, a.shape[0]))
-    pc = pcl.PointCloud()
-    pc.from_array(a[:,0:3])
-    return pc, a[:,4]
-
-def renormalize_inplace(arrays):
-    maxweight = reduce(max, map(lambda a: np.percentile(a, 90), arrays), 1.0)
-    for w in arrays:
-        w[:] = w[:] * np.float32(1.0/maxweight)
-        w[:] = w[:] * (w[:] < 1.0) + (w[:] >= 1.0)
-
-def register(filenames):
-    pointcloud_weights = list(map(csv2pointcloud_weights, filenames))
-    pointclouds = list(map(lambda tup: tup[0], pointcloud_weights))
-    arrays = list(map(np.asarray, pointclouds))
-    weights = list(map(lambda tup: tup[1], pointcloud_weights))
-
-    renormalize_inplace(weights[0:2])
-
-    if len(weights) == 4:
-        renormalize_inplace(weights[2:4])
-
-    segment_sizes = list(map(float, os.getenv('SEGMENT_SIZES', '30,4').split(',')))
-    assert len(segment_sizes) == 2
-    
-    results = pcl.registration.icp_nl(pointclouds[1], pointclouds[0])
-    assert results[0], "point-cloud registration did not converge"
-    M = results[1]
+def main(filenames):
+    zyx_grid_scale = get_env_grid_scale()
+    nuc_filenames = filenames[0:2]
+    syn_filenames = filenames[2:4] if len(filenames) == 4 else None
+    M, angles, nuc_parts, syn_parts = register(nuc_filenames, zyx_grid_scale, syn_filenames)
 
     print('VIEW_MATRIX="%s"' % (
         '[%s]' % ', '.join([
@@ -106,27 +57,29 @@ def register(filenames):
             for i in range(4)
         ])
     ))
-
-    parts = decompose_matrix(M.T)
-    #print(parts)
-    angles = parts[2]
-    #print(angles)
     print('VIEW_ROTATE="%s"' % ','.join([str(r * 180./math.pi) for r in angles]))
 
-    nuc1 = arrays[0]
-    nuc2 = transform_points(M, arrays[1])
+    # get first measure from CMSP 4-tuples
+    n1weight = nuc_parts[0][1][:,0]
+    n2weight = nuc_parts[1][1][:,0]
+    renormalize_inplace([n1weight, n2weight])
 
-    # sanity check that our transform is using same math as pcl did
-    diff = nuc2 - results[2]
-    assert diff.min() == 0
-    assert diff.max() == 0
+    if syn_parts is not None:
+        s1weight = syn_parts[0][1][:,0]
+        s2weight = syn_parts[1][1][:,0]
+        renormalize_inplace([s1weight, s2weight])
 
+    segment_sizes = get_env_splat_sizes()
+
+    # swap ZYX->XYZ and find bbox of clouds for visualization
+    nuc1 = centroids_zx_swap(nuc_parts[0][0])
+    nuc2 = centroids_zx_swap(nuc_parts[1][0])
     bbox = np.zeros((2,3), dtype=np.float32)
     bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
     bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
-    if len(arrays) == 4:
-        syn1 = arrays[2]
-        syn2 = transform_points(M, arrays[3])
+    if syn_parts is not None:
+        syn1 = centroids_zx_swap(syn_parts[0][0])
+        syn2 = centroids_zx_swap(syn_parts[1][0])
         bbox[0,:] = np.minimum(syn1.min(axis=0), bbox[0,:])
         bbox[0,:] = np.minimum(syn2.min(axis=0), bbox[0,:])
         bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
@@ -135,15 +88,15 @@ def register(filenames):
         syn1 = None
         syn2 = None
 
+    # offset origin to center of bbox and normalize for visualization
     origin = (bbox[1,:] - bbox[0,:]) / 2
     scale = origin.max()
-    
     nuc1 = (nuc1 - origin)/scale
     nuc2 = (nuc2 - origin)/scale
-    if len(arrays) == 4:
+    if syn_parts is not None:
         syn1 = (syn1 - origin)/scale
         syn2 = (syn2 - origin)/scale
-        
+
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
 
     scatters = []
@@ -161,14 +114,14 @@ def register(filenames):
     view.set_gl_state(depth_test=False)
 
     scatters.extend([
-        draw_points(view, nuc1, weights[0], (0,1,1,0.4), segment_sizes[0]),
-        draw_points(view, nuc2, weights[1], (1,1,0,0.4), segment_sizes[0]),
+        draw_points(view, nuc1, n1weight, (0,1,1,0.4), segment_sizes[0]),
+        draw_points(view, nuc2, n2weight, (1,1,0,0.4), segment_sizes[0]),
     ])
 
-    if len(arrays) == 4:
+    if syn_parts is not None:
         scatters.extend([
-            draw_points(view, syn1, weights[2], (0,0.9,0.9,0.9), segment_sizes[1]),
-            draw_points(view, syn2, weights[3], (1,1,0,0.9), segment_sizes[1]),
+            draw_points(view, syn1, s1weight, (0,0.9,0.9,0.9), segment_sizes[1]),
+            draw_points(view, syn2, s2weight, (1,1,0,0.9), segment_sizes[1]),
         ])
 
     axis = visuals.XYZAxis(parent=view.scene)
@@ -180,5 +133,5 @@ def register(filenames):
 if __name__ == '__main__':
     assert len(sys.argv) >= 3, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
     assert len(sys.argv) <= 5, "usage: synspy-register nucfile1 nucfile2 [synfile1 synfile2]"
-    result = register(sys.argv[1:])
+    result = main(sys.argv[1:])
     sys.exit(result)

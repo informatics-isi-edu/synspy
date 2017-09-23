@@ -1,0 +1,80 @@
+#!/usr/bin/python
+#
+# Copyright 2015-2017 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import synspy
+from synspy.worker import coalesce, WorkerRuntimeError
+
+class ImageRegionWorker (synspy.worker.Worker):
+
+    # ImageRegion state machine:
+    # ImageStatus="ready" and Status is NULL and Classifier is not NULL
+    # -> Status="pre-processing..." (claimed to generate NPZ)
+    #    -> Status="analysis pending" (will be available to launcher)
+    #       ZYX Slice is set
+    #       Npz URL set
+    #       -> Status="analysis complete" (launcher has declared success)
+    #          Segments URL and/or Segments Filtered URL set
+    #          -> Status="pre-processing..." (claimed to filter CSV)
+    #             -> Status="processed"
+    #                Segments Filtered URL set
+    # *-> Status={"failed": "reason"}
+
+    get_claimable_work_url = '/attribute/I:=Zebrafish:Image/Status=%22ready%22/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;Status=%22analysis%20complete%22/*,I:URL,I:Subject,I:CZYX%20Shape?limit=1'
+    put_claim_url = '/attributegroup/Zebrafish:Image%20Region/ID;Status'
+    put_row_update_baseurl = '/attributegroup/Zebrafish:Image%20Region/ID'
+
+    def run_row_job(self):
+        try:
+            updated_row = {}
+
+            zyx_slice = self.row['ZYX Slice']
+            if zyx_slice is None:
+                # calculate the actual slice using the alternate data input fields...
+                czyx_shape = self.row['CZYX Shape']
+
+                z_lower, z_upper, y_lower, y_span, x_lower, x_span = [
+                    int(self.row[k])
+                    for k in ['Z lower', 'Z upper', 'Y lower', 'Y span', 'X lower', 'X span']
+                ]
+
+                try:
+                    # convert Y and X spans to ZYX Slice bounds
+                    y_lower = czyx_shape['y'] - (y_lower + y_span)
+                    y_upper = y_lower + y_span
+                    x_upper = x_lower + x_span
+
+                    zyx_slice = ','.join([
+                        '%d:%d' % (b0, b1)
+                        for b0, b1 in [(z_lower, z_upper), (y_lower, y_upper), (x_lower, x_upper)]
+                    ])
+
+                    updated_row['ZYX Slice'] = zyx_slice
+                except TypeError:
+                    pass
+
+            if self.row['Npz URL'] is None and zyx_slice is not None:
+                img_filename = self.get_file(self.row['URL'])
+                updated_row['Npz URL'] = self.preprocess_roi(img_filename, zyx_slice)
+                updated_row['Status'] = "analysis pending"
+
+            if self.row['Segments URL'] is not None and self.row['Segments Filtered URL'] is None:
+                updated_row['Segments Filtered URL'] = filter_synspy_csv(self.row['Segments URL'])
+                updated_row['Status'] = "processed"
+            elif self.row['Segments Filtered URL']:
+                updated_row['Status'] = "processed"
+
+            if updated_row:
+                updated_row['ID'] = self.row['ID']
+                self.put_row_update(updated_row)
+            else:
+                raise WorkerRuntimeError('row has no work pending %s' % (self.row,))
+
+            sys.stderr.write('Processing complete.\n')
+        finally:
+            self.cleanup()
+
+ImageRegionWorker.blocking_poll()

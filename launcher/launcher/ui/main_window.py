@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QM
     QLabel, QLineEdit, QPushButton, QFileDialog
 from PyQt5.QtGui import QIcon
 from deriva_qt.common import log_widget, table_widget, async_task
-from deriva_qt.auth_agent.ui.auth_window import AuthWindow
+from deriva_qt.auth_agent.ui.embedded_auth_window import EmbeddedAuthWindow
 from deriva_common import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
     resource_path
 from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
@@ -44,10 +44,9 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
         self.configure(config_path)
-        self.authWindow = AuthWindow(config=self.config,
-                                     is_child_window=True,
-                                     cookie_persistence=False,
-                                     authentication_success_callback=self.onLoginSuccess)
+        self.authWindow = EmbeddedAuthWindow(config=self.config.get("server"),
+                                             cookie_persistence=False,
+                                             authentication_success_callback=self.onLoginSuccess)
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
@@ -407,7 +406,7 @@ class MainWindow(QMainWindow):
                 self.curator_mode = self.config["curator_mode"] = False
             self.on_actionRefresh_triggered()
         else:
-            self.updateStatus(status, detail)
+            self.updateStatus("Login required.")
 
     @pyqtSlot()
     def on_actionLaunch_triggered(self):

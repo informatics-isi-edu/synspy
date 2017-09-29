@@ -43,7 +43,6 @@ class ImageRegionWorker (synspy.worker.Worker):
 
                 try:
                     # convert Y and X spans to ZYX Slice bounds
-                    y_lower = czyx_shape['y'] - (y_lower + y_span)
                     y_upper = y_lower + y_span
                     x_upper = x_lower + x_span
 

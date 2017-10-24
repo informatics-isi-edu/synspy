@@ -136,13 +136,22 @@ We have only rudimentary support for registering multiple images for expert user
 2. Detect nuclei using the previously described method and dump two segment lists such as `nuclei-before.csv` and `nuclei-after.csv` with manually classified features.
 3. Filter the dumped lists to only include manually classified features, e.g. those with `override` column values of `7`.
 4. Run the `synspy-register` tool
-  - `synspy-register nuclei-before.csv nuclei-after.csv`
+  - `synspy-register nuclei-before.csv nuclei-after.csv synapses-before.csv synapses-after.csv`
 5. View the resulting alignment and judge quality.
 6. Capture the transformation matrix printed to standard output if desired.
 
-In the interactive viewer, the `1` ... `4` keys can be pressed to
-toggle the visibility of the pointcloud from the first ... fourth CSV
-argument, respectively.
+In the interactive viewer, the `1` ... `6` keys can be pressed to
+toggle the visibility of the sub-plots:
+- `1`: unmatched points from the first CSV (nuclei *before*)
+- `2`: matched points from the first CSV (nuclei *before* matching nuclei *after*)
+- `3`: unmatched points from the second CSV (nuclei *after*)
+- `4`: unmatched points from the third CSV (synapses *before*)
+- `5`: matched points from the third CSV (synapses *before* matching synapses *after*)
+- `6`: unmatched points from the fourth CSV (synapses *after*)
+
+The strictness of the point matching can be adjusted by two environment parameters:
+- `NUC_PAIRING_RADIUS`: distance allowed between paired nuclei in microns (default 15.0)
+- `SYN_PAIRING_RADIUS`: distance allowed between paired synapses in microns (default 5.0)
 
 The transformation matrix can be applied the second image or its
 features (the *after* image in this example). We do not currently

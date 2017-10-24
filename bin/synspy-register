@@ -18,6 +18,80 @@ import math
 from synspy.analyze.util import centroids_zx_swap
 from synspy.register import get_env_grid_scale, register
 
+from scipy.spatial import cKDTree
+
+def find_nearest_pair_idxs(a1, a2, radius, depth=5):
+    """Find nearest k-dimensional point pairs between a1 and a2.
+
+       Inputs:
+         a1: array with shape (n, k)
+         a2: array with shape (m, k)
+         radius: maximum euclidean distance between points in a pair
+         depth: number of tiers of neighbors to consider per point
+
+       Use greedy algorithm to assign nearest neighbors without
+       duplication of any point in more than one pair. Consider up to
+       depth fallback pairings for one point if its closer neighbors
+       have been claimed by a different point.
+
+       Result: arrays with shape (n,), (m,) as adjacency matrices for each
+         element of a1 and a2, respectively. The adjacency values are
+         1-based index in range [1, m], [1, k] or the value 0 to represent no
+         pairing for that element in a1 or a2.
+    """
+    dx, pairs = cKDTree(a1).query(a2, depth, distance_upper_bound=radius)
+    a1_pairs = np.zeros(a1.shape[0], dtype=np.uint8)
+    a2_pairs = np.zeros(a2.shape[0], dtype=np.uint8)
+    for d in range(depth):
+        for idx2 in np.argsort(dx[:,d]):
+            if dx[idx2,d] < radius:
+                if a2_pairs[idx2] == 0 and a1_pairs[pairs[idx2,d]] == 0:
+                    a2_pairs[idx2] = pairs[idx2,d] + 1
+                    a1_pairs[pairs[idx2,d]] = idx2 + 1
+    return a1_pairs, a2_pairs
+
+def find_intersection(v1, v2, w1, w2, radius):
+    """Find intersection and return (v1only, vpairs, v2only, w1only, wpairs, w2only).
+
+       Inputs:
+         v1: array with shape (n, k) of k-dimensional vertices
+         v2: array with shape (m, k) of k-dimensional vertices
+         w1: array with shape (n,) weights
+         w2: array with shape (m,) weights
+         radius: maximum euclidean distance for pairs
+
+       Point sets v1 and v2 are intersected to find pair-mappings
+       based on nearest neighbor from each set without duplicates.
+
+       The results v1only and v2only are non-matched vertices from
+       each set, while vpairs is the matched pairs. The weights are
+       likewise split into unmatched and paired elements.
+
+       Results:
+         v1only: array with shape (n-x, k) for n-x non-matched vertices from v1
+         vpairs: array with shape (x, 2, k) for x matched vertices from v1 and v2
+         v2only: array with shape (m-x, k) for m-x non-matched vertices from v2
+         w1only: array with shape (n-x,) for weights of vertices in v1only
+         wpairs: array with shape (x, 2,) for weights of vertices in vpairs
+         w1only: array with shape (m-x,) for weights of vertices in v2only
+    """
+    v1_to_v2, v2_to_v1 = find_nearest_pair_idxs(v1, v2, radius)
+    shared = (v1_to_v2 > 0).sum()
+    v1only = v1[np.where( v1_to_v2 == 0 ) + (slice(None), )]
+    v2only = v2[np.where( v2_to_v1 == 0 ) + (slice(None), )]
+    w1only = w1[np.where( v1_to_v2 == 0 )]
+    w2only = w2[np.where( v2_to_v1 == 0 )]
+
+    vpairs = np.zeros((shared, 2, v1.shape[1]), dtype=v1.dtype)
+    vpairs[:,0,:] = v1[np.where(v1_to_v2 > 0) + (slice(None),)]
+    vpairs[:,1,:] = v2[ (v1_to_v2[np.where(v1_to_v2 > 0)] - 1, slice(None)) ]
+   
+    wpairs = np.zeros((shared, 2), dtype=w1.dtype)
+    wpairs[:,0] = w1[np.where(v1_to_v2 > 0)]
+    wpairs[:,1] = w2[ (v1_to_v2[np.where(v1_to_v2 > 0)] - 1,) ]
+
+    return (v1only, vpairs, v2only, w1only, wpairs, w2only)
+
 def get_env_splat_sizes():
     segment_sizes = list(map(float, os.getenv('SEGMENT_SIZES', '30,4').split(',')))
     assert len(segment_sizes) == 2
@@ -74,9 +148,12 @@ def main(filenames):
     # swap ZYX->XYZ and find bbox of clouds for visualization
     nuc1 = centroids_zx_swap(nuc_parts[0][0])
     nuc2 = centroids_zx_swap(nuc_parts[1][0])
+    
     bbox = np.zeros((2,3), dtype=np.float32)
     bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
     bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
+    nuc_pair_radius = float(os.getenv('NUC_PAIRING_RADIUS', '15.0'))
+    nuc1, nucP, nuc2, n1weight, nPweight, n2weight = find_intersection(nuc1, nuc2, n1weight, n2weight, nuc_pair_radius)
     if syn_parts is not None:
         syn1 = centroids_zx_swap(syn_parts[0][0])
         syn2 = centroids_zx_swap(syn_parts[1][0])
@@ -84,28 +161,36 @@ def main(filenames):
         bbox[0,:] = np.minimum(syn2.min(axis=0), bbox[0,:])
         bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
         bbox[1,:] = np.minimum(syn2.max(axis=0), bbox[1,:])
+        syn_pair_radius = float(os.getenv('SYN_PAIRING_RADIUS', '5.0'))
+        syn1, synP, syn2, s1weight, sPweight, s2weight = find_intersection(syn1, syn2, s1weight, s2weight, syn_pair_radius)
     else:
         syn1 = None
         syn2 = None
+        synP = None
 
     # offset origin to center of bbox and normalize for visualization
     origin = (bbox[1,:] - bbox[0,:]) / 2
     scale = origin.max()
     nuc1 = (nuc1 - origin)/scale
     nuc2 = (nuc2 - origin)/scale
+    nucP[:,0,:] = (nucP[:,0,:] - origin)/scale
+    nucP[:,1,:] = (nucP[:,1,:] - origin)/scale
     if syn_parts is not None:
         syn1 = (syn1 - origin)/scale
         syn2 = (syn2 - origin)/scale
+        synP[:,0,:] = (synP[:,0,:] - origin)/scale
+        synP[:,1,:] = (synP[:,1,:] - origin)/scale
 
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
 
     scatters = []
 
     def key_press(event):
-        if event.key in {'1', '2', '3', '4'}:
-            idx = {str(i+1): i for i in range(4)}[event.key]
+        if event.key in {'1', '2', '3', '4', '5', '6', '7', '8'}:
+            idx = {str(i+1): i for i in range(9)}[event.key]
             for s in scatters[idx:idx+1]:
-                s.visible = not s.visible
+                if s is not None:
+                    s.visible = not s.visible
         canvas.update()
 
     canvas.events.key_press.connect(key_press)
@@ -114,14 +199,16 @@ def main(filenames):
     view.set_gl_state(depth_test=False)
 
     scatters.extend([
-        draw_points(view, nuc1, n1weight, (0,1,1,0.4), segment_sizes[0]),
-        draw_points(view, nuc2, n2weight, (1,1,0,0.4), segment_sizes[0]),
+        draw_points(view, nuc1, n1weight, (0,1,1,0.4), segment_sizes[0]) if nuc1.shape[0] else None,
+        draw_points(view, nucP[:,0,:], nPweight[:,0], (1,1,1,0.4), segment_sizes[0]) if nucP.shape[0] else None,
+        draw_points(view, nuc2, n2weight, (1,1,0,0.4), segment_sizes[0]) if nuc2.shape[0] else None,
     ])
 
     if syn_parts is not None:
         scatters.extend([
-            draw_points(view, syn1, s1weight, (0,0.9,0.9,0.9), segment_sizes[1]),
-            draw_points(view, syn2, s2weight, (1,1,0,0.9), segment_sizes[1]),
+            draw_points(view, syn1, s1weight, (0,0.9,0.9,0.9), segment_sizes[1]) if syn1.shape[0] else None,
+            draw_points(view, synP[:,0,:], sPweight[:,0], (0.9,0.9,0.9,0.8), segment_sizes[1]) if synP.shape[0] else None,
+            draw_points(view, syn2, s2weight, (1,1,0,0.9), segment_sizes[1]) if syn2.shape[0] else None,
         ])
 
     axis = visuals.XYZAxis(parent=view.scene)

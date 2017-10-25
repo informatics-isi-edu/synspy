@@ -3,9 +3,9 @@ import traceback
 from PyQt5 import QtCore
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory, QMessageBox
-from deriva_common import format_exception
-from deriva_common.base_cli import BaseCLI
+from deriva.core import BaseCLI, format_exception
 from launcher.ui import main_window as mw
+from synspy import __version__ as synspy_version
 
 
 def excepthook(etype, value, tb):
@@ -22,22 +22,21 @@ def excepthook(etype, value, tb):
 
 def main():
     sys.excepthook = excepthook
-    try:
-        QApplication.setDesktopSettingsAware(False)
-        QApplication.setStyle(QStyleFactory.create("Fusion"))
-        app = QApplication(sys.argv)
-        app.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
-        app.setWindowIcon(QIcon(":/images/synapse.png"))
-        cli = BaseCLI("Synapse Viewer Launcher",
-                      "For more information see: https://github.com/informatics-isi-edu/synspy")
-        cli.remove_options(["--credential-file"])
-        args = cli.parse_cli()
-        mainWindow = mw.MainWindow(args.config_file)
-        mainWindow.show()
-        ret = app.exec_()
-        return ret
-    except Exception as e:
-        print(e)
+
+    QApplication.setDesktopSettingsAware(False)
+    QApplication.setStyle(QStyleFactory.create("Fusion"))
+    app = QApplication(sys.argv)
+    app.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
+    app.setWindowIcon(QIcon(":/images/synapse.png"))
+    cli = BaseCLI("Synapse Viewer Launcher",
+                  "For more information see: https://github.com/informatics-isi-edu/synspy", synspy_version)
+    cli.remove_options(["--credential-file"])
+    args = cli.parse_cli()
+    mainWindow = mw.MainWindow(args.config_file)
+    mainWindow.show()
+    ret = app.exec_()
+    return ret
+
 
 if __name__ == '__main__':
     sys.exit(main())

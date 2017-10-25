@@ -12,9 +12,8 @@ from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QM
     QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu, QHBoxLayout, \
     QLabel, QLineEdit, QPushButton, QFileDialog
 from PyQt5.QtGui import QIcon
-from deriva_qt.common import log_widget, table_widget, async_task
-from deriva_qt.auth_agent.ui.embedded_auth_window import EmbeddedAuthWindow
-from deriva_common import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
+from deriva.qt import EmbeddedAuthWindow, QPlainTextEditLogger, TableWidget, Request
+from deriva.core import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
     resource_path
 from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
     WORKLIST_UPDATE, WORKLIST_CURATOR_QUERY, WORKLIST_STATUS_UPDATE
@@ -130,7 +129,7 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def cancelTasks(self):
-        async_task.Request.shutdown()
+        Request.shutdown()
         self.statusBar().showMessage("Waiting for background tasks to terminate...")
 
         while True:
@@ -553,7 +552,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def on_actionLogout_triggered(self):
         self.authWindow.logout()
-        self.setWindowTitle(self.ui.title)
+        self.setWindowTitle("%s %s" % (self.ui.title, synspy_version))
         self.ui.workList.clearContents()
         self.ui.workList.setRowCount(0)
         self.identity = None
@@ -657,7 +656,7 @@ class MainWindowUI(object):
 
         # Main Window
         MainWin.setObjectName("MainWindow")
-        MainWin.setWindowTitle(MainWin.tr(self.title))
+        MainWin.setWindowTitle(MainWin.tr("%s %s" % (self.title, synspy_version)))
         MainWin.resize(800, 600)
         self.centralWidget = QWidget(MainWin)
         self.centralWidget.setObjectName("centralWidget")
@@ -671,7 +670,7 @@ class MainWindowUI(object):
         self.splitter = QSplitter(Qt.Vertical)
 
         # Table View (Work list)
-        self.workList = table_widget.TableWidget(self.centralWidget)
+        self.workList = TableWidget(self.centralWidget)
         self.workList.setObjectName("tableWidget")
         self.workList.setStyleSheet(
             """
@@ -693,7 +692,7 @@ class MainWindowUI(object):
         self.splitter.addWidget(self.workList)
 
         # Log Widget
-        self.logTextBrowser = log_widget.QPlainTextEditLogger(self.centralWidget)
+        self.logTextBrowser = QPlainTextEditLogger(self.centralWidget)
         self.logTextBrowser.widget.setObjectName("logTextBrowser")
         self.logTextBrowser.widget.setStyleSheet(
             """

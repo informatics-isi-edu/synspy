@@ -31,8 +31,8 @@ setup(
         'shutil',
         'subprocess',
         'pytz',
-        'deriva_common',
-        'deriva_qt',
+        'deriva.core',
+        'deriva.qt',
         'PyQt5'],
     license='GNU GPL 3.0',
     classifiers=[

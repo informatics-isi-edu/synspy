@@ -1,8 +1,8 @@
 import os
 import subprocess
 from PyQt5.QtCore import pyqtSignal
-from deriva_common import format_exception
-from deriva_qt.common.async_task import async_execute, AsyncTask
+from deriva.core import format_exception
+from deriva.qt import async_execute, AsyncTask
 
 
 class SubprocessTask(AsyncTask):

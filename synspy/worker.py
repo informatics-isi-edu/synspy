@@ -4,7 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-from deriva_common import PollingErmrestCatalog, HatracStore, urlquote
+from deriva.core import PollingErmrestCatalog, HatracStore, urlquote
 from volspy.util import load_image
 import sys
 import traceback

@@ -1,7 +1,7 @@
 import os
 from PyQt5.QtCore import pyqtSignal
-from deriva_common import format_exception, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
-from deriva_qt.common.async_task import async_execute, AsyncTask
+from deriva.core import format_exception, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
+from deriva.qt import async_execute, AsyncTask
 
 HATRAC_UPDATE_URL_TEMPLATE = "/hatrac/Zf/%s/%s"
 

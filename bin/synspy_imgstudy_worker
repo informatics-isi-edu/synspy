@@ -19,7 +19,7 @@ class ImageStudyWorker (synspy.worker.Worker):
     #       Region 2 URL set
     # *-> Status={"failed": "reason"}
 
-    get_claimable_work_url = '/attribute/S:=Image%20Pair%20Study/Status::null::;Status=null/N1:=(Nucleic%20Region%201)/Status=%22processed%22/$S/N2:=(Nucleic%20Region%202)/Status=%22processed%22/$S/*,N1_URL:=N1:Segments%20Filtered%20URL,N2_URL:=N2:Segments%20Filtered%20URL'
+    get_claimable_work_url = '/attribute/S:=Image%20Pair%20Study/Status::null::;Status=null/N1:=(Nucleic%20Region%201)/Status=%22processed%22/$S/N2:=(Nucleic%20Region%202)/Status=%22processed%22/$S/*,N1_URL:=N1:Segments%20Filtered%20URL,N2_URL:=N2:Segments%20Filtered%20URL?limit=1'
     put_claim_url = '/attributegroup/Zebrafish:Image%20Pair%20Study/ID;Status'
     put_row_update_baseurl = '/attributegroup/Zebrafish:Image%20Pair%20Study/ID'
 

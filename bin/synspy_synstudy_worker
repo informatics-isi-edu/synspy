@@ -18,7 +18,7 @@ class SynapticStudyWorker (synspy.worker.Worker):
     #       Region 2 URL set
     # *-> Status={"failed": "reason"}
 
-    get_claimable_work_url = '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL'
+    get_claimable_work_url = '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1'
     put_claim_url = '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status'
     put_row_update_baseurl = '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID'
 

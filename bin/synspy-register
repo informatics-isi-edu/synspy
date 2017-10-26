@@ -40,8 +40,8 @@ def find_nearest_pair_idxs(a1, a2, radius, depth=5):
          pairing for that element in a1 or a2.
     """
     dx, pairs = cKDTree(a1).query(a2, depth, distance_upper_bound=radius)
-    a1_pairs = np.zeros(a1.shape[0], dtype=np.uint8)
-    a2_pairs = np.zeros(a2.shape[0], dtype=np.uint8)
+    a1_pairs = np.zeros(a1.shape[0], dtype=np.uint32)
+    a2_pairs = np.zeros(a2.shape[0], dtype=np.uint32)
     for d in range(depth):
         for idx2 in np.argsort(dx[:,d]):
             if dx[idx2,d] < radius:
@@ -83,12 +83,13 @@ def find_intersection(v1, v2, w1, w2, radius):
     w2only = w2[np.where( v2_to_v1 == 0 )]
 
     vpairs = np.zeros((shared, 2, v1.shape[1]), dtype=v1.dtype)
-    vpairs[:,0,:] = v1[np.where(v1_to_v2 > 0) + (slice(None),)]
-    vpairs[:,1,:] = v2[ (v1_to_v2[np.where(v1_to_v2 > 0)] - 1, slice(None)) ]
-   
+    paired_idxs = np.where(v1_to_v2 > 0)[0]
+    vpairs[:,0,:] = v1[(paired_idxs, slice(None))]
+    vpairs[:,1,:] = v2[(v1_to_v2[(paired_idxs,)] - 1, slice(None))]
+
     wpairs = np.zeros((shared, 2), dtype=w1.dtype)
-    wpairs[:,0] = w1[np.where(v1_to_v2 > 0)]
-    wpairs[:,1] = w2[ (v1_to_v2[np.where(v1_to_v2 > 0)] - 1,) ]
+    wpairs[:,0] = w1[(paired_idxs,)]
+    wpairs[:,1] = w2[(v1_to_v2[(paired_idxs,)] - 1,)]
 
     return (v1only, vpairs, v2only, w1only, wpairs, w2only)
 
@@ -115,6 +116,25 @@ def draw_points(view, a, weights, face_color, size=10):
     scatter.set_data(a, edge_color=None, face_color=colors, edge_width=0, size=size)
     view.add(scatter)
     return scatter
+
+def draw_pairs(view, a, weights, face_colors, size=10):
+    fc = np.array(face_colors, dtype=np.float32)
+
+    a2 = np.zeros((a.shape[0] * 2, a.shape[2]), dtype=a.dtype)
+    c2 = np.zeros((a.shape[0] * 2, 4), dtype=np.float32)
+    
+    a2[0::2,:] = a[:,0,:]
+    a2[1::2,:] = a[:,1,:]
+
+    c2[0::2,:] = weights[:,0,None] * fc[0,:]
+    c2[1::2,:] = weights[:,1,None] * fc[1,:]
+
+    lines = visuals.Arrow(connect='segments')
+    lines.set_gl_state(depth_test=False)
+    lines.antialias = False
+    lines.set_data(a2, c2, size, 'segments')
+    view.add(lines)
+    return lines
 
 def main(filenames):
     zyx_grid_scale = get_env_grid_scale()
@@ -153,7 +173,6 @@ def main(filenames):
     bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
     bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
     nuc_pair_radius = float(os.getenv('NUC_PAIRING_RADIUS', '15.0'))
-    nuc1, nucP, nuc2, n1weight, nPweight, n2weight = find_intersection(nuc1, nuc2, n1weight, n2weight, nuc_pair_radius)
     if syn_parts is not None:
         syn1 = centroids_zx_swap(syn_parts[0][0])
         syn2 = centroids_zx_swap(syn_parts[1][0])
@@ -162,24 +181,20 @@ def main(filenames):
         bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
         bbox[1,:] = np.minimum(syn2.max(axis=0), bbox[1,:])
         syn_pair_radius = float(os.getenv('SYN_PAIRING_RADIUS', '5.0'))
-        syn1, synP, syn2, s1weight, sPweight, s2weight = find_intersection(syn1, syn2, s1weight, s2weight, syn_pair_radius)
     else:
         syn1 = None
         syn2 = None
-        synP = None
 
     # offset origin to center of bbox and normalize for visualization
     origin = (bbox[1,:] - bbox[0,:]) / 2
     scale = origin.max()
     nuc1 = (nuc1 - origin)/scale
     nuc2 = (nuc2 - origin)/scale
-    nucP[:,0,:] = (nucP[:,0,:] - origin)/scale
-    nucP[:,1,:] = (nucP[:,1,:] - origin)/scale
+    nuc1, nucP, nuc2, n1weight, nPweight, n2weight = find_intersection(nuc1, nuc2, n1weight, n2weight, nuc_pair_radius/scale)
     if syn_parts is not None:
         syn1 = (syn1 - origin)/scale
         syn2 = (syn2 - origin)/scale
-        synP[:,0,:] = (synP[:,0,:] - origin)/scale
-        synP[:,1,:] = (synP[:,1,:] - origin)/scale
+        syn1, synP, syn2, s1weight, sPweight, s2weight = find_intersection(syn1, syn2, s1weight, s2weight, syn_pair_radius/scale)
 
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
 
@@ -198,17 +213,23 @@ def main(filenames):
     view = canvas.central_widget.add_view()
     view.set_gl_state(depth_test=False)
 
+    nuc_face_colors = ( (0, 1, 1, 0.4), (1, 1, 0, 0.4) )
+    syn_face_colors = ( (0, 0.9, 0.9, 0.9), (1, 1, 0, 0.9) )
+    
+
     scatters.extend([
-        draw_points(view, nuc1, n1weight, (0,1,1,0.4), segment_sizes[0]) if nuc1.shape[0] else None,
-        draw_points(view, nucP[:,0,:], nPweight[:,0], (1,1,1,0.4), segment_sizes[0]) if nucP.shape[0] else None,
-        draw_points(view, nuc2, n2weight, (1,1,0,0.4), segment_sizes[0]) if nuc2.shape[0] else None,
+        draw_points(view, nuc1, n1weight, nuc_face_colors[0], segment_sizes[0]) if nuc1.shape[0] else None,
+        #draw_points(view, nucP[:,0,:], nPweight[:,0], (1,1,1,0.4), segment_sizes[0]) if nucP.shape[0] else None,
+        draw_pairs(view, nucP, nPweight, nuc_face_colors, 40) if nucP.shape[0] else None,
+        draw_points(view, nuc2, n2weight, nuc_face_colors[1], segment_sizes[0]) if nuc2.shape[0] else None,
     ])
 
     if syn_parts is not None:
         scatters.extend([
-            draw_points(view, syn1, s1weight, (0,0.9,0.9,0.9), segment_sizes[1]) if syn1.shape[0] else None,
-            draw_points(view, synP[:,0,:], sPweight[:,0], (0.9,0.9,0.9,0.8), segment_sizes[1]) if synP.shape[0] else None,
-            draw_points(view, syn2, s2weight, (1,1,0,0.9), segment_sizes[1]) if syn2.shape[0] else None,
+            draw_points(view, syn1, s1weight, syn_face_colors[0], segment_sizes[1]) if syn1.shape[0] else None,
+            #draw_points(view, synP[:,0,:], sPweight[:,0], (0.9,0.9,0.9,0.8), segment_sizes[1]) if synP.shape[0] else None,
+            draw_pairs(view, synP, sPweight, syn_face_colors, 3) if synP.shape[0] else None,
+            draw_points(view, syn2, s2weight, syn_face_colors[1], segment_sizes[1]) if syn2.shape[0] else None,
         ])
 
     axis = visuals.XYZAxis(parent=view.scene)

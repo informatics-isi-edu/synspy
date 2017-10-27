@@ -85,7 +85,7 @@ def dump_registered_file_pair(dstfilenames, parts):
     """
     for filename, parts in zip(dstfilenames, parts):
         c, m, s, p = parts
-        dump_segment_info_to_csv(c, m, s, (0,0,0), filename, p)
+        dump_segment_info_to_csv(c, m, s, (0,0,0), filename)
 
 def register(nuc_filenames, zyx_grid_scale, syn_filenames=None):
     """Find alignment based on nuclei and return registered data in micron coordinates.

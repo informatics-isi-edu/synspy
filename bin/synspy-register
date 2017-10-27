@@ -118,23 +118,26 @@ def draw_points(view, a, weights, face_color, size=10):
     return scatter
 
 def draw_pairs(view, a, weights, face_colors, size=10):
-    fc = np.array(face_colors, dtype=np.float32)
-
     a2 = np.zeros((a.shape[0] * 2, a.shape[2]), dtype=a.dtype)
-    c2 = np.zeros((a.shape[0] * 2, 4), dtype=np.float32)
-    
+    cl = np.zeros((a.shape[0] * 2, 4), dtype=np.float32)
+
     a2[0::2,:] = a[:,0,:]
     a2[1::2,:] = a[:,1,:]
 
-    c2[0::2,:] = weights[:,0,None] * fc[0,:]
-    c2[1::2,:] = weights[:,1,None] * fc[1,:]
+    cl[:,0:3] = 1.0
+    cl[:,3] = 0.3
 
     lines = visuals.Arrow(connect='segments')
     lines.set_gl_state(depth_test=False)
     lines.antialias = False
-    lines.set_data(a2, c2, size, 'segments')
+    lines.set_data(a2, cl, 1, 'segments')
     view.add(lines)
-    return lines
+
+    return [
+        draw_points(view, a[:,0,:], weights[:,0], face_colors[0], size),
+        lines,
+        draw_points(view, a[:,1,:], weights[:,1], face_colors[1], size),
+    ]
 
 def main(filenames):
     zyx_grid_scale = get_env_grid_scale()
@@ -201,8 +204,10 @@ def main(filenames):
     scatters = []
 
     def key_press(event):
-        if event.key in {'1', '2', '3', '4', '5', '6', '7', '8'}:
-            idx = {str(i+1): i for i in range(9)}[event.key]
+        if event.key in {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'}:
+            mapping = {str(i+1): i for i in range(9)}
+            mapping['0'] = 9
+            idx = mapping[event.key]
             for s in scatters[idx:idx+1]:
                 if s is not None:
                     s.visible = not s.visible
@@ -219,16 +224,14 @@ def main(filenames):
 
     scatters.extend([
         draw_points(view, nuc1, n1weight, nuc_face_colors[0], segment_sizes[0]) if nuc1.shape[0] else None,
-        #draw_points(view, nucP[:,0,:], nPweight[:,0], (1,1,1,0.4), segment_sizes[0]) if nucP.shape[0] else None,
-        draw_pairs(view, nucP, nPweight, nuc_face_colors, 40) if nucP.shape[0] else None,
+    ] + (draw_pairs(view, nucP, nPweight, nuc_face_colors, segment_sizes[0]) if nucP.shape[0] else [None, None, None]) + [
         draw_points(view, nuc2, n2weight, nuc_face_colors[1], segment_sizes[0]) if nuc2.shape[0] else None,
     ])
 
     if syn_parts is not None:
         scatters.extend([
             draw_points(view, syn1, s1weight, syn_face_colors[0], segment_sizes[1]) if syn1.shape[0] else None,
-            #draw_points(view, synP[:,0,:], sPweight[:,0], (0.9,0.9,0.9,0.8), segment_sizes[1]) if synP.shape[0] else None,
-            draw_pairs(view, synP, sPweight, syn_face_colors, 3) if synP.shape[0] else None,
+        ] + (draw_pairs(view, synP, sPweight, syn_face_colors, segment_sizes[1]) if synP.shape[0] else [None, None, None]) + [
             draw_points(view, syn2, s2weight, syn_face_colors[1], segment_sizes[1]) if syn2.shape[0] else None,
         ])
 

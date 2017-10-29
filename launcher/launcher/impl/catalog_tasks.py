@@ -8,7 +8,7 @@ WORKLIST_QUERY = \
 
 WORKLIST_CURATOR_QUERY = \
     "/attributegroup/U:=Synapse:Person/T:=(Zebrafish:Image Region:Classifier)/" \
-    "!ZYX Slice::null::/I:=(Source Image)/!T:Npz URL::null::/$T/*;source_image:=array(I:*),user:=array(U:*)"
+    "!ZYX Slice::null::/I:=(Source Image)/$T/*;source_image:=array(I:*),user:=array(U:*)"
 
 WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Segments Filtered URL,Status,History"
 

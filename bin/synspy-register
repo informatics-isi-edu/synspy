@@ -72,11 +72,25 @@ def find_intersection(v1, v2, w1, w2, radius):
          vpairs: array with shape (x, 2, k) for x matched vertices from v1 and v2
          v2only: array with shape (m-x, k) for m-x non-matched vertices from v2
          w1only: array with shape (n-x,) for weights of vertices in v1only
-         wpairs: array with shape (x, 2,) for weights of vertices in vpairs
+         wpairs: array with shape (x, 2) for weights of vertices in vpairs
          w1only: array with shape (m-x,) for weights of vertices in v2only
     """
     v1_to_v2, v2_to_v1 = find_nearest_pair_idxs(v1, v2, radius)
+    pair_weights = np.zeros((v1_to_v2.shape[0],2), dtype=np.float32)
+
+    # we want to discard some pairs that have extreme intensity ratios
+    pair_threshold = float(os.getenv('PAIR_MAX_RATIO', '2.0'))
+    pair_weights[:,0] = (v1_to_v2 > 0) * w1[:]
+    pair_weights[:,1] = (v1_to_v2 > 0) * w2[(v1_to_v2 - 1,) * (v1_to_v2 > 0)]
+    pair_weights[:,:] += 0.0001
+    pair_ratios = pair_weights[:,0] / pair_weights[:,1]
+
+    # mask out the extreme pairs
+    v1_to_v2[ np.where((pair_ratios > pair_threshold) + (pair_ratios < 1/pair_threshold)) ] = 0
+    v2_to_v1[ (v1_to_v2[np.where((pair_ratios > pair_threshold) + (pair_ratios < 1/pair_threshold))],) ] = 0
+
     shared = (v1_to_v2 > 0).sum()
+    print 'Found %d shared points within intensity ratio (%f,%f).' % (shared, 1.0/pair_threshold, pair_threshold)
     v1only = v1[np.where( v1_to_v2 == 0 ) + (slice(None), )]
     v2only = v2[np.where( v2_to_v1 == 0 ) + (slice(None), )]
     w1only = w1[np.where( v1_to_v2 == 0 )]

@@ -154,11 +154,18 @@ toggle the visibility of the sub-plots:
 - `0`: unmatched points from the fourth CSV
 
 The strictness of the point matching can be adjusted by environment parameters:
-- `PAIR_MAX_RATIO`: maximum intensity ration between brighter and dimmer point (default 2.0)
+- `INTENSITY_DISTANCE_RATIO`: intensity units vs microns for 4D nearest-neighbor
+   - Applies to both nuclei and synapse pairing
+   - By adjusting the relative weight of intensity vs distance, you can favor matching by spatial or intensity adjacency
+   - If not set, then 3D nearest neighbor is performed
+- `PAIR_MAX_RATIO`: maximum intensity ration between brighter and dimmer point
    - Applies to both nuclei and synapse pairing
    - If a found pair has a wider intensity ratio than this threshold, pretend they are unmatched points
+   - If not set, then no threshold is applied
 - `NUC_PAIRING_RADIUS`: distance allowed between paired nuclei in microns (default 15.0)
 - `SYN_PAIRING_RADIUS`: distance allowed between paired synapses in microns (default 5.0)
+- `DUMP_PREFIX`: how to name output files (no output files if not set)
+   - Output names append a fixed suffix to the specific prefix to determine the actual output name, e.g. _prefix_ + `syn-tpt1-only.csv`
 
 The transformation matrix can be applied the second image or its
 features (the *after* image in this example). We do not currently

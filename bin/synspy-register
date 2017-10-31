@@ -60,8 +60,19 @@ def find_intersection(v1, v2, w1, w2, radius):
          w2: array with shape (m,) weights
          radius: maximum euclidean distance for pairs
 
+       If INTENSITY_DISTANCE_RATIO env. variable is set, the vectors
+       are extended with weights to make one more dimension, with
+       weights scaled by the inverse of this ratio to balance
+       intensity units against spatial units.  This step is performed
+       prior to nearest-neighbor search.
+
        Point sets v1 and v2 are intersected to find pair-mappings
        based on nearest neighbor from each set without duplicates.
+
+       If PAIR_MAX_RATIO env. variable is set, pairings are
+       disregarded if their intensity ratio is higher than the given
+       ratio or lower than the inverse of the given ratio. This step
+       is performed after nearest-neighor search.
 
        The results v1only and v2only are non-matched vertices from
        each set, while vpairs is the matched pairs. The weights are
@@ -74,23 +85,37 @@ def find_intersection(v1, v2, w1, w2, radius):
          w1only: array with shape (n-x,) for weights of vertices in v1only
          wpairs: array with shape (x, 2) for weights of vertices in vpairs
          w1only: array with shape (m-x,) for weights of vertices in v2only
+
     """
-    v1_to_v2, v2_to_v1 = find_nearest_pair_idxs(v1, v2, radius)
+    intensity_per_distance = os.getenv('INTENSITY_DISTANCE_RATIO')
+    if intensity_per_distance is not None:
+        # convert into 4D
+        intensity_per_distance = float(intensity_per_distance)
+        ve1 = np.zeros((v1.shape[0], v1.shape[1]+1), dtype=v1.dtype)
+        ve1[:,0:v1.shape[1]] = v1[:,:]
+        ve1[:,v1.shape[1]] = w1[:] * 1/intensity_per_distance
+        ve2 = np.zeros((v2.shape[0], v2.shape[1]+1), dtype=v2.dtype)
+        ve2[:,0:v2.shape[1]] = v2[:,:]
+        ve2[:,v2.shape[1]] = w2[:] * 1/intensity_per_distance
+    else:
+        ve1 = v1
+        ve2 = v2
+
+    v1_to_v2, v2_to_v1 = find_nearest_pair_idxs(ve1, ve2, radius, depth=min(v1.shape[0], v2.shape[0]))
     pair_weights = np.zeros((v1_to_v2.shape[0],2), dtype=np.float32)
 
-    # we want to discard some pairs that have extreme intensity ratios
-    pair_threshold = float(os.getenv('PAIR_MAX_RATIO', '2.0'))
-    pair_weights[:,0] = (v1_to_v2 > 0) * w1[:]
-    pair_weights[:,1] = (v1_to_v2 > 0) * w2[(v1_to_v2 - 1,) * (v1_to_v2 > 0)]
-    pair_weights[:,:] += 0.0001
-    pair_ratios = np.abs(pair_weights[:,0] / pair_weights[:,1])
-
-    # mask out the extreme pairs
-    v1_to_v2[ np.where((pair_ratios > pair_threshold) + (pair_ratios < 1/pair_threshold)) ] = 0
-    v2_to_v1[ (v1_to_v2[np.where((pair_ratios > pair_threshold) + (pair_ratios < 1/pair_threshold))],) ] = 0
+    pair_ratio_threshold = os.getenv('PAIR_MAX_RATIO')
+    if pair_ratio_threshold is not None:
+        # we want to disregard some pairings with extreme intensity ratios
+        pair_ratio_threshold = float(pair_ratio_threshold)
+        pair_weights[:,0] = (v1_to_v2 > 0) * w1[:]
+        pair_weights[:,1] = (v1_to_v2 > 0) * w2[(v1_to_v2 - 1,) * (v1_to_v2 > 0)]
+        pair_weights[:,:] += 0.0001
+        pair_ratios = np.abs(pair_weights[:,0] / pair_weights[:,1])
+        v1_to_v2[ np.where((pair_ratios > pair_ratio_threshold) + (pair_ratios < 1/pair_ratio_threshold)) ] = 0
+        v2_to_v1[ (v1_to_v2[np.where((pair_ratios > pair_ratio_threshold) + (pair_ratios < 1/pair_ratio_threshold))],) ] = 0
 
     shared = (v1_to_v2 > 0).sum()
-    print 'Found %d shared points within intensity ratio (%f,%f).' % (shared, 1.0/pair_threshold, pair_threshold)
     v1only = v1[np.where( v1_to_v2 == 0 ) + (slice(None), )]
     v2only = v2[np.where( v2_to_v1 == 0 ) + (slice(None), )]
     w1only = w1[np.where( v1_to_v2 == 0 )]
@@ -105,6 +130,9 @@ def find_intersection(v1, v2, w1, w2, radius):
     wpairs[:,0] = w1[(paired_idxs,)]
     wpairs[:,1] = w2[(v1_to_v2[(paired_idxs,)] - 1,)]
 
+    rms_dx = (np.square((vpairs[:,1,:] - vpairs[:,0,:])).sum())**0.5
+    rms_w  = (np.square((wpairs[:,1] - wpairs[:,0])).sum())**0.5
+    print 'Found %d shared points RMS dx=%f i=%f.' % (shared, rms_dx, rms_w)
     return (v1only, vpairs, v2only, w1only, wpairs, w2only)
 
 def get_env_splat_sizes():
@@ -113,7 +141,7 @@ def get_env_splat_sizes():
     return segment_sizes
 
 def renormalize_inplace(arrays):
-    maxweight = reduce(max, map(lambda a: np.percentile(a, 90), arrays), 1.0)
+    maxweight = reduce(max, [ np.percentile(a, 90) for a in arrays if a.shape[0] > 0 ], 1.0)
     for w in arrays:
         w[:] = w[:] * np.float32(1.0/maxweight)
         w[:] = w[:] * (w[:] < 1.0) + (w[:] >= 1.0)
@@ -148,13 +176,29 @@ def draw_pairs(view, a, weights, face_colors, size=10):
     view.add(lines)
 
     return [
-        draw_points(view, a[:,0,:], weights[:,0], face_colors[0], size),
-        lines,
-        draw_points(view, a[:,1,:], weights[:,1], face_colors[1], size),
+        draw_points(view, a[:,0,:], weights[:,0], face_colors[0], size) if a.shape[0] > 0 else None,
+        lines if a.shape[0] > 0 else None,
+        draw_points(view, a[:,1,:], weights[:,1], face_colors[1], size) if a.shape[0] > 0 else None,
     ]
+
+def dump_zyxw(zyx, w, filename):
+    dump_prefix = os.getenv('DUMP_PREFIX')
+    if dump_prefix is not None:
+        csvfile = open(dump_prefix + filename, 'w')
+        writer = csv.writer(csvfile)
+        writer.writerow(
+            ('Z', 'Y', 'X', 'raw core')
+        )
+        for i in range(zyx.shape[0]):
+            writer.writerow(
+                (zyx[i,0], zyx[i,1], zyx[i,2], w[i])
+            )
+        del writer
+        csvfile.close()
 
 def main(filenames):
     zyx_grid_scale = get_env_grid_scale()
+    print 'grid scale: %s' % (zyx_grid_scale,)
     nuc_filenames = filenames[0:2]
     syn_filenames = filenames[2:4] if len(filenames) == 4 else None
     M, angles, nuc_parts, syn_parts = register(nuc_filenames, zyx_grid_scale, syn_filenames)
@@ -173,45 +217,56 @@ def main(filenames):
     # get first measure from CMSP 4-tuples
     n1weight = nuc_parts[0][1][:,0]
     n2weight = nuc_parts[1][1][:,0]
-    renormalize_inplace([n1weight, n2weight])
 
     if syn_parts is not None:
         s1weight = syn_parts[0][1][:,0]
         s2weight = syn_parts[1][1][:,0]
-        renormalize_inplace([s1weight, s2weight])
 
     segment_sizes = get_env_splat_sizes()
+    nuc_pair_radius = float(os.getenv('NUC_PAIRING_RADIUS', '15.0'))
+    syn_pair_radius = float(os.getenv('SYN_PAIRING_RADIUS', '5.0'))
+
+    def array_3d_bbox(aa, merge=None):
+        results = np.zeros((2,3), dtype=np.float32)
+        for d in range(results.shape[1]):
+            results[0,d] = min([ a[:,d].min() for a in aa if a.shape[0] > 0])
+            results[1,d] = max([ a[:,d].max() for a in aa if a.shape[0] > 0])
+            if merge is not None:
+                results[0,d] = min(results[0,d], merge[0,d])
+                results[1,d] = max(results[1,d], merge[1,d])
+        return results
 
     # swap ZYX->XYZ and find bbox of clouds for visualization
     nuc1 = centroids_zx_swap(nuc_parts[0][0])
     nuc2 = centroids_zx_swap(nuc_parts[1][0])
+    nuc1, nucP, nuc2, n1weight, nPweight, n2weight = find_intersection(nuc1, nuc2, n1weight, n2weight, nuc_pair_radius)
+    bbox = array_3d_bbox([nuc1, nucP[:,0,:], nucP[:,1,:], nuc2])
     
-    bbox = np.zeros((2,3), dtype=np.float32)
-    bbox[0,:] = np.minimum(nuc1.min(axis=0), nuc2.min(axis=0))
-    bbox[1,:] = np.maximum(nuc1.max(axis=0), nuc2.max(axis=0))
-    nuc_pair_radius = float(os.getenv('NUC_PAIRING_RADIUS', '15.0'))
     if syn_parts is not None:
         syn1 = centroids_zx_swap(syn_parts[0][0])
         syn2 = centroids_zx_swap(syn_parts[1][0])
-        bbox[0,:] = np.minimum(syn1.min(axis=0), bbox[0,:])
-        bbox[0,:] = np.minimum(syn2.min(axis=0), bbox[0,:])
-        bbox[1,:] = np.minimum(syn1.max(axis=0), bbox[1,:])
-        bbox[1,:] = np.minimum(syn2.max(axis=0), bbox[1,:])
-        syn_pair_radius = float(os.getenv('SYN_PAIRING_RADIUS', '5.0'))
+        syn1, synP, syn2, s1weight, sPweight, s2weight = find_intersection(syn1, syn2, s1weight, s2weight, syn_pair_radius)
+        bbox = array_3d_bbox([syn1, synP[:,0,:], synP[:,1,:], syn2], bbox)
     else:
         syn1 = None
         syn2 = None
 
     # offset origin to center of bbox and normalize for visualization
+    renormalize_inplace([n1weight, nPweight[:,0], nPweight[:,1], n2weight])
     origin = (bbox[1,:] - bbox[0,:]) / 2
     scale = origin.max()
     nuc1 = (nuc1 - origin)/scale
     nuc2 = (nuc2 - origin)/scale
-    nuc1, nucP, nuc2, n1weight, nPweight, n2weight = find_intersection(nuc1, nuc2, n1weight, n2weight, nuc_pair_radius/scale)
+    nucP = (nucP - origin)/scale
     if syn_parts is not None:
+        dump_zyxw(centroids_zx_swap(syn1), s1weight, 'syn-tpt1-only.csv')
+        dump_zyxw(centroids_zx_swap(synP[:,0,:]), sPweight[:,0], 'syn-tpt1-paired.csv')
+        dump_zyxw(centroids_zx_swap(synP[:,1,:]), sPweight[:,1], 'syn-tpt2-paired.csv')
+        dump_zyxw(centroids_zx_swap(syn2), s2weight, 'syn-tpt2-only.csv')
+        renormalize_inplace([s1weight, sPweight[:,0], sPweight[:,1], s2weight])
         syn1 = (syn1 - origin)/scale
         syn2 = (syn2 - origin)/scale
-        syn1, synP, syn2, s1weight, sPweight, s2weight = find_intersection(syn1, syn2, s1weight, s2weight, syn_pair_radius/scale)
+        synP = (synP - origin)/scale
 
     canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
 

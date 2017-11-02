@@ -63,9 +63,11 @@ class ImageRegionWorker (synspy.worker.Worker):
                 updated_row['Status'] = "analysis pending"
 
             if self.row['Segments URL'] is not None and self.row['Segments Filtered URL'] is None:
-                updated_row['Segments Filtered URL'] = filter_synspy_csv(self.row['Segments URL'])
+                updated_row['Segments Filtered URL'] = self.filter_synspy_csv(self.row['Segments URL'])
+                updated_row.update(self.compute_synspy_stats(updated_row['Segments Filtered URL'], self.row))
                 updated_row['Status'] = "processed"
             elif self.row['Segments Filtered URL']:
+                updated_row.update(self.compute_synspy_stats(self.row['Segments Filtered URL'], self.row))
                 updated_row['Status'] = "processed"
 
             if updated_row:

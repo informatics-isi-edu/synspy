@@ -190,6 +190,23 @@ class Worker (object):
             headers={'Content-Type': 'text/csv'}
         )
 
+    def compute_synspy_stats(self, csv_url, existing_row={}):
+        """Process input CSV URL and return stats column value updates."""
+        filename = self.get_file(csv_url)
+        cmsp = util.load_segment_info_from_csv(filename, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7))
+        stats = {
+            'Core Min.': float(m[:,0].min()),
+            'Core Max.': float(m[:,0].max()),
+            'Core Sum': float(m[:,0].sum()),
+            '#Centroids': int(m.shape[0]),
+            'Core Mean': float(m[:,0].mean()),
+        }
+        return {
+            k: v
+            for k, v in stats.items()
+            if k not in existing_row or existing_row[k] != v
+        }
+
     def register_nuclei(self, n1_url, n2_url, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7)):
         """Register nuclei files returning alignment matrix and processed and uploaded pointcloud URLs.
 

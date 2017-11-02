@@ -193,7 +193,7 @@ class Worker (object):
     def compute_synspy_stats(self, csv_url, existing_row={}):
         """Process input CSV URL and return stats column value updates."""
         filename = self.get_file(csv_url)
-        cmsp = util.load_segment_info_from_csv(filename, (0.4,0.26,0.26), filter_status=(3,7))
+        c, m, s, p = util.load_segment_info_from_csv(filename, (0.4,0.26,0.26), filter_status=(3,7))
         stats = {
             'Core Min.': float(m[:,0].min()),
             'Core Max.': float(m[:,0].max()),

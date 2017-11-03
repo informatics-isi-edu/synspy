@@ -268,7 +268,9 @@ def main(filenames):
         syn2 = (syn2 - origin)/scale
         synP = (synP - origin)/scale
 
-    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=(0.15,0.15,0.15,1))
+    bgcolor = os.getenv('BACKGROUND_RGB', '0.15,0.15,0.15')
+    bgcolor = tuple([ float(c) for c in bgcolor.split(',') ]) + (1.0,)
+    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=bgcolor)
 
     scatters = []
 
@@ -304,8 +306,10 @@ def main(filenames):
             draw_points(view, syn2, s2weight, syn_face_colors[1], segment_sizes[1]) if syn2.shape[0] else None,
         ])
 
-    axis = visuals.XYZAxis(parent=view.scene)
-    view.camera = 'turntable'
+    if os.getenv('SHOW_AXES', 'true').lower() != 'false':
+        axis = visuals.XYZAxis(parent=view.scene)
+    #view.camera = 'turntable'
+    view.camera = 'arcball'
     vispy.app.run()
     
     return 0

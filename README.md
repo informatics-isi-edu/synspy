@@ -153,7 +153,7 @@ toggle the visibility of the sub-plots:
 - `9`: matched points from the fourth CSV (synapses *after*)
 - `0`: unmatched points from the fourth CSV
 
-The strictness of the point matching can be adjusted by environment parameters:
+The point matching and the pointcloud viz can be adjusted by environment parameters:
 - `INTENSITY_DISTANCE_RATIO`: intensity units vs microns for 4D nearest-neighbor
    - Applies to both nuclei and synapse pairing
    - By adjusting the relative weight of intensity vs distance, you can favor matching by spatial or intensity adjacency
@@ -166,6 +166,8 @@ The strictness of the point matching can be adjusted by environment parameters:
 - `SYN_PAIRING_RADIUS`: distance allowed between paired synapses in microns (default 5.0)
 - `DUMP_PREFIX`: how to name output files (no output files if not set)
    - Output names append a fixed suffix to the specific prefix to determine the actual output name, e.g. _prefix_ + `syn-tpt1-only.csv`
+- `BACKGROUND_RGB`: 3-channel RGB in normalized 0.0-1.0 space (default `0.15,0.15,0.15` for a dark gray)
+- `SHOW_AXES`: `true` enables and `false` disables axes arrows (default `true`)
 
 The transformation matrix can be applied the second image or its
 features (the *after* image in this example). We do not currently

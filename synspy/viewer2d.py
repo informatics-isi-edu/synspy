@@ -584,7 +584,7 @@ class Canvas(app.Canvas):
             
     def report(self, event=None):
         """Dump (d) current parameters."""
-        self.trace('Z', self.vol_slicer.last_Z)
+        self.trace('Z', '%d of %d' % (self.vol_slicer.last_Z, self.vol_slicer.data.shape[0]))
         self.trace('blend mode', self.frag_shaders[self.current_shader][0])
         
         for attribute, value in [
@@ -732,7 +732,7 @@ class Canvas(app.Canvas):
         Z = clamp(Z, 0, self.vol_slicer.data.shape[0] - 1)
         if Z != self.vol_slicer.last_Z:
             self.vol_slicer.get_textures(int(Z))
-            self.trace('Z', int(Z))
+            self.trace('Z', '%d of %d' % (int(Z), self.vol_slicer.data.shape[0]))
             self.update()
 
     def adjust_depth(self, event):
@@ -746,7 +746,7 @@ class Canvas(app.Canvas):
         Z = clamp(Z, 0, self.vol_slicer.data.shape[0] - 1)
             
         self.vol_slicer.get_textures(Z)
-        self.trace('Z', Z)
+        self.trace('Z', '%d of %d' % (int(Z), self.vol_slicer.data.shape[0]))
         self.update()
 
     def find_paint_center(self, event):

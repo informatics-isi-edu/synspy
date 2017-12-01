@@ -427,15 +427,19 @@ class Canvas(app.Canvas):
             'B': self.toggle_blend,
             #'D': self.dump_or_report,
             'D': self.report,
+            'E': self.toggle_erase,
             'F': self.adjust_feature_level,
             'G': self.adjust_gain,
             'H': self.help,
             #'L': self.load_csv,
             'N': self.adjust_neighbor_level,
+            'P': self.toggle_paint,
             'R': self.reset,
             'T': self.adjust_black_level,
             'Up': self.adjust_depth,
             'Down': self.adjust_depth,
+            'Left': self.adjust_paint_zoom,
+            'Right': self.adjust_paint_zoom,
         }
 
         self.frag_shaders = [
@@ -592,6 +596,7 @@ class Canvas(app.Canvas):
                 ('black_level', self.black_level),
                 ('feature_level', self.feature_level),
                 ('neighbor_level', self.neighbor_level),
+                ('paint_zoom', self.paint_zoom),
         ]:
             self.trace(attribute, value)
 
@@ -603,12 +608,14 @@ class Canvas(app.Canvas):
         self.hud_drain(drain_all=True)
         self.hud_age_s = 10
 
+        self.sticky_drag = False
         self.prev_paint_center = (-1000, -1000)
         self.paint_center = self.prev_paint_center
 
         self.prev_pick_idx = 0
         self.pick_idx = 0
         self.drag_button = 0
+        self.paint_zoom = 1.0
 
         self.gain = 1.0
         self.feature_level = 0.0
@@ -749,6 +756,21 @@ class Canvas(app.Canvas):
         self.trace('Z', '%d of %d' % (int(Z), self.vol_slicer.data.shape[0]))
         self.update()
 
+    def adjust_paint_zoom(self, event):
+        """Increase (right-arrow) or decrease (left-arrow) paint brush zoom factor."""
+        if event.key == 'Right':
+            self.paint_zoom *= 1.1
+        else:
+            self.paint_zoom *= 1/1.1
+        if self.drag_button:
+            self.program['u_paint_radii2_inv'] = tuple([
+                # scale radii by drag_button which is 1 or 2
+                1.0 / (self.drag_button * self.paint_zoom * x)**2
+                for x in self.paint_radii_texn
+            ])
+        self.trace('paint_zoom', self.paint_zoom)
+        self.update()
+
     def find_paint_center(self, event):
         X0, Y0, W, H = [ float(x) for x in self.viewport1 ]
         dh, dw = [ float(x) for x in self.segment_map.shape[0:2] ]
@@ -760,7 +782,8 @@ class Canvas(app.Canvas):
         self.paint_center = (x, y)
         self.program['u_paint_center'] = self.paint_center
 
-        self.drag_button = event.button + self.mouse_button_offset
+        if event.button and not self.sticky_drag:
+            self.drag_button = event.button + self.mouse_button_offset
         self.pick_idx = 0
 
         if self.paint_center != self.prev_paint_center \
@@ -779,8 +802,8 @@ class Canvas(app.Canvas):
         xr, yr = self.paint_radii_tex
 
         # scale radii by button number 1 or 2
-        xr *= self.drag_button
-        yr *= self.drag_button
+        xr *= self.drag_button * self.paint_zoom
+        yr *= self.drag_button * self.paint_zoom
 
         def mkslc(c, r, w):
             return slice(
@@ -859,33 +882,58 @@ class Canvas(app.Canvas):
         if self.pick_idx != self.prev_pick_idx:
             self.update()
             self.prev_pick_idx = self.pick_idx
-            
+
     def on_mouse_press(self, event):
         self.find_pick_idx(event)
         if event.button == 0:
             self.mouse_button_offset = 1
-        self.drag_button = event.button + self.mouse_button_offset
+        self.start_drag(event.button)
+
+    def toggle_paint(self, event):
+        """Start (P) or stop (p) paint mode."""
+        if 'Shift' in event.modifiers:
+            self.start_drag(1)
+            self.sticky_drag = True
+        else:
+            self.stop_drag()
+        self.update()
+
+    def toggle_erase(self, event):
+        """Start (E) or stop (e) erase mode."""
+        if 'Shift' in event.modifiers:
+            self.start_drag(2)
+            self.sticky_drag = True
+        else:
+            self.stop_drag()
+        self.update()
+
+    def start_drag(self, button):
+        self.drag_button = button + self.mouse_button_offset
         self.program['u_paint_radii2_inv'] = tuple([
             # scale radii by drag_button which is 1 or 2
-            1.0 / (self.drag_button * x)**2
+            1.0 / (self.drag_button * self.paint_zoom * x)**2
             for x in self.paint_radii_texn
         ])
-        
+
     def on_mouse_release(self, event):
-        if self.pick_idx > 0:
-            b = {
-                # state-transitions for clicking centroids
-                0: 7, 5: 7, 7: 0
-            }[self.segment_status[self.pick_idx]]
-            self.segment_status[self.pick_idx] = b # track state for ourselves
-            self.textures[3].set_data( # poke into status_cube texture for renderer
-                np.array([[[b]]], dtype=np.uint8),
-                offset=tuple(self.pick_rgb[::-1]),
-                copy=True
-            )
-        if self.drag_button:
-            self.drag_button = 0
+        if self.drag_button == 0:
+            if self.pick_idx > 0:
+                b = {
+                    # state-transitions for clicking centroids
+                    0: 7, 5: 7, 7: 0
+                }[self.segment_status[self.pick_idx]]
+                self.segment_status[self.pick_idx] = b # track state for ourselves
+                self.textures[3].set_data( # poke into status_cube texture for renderer
+                    np.array([[[b]]], dtype=np.uint8),
+                    offset=tuple(self.pick_rgb[::-1]),
+                    copy=True
+                )
+        self.stop_drag()
         self.update()
+
+    def stop_drag(self):
+        self.drag_button = 0
+        self.sticky_drag = False
 
     def csv_file_name(self):
         if self.vol_slicer.properties['synspy_nuclei_mode']:
@@ -973,10 +1021,10 @@ class Canvas(app.Canvas):
         self.update()
             
     def on_mouse_move(self, event):
-        if event.is_dragging:
+        self.find_paint_center(event)
+        if event.is_dragging or self.sticky_drag:
             if event.button == 0:
                 self.mouse_button_offset = 1
-            self.find_paint_center(event)
             self.paint_segments(event)
         else:
             self.find_pick_idx(event)

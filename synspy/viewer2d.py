@@ -555,7 +555,7 @@ class Canvas(app.Canvas):
         for mesg in [
                 'Click segments with mouse to toggle classification status.',
                 'Drag primary (i.e. left) button to set "true" segments en masse.',
-                'Drag secondary (i.e. right) button to set "false" segments en masse.',
+                'Drag secondary (i.e. right) button to clear segments en masse.',
                 'Keyboard commands:',
                 '  Exit (ESC).',
         ] + [ '  ' + p[0].__doc__ for p in handlers ]:
@@ -822,7 +822,7 @@ class Canvas(app.Canvas):
         paint_idx = paint_rgb[:,0] + paint_rgb[:,1] * 2**8 + paint_rgb[:,2] * 2**16
 
         # set new segment status for affected segment IDs
-        newval = {1: 7, 2: 5}[self.drag_button]
+        newval = {1: 7, 2: 0}[self.drag_button]
         anychanged = False
         for i in range(paint_idx.shape[0]):
             if self.segment_status[paint_idx[i]] != newval:
@@ -875,7 +875,7 @@ class Canvas(app.Canvas):
         if self.pick_idx > 0:
             b = {
                 # state-transitions for clicking centroids
-                0: 5, 5: 7, 7: 0
+                0: 7, 5: 7, 7: 0
             }[self.segment_status[self.pick_idx]]
             self.segment_status[self.pick_idx] = b # track state for ourselves
             self.textures[3].set_data( # poke into status_cube texture for renderer

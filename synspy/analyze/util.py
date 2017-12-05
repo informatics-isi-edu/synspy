@@ -343,4 +343,33 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
     del writer
     csvfile.close()
 
+def load_registered_csv(hatrac_store, object_path):
+    """Load a registered segment list from the object store.
 
+       Arguments:
+         hatrac_store: an instance of deriva.core.HatracStore
+         object_path: the path of the registered segment list CSV object in the store
+
+       Returns:
+         a: an array of shape (N, k) of type float32
+
+       The array has N centroids and k values packed as:
+          Z, Y, X, raw core, raw hollow, DoG core, DoG hollow (, red)?, override
+
+    """
+    r = hatrac_store.get(object_path, stream=True)
+    r.raise_for_status()
+    reader = csv.DictReader(r.iter_lines(chunk_size=1024**2))
+    rows = []
+    for row in reader:
+        if row['Z'] == 'saved':
+            continue
+        rows.append(
+            tuple([
+                row[k]
+                for k in ['Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow', 'red', 'override']
+                if k in row
+            ])
+        )
+    rows = np.array(rows, dtype=np.float32)
+    return rows

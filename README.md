@@ -48,9 +48,7 @@ on Mac OSX. It has several requirements:
   point-cloud registration algorithms.
   - [Point Cloud Library (PCL)](http://pointclouds.org/) is the 
     actual library. We test with `pcl-devel` on Fedora Linux.
-  - PCL is optional and only used by the auxiliary `synspy-register`
-    script, used to determine alignment between images using a
-    set of common registration features detected in both.
+  - PCL is optional and only used by `synspy.analyze.pair` routines.
 
 ### Installation
 
@@ -130,51 +128,45 @@ blobs.
 
 ### Registering Two Images
 
-We have only rudimentary support for registering multiple images for expert users:
+We have only rudimentary support for registering multiple images when tracked
+in the catalog:
 
-1. Acquire two images, such as a *before* and *after* image of the same tissue.
-2. Detect nuclei using the previously described method and dump two segment lists such as `nuclei-before.csv` and `nuclei-after.csv` with manually classified features.
-3. Filter the dumped lists to only include manually classified features, e.g. those with `override` column values of `7`.
-4. Run the `synspy-register` tool
-  - `synspy-register nuclei-before.csv nuclei-after.csv synapses-before.csv synapses-after.csv`
-5. View the resulting alignment and judge quality.
-6. Capture the transformation matrix printed to standard output if desired.
+1. Acquire two images, such as a *before* and *after* image of the same tissue and submit to catalog.
+2. Define image regions for nucleic and synaptic regions of interest to compare.
+3. Use the `synspy-launcher` GUI to perform segment classification on all four regions.
+4. Create an image pair study for the two nucleic regions.
+5. Create a synaptic pair study for the two synaptic regions.
+6. Wait for the catalog to produce registered pointclouds.
+5. Launch `synspy-register syn_study_id` to interactively view the aligned pointclouds with a pairwise matching algorithm:
+   - This requires credentials obtained in advance via the `deriva-auth` authentication agent
 
 In the interactive viewer, the `1` ... `0` keys can be pressed to
 toggle the visibility of the sub-plots:
-- `1`: unmatched points from the first CSV (nuclei *before*)
-- `2`: matched points from the first CSV
-- `3`: segments connecting matched points
-- `4`: matched points from the second CSV (nuclei *after*)
-- `5`: unmatched points from the second CSV
-- `6`: unmatched points from the third CSV (synapses *before*)
-- `7`: matched points from the third CSV
-- `8`: segments connecting matched points
-- `9`: matched points from the fourth CSV (synapses *after*)
-- `0`: unmatched points from the fourth CSV
+- `1`: unmatched nuclei from image 1
+- `2`: matched nuclei from image 1
+- `3`: segments connecting matched nuclei
+- `4`: matched nuclei from image 2
+- `5`: unmatched nuclei from image 2
+- `6`: unmatched synapses from image 1
+- `7`: matched synapses from image 1
+- `8`: segments connecting matched synapses
+- `9`: matched synapses from image 2
+- `0`: unmatched synapses from image 2
 
 The point matching and the pointcloud viz can be adjusted by environment parameters:
-- `INTENSITY_DISTANCE_RATIO`: intensity units vs microns for 4D nearest-neighbor
-   - Applies to both nuclei and synapse pairing
-   - By adjusting the relative weight of intensity vs distance, you can favor matching by spatial or intensity adjacency
-   - If not set, then 3D nearest neighbor is performed
-- `PAIR_MAX_RATIO`: maximum intensity ration between brighter and dimmer point
-   - Applies to both nuclei and synapse pairing
-   - If a found pair has a wider intensity ratio than this threshold, pretend they are unmatched points
-   - If not set, then no threshold is applied
-- `NUC_PAIRING_RADIUS`: distance allowed between paired nuclei in microns (default 15.0)
-- `SYN_PAIRING_RADIUS`: distance allowed between paired synapses in microns (default 5.0)
-- `DUMP_PREFIX`: how to name output files (no output files if not set)
-   - Output names append a fixed suffix to the specific prefix to determine the actual output name, e.g. _prefix_ + `syn-tpt1-only.csv`
+- `SYNSPY_HOST`: the hostname of the server (default `synapse.isrd.isi.edu`)
+- `SYNSPY_CATALOG`: the catalog identifier (default `1`)
+- `DERIVA_CREDENTIALS`: the filename where credentials are stored (default unset to use those from `deriva-auth`)
+- Nucleic pairing parameters
+   - `NUC_PAIRING_RADIUS`: distance allowed between paired nuclei in microns (default 15.0)
+   - `NUC_CORE_DX_RATIO`: intensity units/micron for 4D nearest-neighbor (default unset for 3D nearest-neighbor)
+   - `NUC_MAX_RATIO`: maximum intensity ratio to accept for pairs
+- Synaptic pairing parameters
+   - `SYN_PAIRING_RADIUS`: distance allowed between paired synapses in microns (default 5.0)
+   - `SYN_CORE_DX_RATIO`: intensity units/micron for 4D nearest-neighbor (default unset for 3D nearest-neighbor)
+   - `SYN_MAX_RATIO`: maximum intensity ratio to accept for pair
 - `BACKGROUND_RGB`: 3-channel RGB in normalized 0.0-1.0 space (default `0.15,0.15,0.15` for a dark gray)
 - `SHOW_AXES`: `true` enables and `false` disables axes arrows (default `true`)
-
-The transformation matrix can be applied the second image or its
-features (the *after* image in this example). We do not currently
-provide any tools to do this transformation since there are too many
-choices depending on your goals. We do not in general recommend
-resampling the source image grid since a typical anisotropic
-microscope image will be greatly degraded by a rotation.
 
 ### Environment Parameters
 

@@ -838,16 +838,29 @@ class Canvas(app.Canvas):
             (coords_y2 * np.float32(1.0/yr**2)
              + coords_x2 * np.float32(1.0/xr**2))
             < 1.0
+        )
+        in_ellipse_segmented = (
+            in_ellipse
+            * ((smap[:,0] > 0)
+               + (smap[:,1] > 0)
+               + (smap[:,2] > 0))
         ).nonzero()[0]
 
         # extract segment IDs under brush
-        paint_rgb = smap[in_ellipse,:]
+        paint_rgb = smap[in_ellipse_segmented,:]
         paint_idx = paint_rgb[:,0] + paint_rgb[:,1] * 2**8 + paint_rgb[:,2] * 2**16
+        paint_idx, unique_idx = np.unique(paint_idx, return_index=True)
+        paint_rgb = paint_rgb[(unique_idx, slice(None))]
 
         # set new segment status for affected segment IDs
         newval = {1: 7, 2: 0}[self.drag_button]
         anychanged = False
         for i in range(paint_idx.shape[0]):
+            core = self.vol_slicer.measures[paint_idx[i]-1,0] / self.vol_slicer.properties['measures_divisor']
+            hollow = self.vol_slicer.measures[paint_idx[i]-1,1] / self.vol_slicer.properties['measures_divisor']
+            if newval == 7 and (core < self.feature_level or hollow > self.neighbor_level):
+                # don't paint segments out of range
+                continue
             if self.segment_status[paint_idx[i]] != newval:
                 self.segment_status[paint_idx[i]] = newval
                 self.textures[3].set_data(

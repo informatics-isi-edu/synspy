@@ -7,4 +7,4 @@
 #import analyze
 #import viewer
 
-__version__ = "20171205.1"
+__version__ = "20171206.0"

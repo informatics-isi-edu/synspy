@@ -887,7 +887,6 @@ class Canvas(app.Canvas):
         self.find_pick_idx(event)
         if event.button == 0:
             self.mouse_button_offset = 1
-        self.start_drag(event.button)
 
     def toggle_paint(self, event):
         """Start (P) or stop (p) paint mode."""
@@ -911,7 +910,7 @@ class Canvas(app.Canvas):
         self.drag_button = button + self.mouse_button_offset
         self.program['u_paint_radii2_inv'] = tuple([
             # scale radii by drag_button which is 1 or 2
-            1.0 / (self.drag_button * self.paint_zoom * x)**2
+            1.0 / ((button + self.mouse_button_offset) * self.paint_zoom * x)**2
             for x in self.paint_radii_texn
         ])
 
@@ -1021,10 +1020,13 @@ class Canvas(app.Canvas):
         self.update()
             
     def on_mouse_move(self, event):
-        self.find_paint_center(event)
-        if event.is_dragging or self.sticky_drag:
+        if event.is_dragging:
             if event.button == 0:
                 self.mouse_button_offset = 1
+            self.start_drag(event.button)
+
+        self.find_paint_center(event)
+        if self.drag_button != 0:
             self.paint_segments(event)
         else:
             self.find_pick_idx(event)

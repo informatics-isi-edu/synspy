@@ -44,7 +44,7 @@ def nearest_pairs(v1, kdt1, v2, radius, out1, out2):
                     out1[pairs[idx2,d]] = idx2
 
 def intersection_sweep(v1, v2, w1, w2, radius_seq, dx_weight_ratio=None, weight_ratio_threshold=None):
-    """Find intersection and return (v1only, vpairs, v2only, w1only, wpairs, w2only).
+    """Find intersection and return adjacency matrices.
 
        Inputs:
          v1: array with shape (n, k) of k-dimensional vertices

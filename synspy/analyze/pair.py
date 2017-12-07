@@ -8,10 +8,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 from .util import load_registered_csv
 
-import urllib
-
-def urlquote(s):
-    return urllib.quote(s, safe='')
+from deriva.core import urlquote
 
 def nearest_pairs(v1, kdt1, v2, radius, out1, out2):
     """Find nearest k-dimensional point pairs between v1 and v2 and return via output arrays.

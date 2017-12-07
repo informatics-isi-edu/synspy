@@ -359,7 +359,7 @@ def load_registered_csv(hatrac_store, object_path):
     """
     r = hatrac_store.get(object_path, stream=True)
     r.raise_for_status()
-    reader = csv.DictReader(r.iter_lines(chunk_size=1024**2))
+    reader = csv.DictReader(r.iter_lines(decode_unicode=True, chunk_size=1024**2))
     rows = []
     for row in reader:
         if row['Z'] == 'saved':

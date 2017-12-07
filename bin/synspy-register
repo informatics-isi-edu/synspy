@@ -6,15 +6,13 @@
 
 import os
 import sys
-import pcl
-import pcl.registration
 import numpy as np
 import csv
 import json
 import vispy.scene
 from vispy.scene import visuals
-from MDAnalysis.lib.transformations import decompose_matrix
 import math
+from functools import reduce
 
 from deriva.core import ErmrestCatalog, HatracStore, get_credential, urlquote
 from synspy.analyze.util import centroids_zx_swap, load_registered_csv
@@ -81,9 +79,9 @@ def main(synstudyid):
     study = SynapticPairStudy.from_study_id(catalog, synstudyid)
     study.retrieve_data(store)
 
-    print 'Showing registration for Synaptic Pair Study ID=%s' % study.id
-    print 'grid scale: %(z)s, %(y)s, %(x)s' % study.spacing
-    print 'VIEW_MATRIX="%s"' % json.dumps(study.alignment)
+    print ('Showing registration for Synaptic Pair Study ID=%s' % study.id)
+    print ('grid scale: %(z)s, %(y)s, %(x)s' % study.spacing)
+    print ('VIEW_MATRIX="%s"' % json.dumps(study.alignment))
 
     # get first measure (raw core) as weight
     n1weight = study.n1[:,3]
@@ -123,7 +121,7 @@ def main(synstudyid):
     def print_pair_stats(vpairs, wpairs):
         rms_dx = (np.square((vpairs[:,1,:] - vpairs[:,0,:])).sum())**0.5
         rms_w  = (np.square((wpairs[:,1] - wpairs[:,0])).sum())**0.5
-        print 'Found %d shared points RMS dx=%f i=%f.' % (vpairs.shape[0], rms_dx, rms_w)
+        print ('Found %d shared points RMS dx=%f i=%f.' % (vpairs.shape[0], rms_dx, rms_w))
 
     n1_to_n2, n2_to_n1 = study.nuc_pairing_maps((nuc_pair_radius,), nuc_dx_core_ratio, nuc_core_max_ratio)
     s1_to_s2, s2_to_s1 = study.syn_pairing_maps((syn_pair_radius,), syn_dx_core_ratio, syn_core_max_ratio)

@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
                 "Classifier",
                 "Subject Issue Date",
                 "Due Date",
+                "Accepted?",
                 "Status",
                 "Identities",
                 "URL",
@@ -163,7 +164,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
         self.ui.workList.setColumnCount(0)
-        displayed = ["ID", "Classifier", "Subject Issue Date", "Due Date", "Status"]
+        displayed = ["ID", "Classifier", "Subject Issue Date", "Due Date", "Accepted?", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -194,6 +195,8 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.UserRole, value)
                 else:
                     value = row.get(key)
+                if isinstance(value, bool):
+                    value = str(value)
                 if isinstance(value, str):
                     item.setText(value)
                     item.setToolTip(value)
@@ -213,6 +216,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.resizeColumnToContents(1)
         self.ui.workList.resizeColumnToContents(2)
         self.ui.workList.resizeColumnToContents(3)
+        self.ui.workList.resizeColumnToContents(4)
         self.ui.workList.sortByColumn(2, Qt.DescendingOrder)
 
     def getCacheDir(self):

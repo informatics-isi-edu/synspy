@@ -158,10 +158,10 @@ class SynapticPairStudy (object):
             '*;'
             'I1:%(zs)s,'
             'IPS:Alignment,'
-            'n1:=N1:%(sfu)s,'
-            'n2:=N2:%(sfu)s,'
-            's1:=S1:%(sfu)s,'
-            's2:=S2:%(sfu)s'
+            'n1:=IPS:%(r1u)s,'
+            'n2:=IPS:%(r2u)s,'
+            's1:=SPS:%(r1u)s,'
+            's2:=SPS:%(r2u)s'
         ) % {
             'sid': urlquote(study_id),
             'sps': urlquote('Synaptic Pair Study'),
@@ -171,7 +171,8 @@ class SynapticPairStudy (object):
             'n2': urlquote('Nucleic Region 2'),
             'si': urlquote('Source Image'),
             'zs': urlquote('ZYX Spacing'),
-            'sfu': urlquote('Segments Filtered URL'),
+            'r1u': urlquote('Region 1 URL'),
+            'r2u': urlquote('Region 2 URL'),
         }
 
     def __init__(self, metadata):

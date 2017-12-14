@@ -4,9 +4,10 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
+import math
 import numpy as np
 from scipy.spatial import cKDTree
-from .util import load_registered_csv
+from .util import load_registered_csv, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, centroids_zx_swap
 
 from deriva.core import urlquote
 
@@ -111,12 +112,14 @@ def intersection_sweep(v1, v2, w1, w2, radius_seq, dx_weight_ratio=None, weight_
 
     return v1_to_v2, v2_to_v1
 
-class SynapticPairStudy (object):
-    """Local representation of one remote Synaptic Pair Study record.
+class NucleicPairStudy (object):
+    """Local representation of one remote Nucliec Pair Study record.
+
+       WORK IN PROGRESS...
 
        Basic usage:
 
-           study = SynapticPairStudy.from_study_id(ermrest_catalog, study_id)
+           study = NucleicPairStudy.from_study_id(ermrest_catalog, study_id)
            study.retrieve_data(hatrac_store)
 
        The above will populate instance fields:
@@ -124,17 +127,16 @@ class SynapticPairStudy (object):
            id: the same study_id passed to from_study_id()
            spacing: the ZYX grid spacing
            alignment: the 4x4 transform matrix to align second image to first
-           n1, n2, s1, s2: numpy arrays of shape [n_i, k] where k is 8 or 9
+           n1, n2: numpy arrays of shape [n_i, k] where k is 8 or 9
 
-       The pointclouds n1, n2, s1, s2 have n records of k float32
+       The pointclouds n1, n2 have n records of k float32
        scalars packed in the standard synspy CSV column order:
 
            Z, Y, X, raw core, raw hollow, DoG core, DoG hollow, (red,)? override
-
     """
     @classmethod
     def from_study_id(cls, ermrest_catalog, study_id):
-        """Instantiate SynapticPairStudy by finding metadata for a given study_id in ermrest_catalog."""
+        """Instantiate class by finding metadata for a given study_id in ermrest_catalog."""
         r = ermrest_catalog.get(cls.metadata_query_url(study_id))
         r.raise_for_status()
         result = r.json()
@@ -147,50 +149,46 @@ class SynapticPairStudy (object):
         """Build ERMrest query URL returning metadata record needed by class."""
         return (
             '/attributegroup/'
-            'SPS:=%(sps)s/ID=%(sid)s/'
-            'IPS:=(SPS:Study)/'
-            'S1:=(SPS:%(s1)s)/'
-            'S2:=(SPS:%(s2)s)/'
-            'N1:=(IPS:%(n1)s)/'
-            'N2:=(IPS:%(n2)s)/'
+            'NPS:=%(nps)s/ID=%(sid)s/'
+            'IPS:=(NPS:Study)/'
+            'N1:=(NPS:%(n1)s)/'
+            'N2:=(NPS:%(n2)s)/'
             'I1:=(N1:%(si)s)/'
-            '$SPS/'
+            '$NPS/'
             '*;'
             'I1:%(zs)s,'
             'IPS:Alignment,'
-            'n1:=IPS:%(r1u)s,'
-            'n2:=IPS:%(r2u)s,'
-            's1:=SPS:%(r1u)s,'
-            's2:=SPS:%(r2u)s'
+            'n1:=N1:%(sfu)s,'
+            'n2:=N2:%(sfu)s,'
         ) % {
             'sid': urlquote(study_id),
-            'sps': urlquote('Synaptic Pair Study'),
-            's1': urlquote('Synaptic Region 1'),
-            's2': urlquote('Synaptic Region 2'),
+            'nps': urlquote('Nucleic Pair Study'),
             'n1': urlquote('Nucleic Region 1'),
             'n2': urlquote('Nucleic Region 2'),
             'si': urlquote('Source Image'),
             'zs': urlquote('ZYX Spacing'),
-            'r1u': urlquote('Region 1 URL'),
-            'r2u': urlquote('Region 2 URL'),
+            'sfu': urlquote('Segments Filtered URL'),
         }
 
     def __init__(self, metadata):
-        """Instantiate with record metadata retrieved from joined query."""
+        """Instantiate with record metadata retrieved from study and related entities.
+
+           The exact format of metadata is an implementation detail
+           and will be produced by the metadata_query_url(study_id)
+           class-method.
+
+        """
         self._metadata = metadata
         self.id = self._metadata['ID']
         self.spacing = self._metadata['ZYX Spacing']
         self.alignment = self._metadata['Alignment']
 
     def retrieve_data(self, hatrac_store):
-        """Download registered CSV pointcloud data from Hatrac object store.
+        """Download raw CSV pointcloud data from Hatrac object store and register it.
 
-           Pointclouds are saved to self.n1, self.n2, self.s1, self.s2
+           Registered pointclouds are saved to self.n1, self.n2
         """
-        self.n1 = load_registered_csv(hatrac_store, self._metadata['n1'])
-        self.n2 = load_registered_csv(hatrac_store, self._metadata['n2'])
-        self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
-        self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
+        raise NotImplementedError()
 
     def nuc_pairing_maps(self, max_dx_seq=(4.0,), dx_w_ratio=None, max_w_ratio=None):
         """Return (n1_to_n2, n2_to_n1) adjacency matrices after pairing search.
@@ -211,30 +209,6 @@ class SynapticPairStudy (object):
             self.n2[:,0:3],
             self.n1[:,3],
             self.n2[:,3],
-            max_dx_seq,
-            dx_w_ratio,
-            max_w_ratio
-        )
-
-    def syn_pairing_maps(self, max_dx_seq=(4.0,), dx_w_ratio=None, max_w_ratio=None):
-        """Return (s1_to_s2, s2_to_s1) adjacency matrices after pairing search.
-
-           Arguments:
-               max_dx_seq: sequence of x maximum distance thresholds
-               dx_w_ratio: scaling coefficient to convert weights into 4th dimension (or None to use 3D points)
-               max_w_ratio: weight ratio threshold to discard pairs with widely different weights
-
-           Result:
-               s1_to_s2: shape of (x, self.s1.shape[0],) adjacency matrix containing indices of self.s2 or -1
-               s2_to_s1: shape of (x, self.s2.shape[0],) adjacency matrix containing indices of self.s1 or -1
-
-           The output slices a[i,:] is an adjacency matrix for the ith element of max_dx_seq.
-        """
-        return intersection_sweep(
-            self.s1[:,0:3],
-            self.s2[:,0:3],
-            self.s1[:,3],
-            self.s2[:,3],
             max_dx_seq,
             dx_w_ratio,
             max_w_ratio
@@ -272,3 +246,238 @@ class SynapticPairStudy (object):
             points2[(adjacency[(paired_idxs,)], slice(None))]
         )
 
+    @classmethod
+    def get_alignment(cls, a0, a1):
+        """Compute alignment matrix to fit a1 into a0 coordinates.
+
+           Input point coordinates are for corresponding anatomical
+           points i=0..2 and dimensions d=0..2 in ZYX order.
+
+           Arguments:
+             a0: coordinates array shaped (i,d)
+             a1: coordinates array shaped (i,d)
+
+           Alignment is determined in this order:
+             1. Scale
+                a1[1,:]-a1[0,:] length same as a0[1,:]-a0[0,:]
+             2. Translate
+                a1[0,:] colocated with a0[0,:]
+             3. Rotate about point a1[0,:]
+                a1[1,:] colocated with a0[1,:]
+             4. Rotate about line a1[0,:]..a1[1,:]
+                a1[2,:] on line a0[2,:]..a0[0,:]
+
+           Results:
+              m: 4x4 matrix
+        """
+        pass
+
+class SynapticPairStudy (NucleicPairStudy):
+    """Local representation of one remote Synaptic Pair Study record.
+
+       Basic usage:
+
+           study = SynapticPairStudy.from_study_id(ermrest_catalog, study_id)
+           study.retrieve_data(hatrac_store)
+
+       The above will populate instance fields:
+
+           id: the same study_id passed to from_study_id()
+           spacing: the ZYX grid spacing
+           alignment: the 4x4 transform matrix to align second image to first
+           n1, n2, s1, s2: numpy arrays of shape [n_i, k] where k is 8 or 9
+
+       The pointclouds n1, n2, s1, s2 have n records of k float32
+       scalars packed in the standard synspy CSV column order:
+
+           Z, Y, X, raw core, raw hollow, DoG core, DoG hollow, (red,)? override
+
+    """
+    @staticmethod
+    def metadata_query_url(study_id):
+        """Build ERMrest query URL returning metadata record needed by class."""
+        return (
+            '/attributegroup/'
+            'SPS:=%(sps)s/ID=%(sid)s/'
+            'IPS:=(SPS:Study)/'
+            'S1:=(SPS:%(s1)s)/'
+            'S2:=(SPS:%(s2)s)/'
+            'N1:=(IPS:%(n1)s)/'
+            'N2:=(IPS:%(n2)s)/'
+            'I1:=(N1:%(si)s)/'
+            '$SPS/'
+            '*;'
+            'I1:%(zs)s,'
+            'IPS:Alignment,'
+            'n1:=IPS:%(r1u)s,'
+            'n2:=IPS:%(r2u)s,'
+            's1:=SPS:%(r1u)s,'
+            's2:=SPS:%(r2u)s'
+        ) % {
+            'sid': urlquote(study_id),
+            'sps': urlquote('Synaptic Pair Study'),
+            's1': urlquote('Synaptic Region 1'),
+            's2': urlquote('Synaptic Region 2'),
+            'n1': urlquote('Nucleic Region 1'),
+            'n2': urlquote('Nucleic Region 2'),
+            'si': urlquote('Source Image'),
+            'zs': urlquote('ZYX Spacing'),
+            'r1u': urlquote('Region 1 URL'),
+            'r2u': urlquote('Region 2 URL'),
+        }
+
+    def retrieve_data(self, hatrac_store):
+        """Download registered CSV pointcloud data from Hatrac object store.
+
+           Pointclouds are saved to self.n1, self.n2, self.s1, self.s2
+        """
+        self.n1 = load_registered_csv(hatrac_store, self._metadata['n1'])
+        self.n2 = load_registered_csv(hatrac_store, self._metadata['n2'])
+        self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
+        self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
+
+    def syn_pairing_maps(self, max_dx_seq=(4.0,), dx_w_ratio=None, max_w_ratio=None):
+        """Return (s1_to_s2, s2_to_s1) adjacency matrices after pairing search.
+
+           Arguments:
+               max_dx_seq: sequence of x maximum distance thresholds
+               dx_w_ratio: scaling coefficient to convert weights into 4th dimension (or None to use 3D points)
+               max_w_ratio: weight ratio threshold to discard pairs with widely different weights
+
+           Result:
+               s1_to_s2: shape of (x, self.s1.shape[0],) adjacency matrix containing indices of self.s2 or -1
+               s2_to_s1: shape of (x, self.s2.shape[0],) adjacency matrix containing indices of self.s1 or -1
+
+           The output slices a[i,:] is an adjacency matrix for the ith element of max_dx_seq.
+        """
+        return intersection_sweep(
+            self.s1[:,0:3],
+            self.s2[:,0:3],
+            self.s1[:,3],
+            self.s2[:,3],
+            max_dx_seq,
+            dx_w_ratio,
+            max_w_ratio
+        )
+
+def gross_unit_alignment(xyz_triple):
+    """Return transformation to convert XYZ points into unit space.
+
+       This is a gross anatomical alignment based on three reference
+       points chosen consistently in two images.
+
+       Arguments:
+          *xyz_triple[0,:]: P0
+          *xyz_triple[1,:]: P1
+          *xyz_triple[2,:]: P2
+
+       Alignment:
+          1. P0 will be translated to origin (0,0,0)
+          2. P1 will be aligned to Y-axis unit vector (0,1,0) via scale+rotate
+          3. P2 will be aligned into Z=0 plane via roll around Y-axis
+
+       Results:
+          M: 4x4 transform matrix
+          length: micron per unit distance for this image
+
+    """
+    v = xyz_triple
+
+    # scale to have unit length P0-P1
+    length = np.linalg.norm(v[1,:]-v[0,:])
+    Ms = matrix_scale(1./length)
+    v = transform_points(Ms, v, np.float64)
+
+    # translate to have first point as origin
+    Mt = matrix_translate(0 - v[0,:])
+    v = transform_points(Mt, v, np.float64)
+
+    # rotate to align P0-P1 to Y axis
+    Mr1 = matrix_rotate(
+        # axis perpindicular to plane
+        np.cross(y_axis, v[1,:]),
+        # rotate by angle within plane
+        math.acos(
+            np.inner(y_axis, v[1,:])
+            / (np.linalg.norm(y_axis) * np.linalg.norm(v[1,:]))
+        )
+    )
+    v = transform_points(Mr1, v, np.float64)
+
+    # roll on Y axis to place P0-P2 into XY plane
+    u1 = np.cross(y_axis, x_axis) # use X-axis as reference for XY plane
+    u2 = np.cross(y_axis, v[2,:]) # find comparable vector
+    roll = -math.acos(
+        np.inner(u1, u2)
+        / (np.linalg.norm(u1) * np.linalg.norm(u2))
+    )
+    Mr2 = matrix_rotate(y_axis, roll)
+    v = transform_points(Mr2, v, np.float64)
+
+    # compose stacked transforms as single matrix
+    M = np.matmul(np.matmul(np.matmul(Ms, Mt), Mr1), Mr2)
+    return M, length
+
+class ImageGrossAlignment (object):
+    """Local representation of one image and its alignment data.
+
+       WORK IN PROGRESS...
+
+    """
+    @classmethod
+    def from_image_id(cls, ermrest_catalog, image_id):
+        """Instantiate class by finding metadata for a given image_id in ermrest_catalog."""
+        r = ermrest_catalog.get(cls.metadata_query_url(image_id))
+        r.raise_for_status()
+        result = r.json()
+        if len(result) != 1:
+            raise ValueError('Expected exactly 1 catalog result for %s but found %d.' % (image_id, len(result)))
+        return cls(result[0])
+
+    @staticmethod
+    def metadata_query_url(image_id):
+        """Build ERMrest query URL returning metadata record needed by class."""
+        return (
+            '/attributegroup/'
+            'I:=Zebrafish:Image/ID=%(id)s/'
+            '*'
+        ) % {
+            'id': urlquote(image_id),
+        }
+
+    def __init__(self, metadata):
+        """Instantiate with record metadata retrieved from image and related entities.
+
+           The exact format of metadata is an implementation detail
+           and will be produced by the metadata_query_url(id)
+           class-method.
+
+        """
+        self._metadata = metadata
+        self.id = self._metadata['ID']
+
+        grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float32)
+        def get_align_coord(colname, axis):
+            p = self._metadata[colname]
+            if isinstance(p, dict):
+                if axis in p:
+                    return p[axis]
+                else:
+                    raise ValueError('"%s" lacks field "%s"' % (colname, axis))
+            else:
+                raise ValueError('"%s" should be an object, not %s' % (colname, type(p)))
+
+        self.alignment_points_xyz = centroids_zx_swap(
+            np.array(
+                [
+                    [
+                        get_align_coord(colname, axis)
+                        for axis in ['z', 'y', 'x']
+                    ]
+                    for colname in ['Align P0 ZYX', 'Align P1 ZYX', 'Align P2 ZYX']
+                ],
+                dtype=np.float32
+            ) * grid_zyx
+        )
+
+        self.M, self.length = gross_unit_alignment(self.alignment_points_xyz)

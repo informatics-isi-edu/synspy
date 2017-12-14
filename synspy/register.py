@@ -13,21 +13,7 @@ import csv
 from MDAnalysis.lib.transformations import decompose_matrix
 import math
 
-from .analyze.util import load_segment_info_from_csv, dump_segment_info_to_csv, centroids_zx_swap
-
-def transform_centroids(M, centroids):
-    assert centroids.shape[1] == 3
-    a1 = np.zeros((centroids.shape[0], 4), dtype=np.float32)
-    a2 = np.zeros(centroids.shape, dtype=np.float32)
-
-    a1[:,0:3] = centroids_zx_swap(centroids)
-    a1[:,3] = 1.0
-    
-    for i in range(a1.shape[0]):
-        p = np.dot(M, a1[i])
-        a2[i,:] = p[0:3] / p[3]
-
-    return centroids_zx_swap(a2)
+from .analyze.util import load_segment_info_from_csv, dump_segment_info_to_csv, centroids_zx_swap, transform_centroids
 
 def get_env_grid_scale():
     grid = list(os.getenv('SEGMENTS_ZYX_GRID', '0.4,0.26,0.26').split(','))

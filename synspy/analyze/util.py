@@ -201,6 +201,40 @@ def centroids_zx_swap(centroids):
     copy[:,2] = centroids[:,0]
     return copy
 
+def transform_points(M, v, dtype=np.float32):
+    """Apply transform matrix to k XYZ points in v[k,3] array.
+
+       This does a standard np.matmul(v, M) after extending all points
+       in v with the W coordinate 1.0, and renormalizing the results
+       back to XYZ w/o W coordinate.
+
+    """
+    assert v.shape[1] == 3
+    a1 = np.ones((v.shape[0], 4), dtype=np.float64)
+    a1[:,0:3] = v
+    a2 = np.matmul(a1,M)
+    return (a2[:,0:3] / a2[:,3]).astype(dtype)
+
+def transform_centroids(M, centroids):
+    """Transform each ZYX point in centroids[k,3] using np.dot(M, xyzw) intermediate representation.
+
+       Note, the 4x4 transform M may need to be transposed for
+       np.dot(M, xyzw) to give you the transform you expect!
+
+    """
+    assert centroids.shape[1] == 3
+    a1 = np.zeros((centroids.shape[0], 4), dtype=np.float64)
+    a2 = np.zeros(centroids.shape, dtype=np.float64)
+
+    a1[:,0:3] = centroids_zx_swap(centroids)
+    a1[:,3] = 1.0
+
+    for i in range(a1.shape[0]):
+        p = np.dot(M, a1[i])
+        a2[i,:] = p[0:3] / p[3]
+
+    return centroids_zx_swap(a2).astype(np.float32)
+
 def load_segment_info_from_csv(infilename, zyx_grid_scale=None, zx_swap=False, filter_status=None):
     """Load a segment list and return content as arrays.
 
@@ -373,3 +407,42 @@ def load_registered_csv(hatrac_store, object_path):
         )
     rows = np.array(rows, dtype=np.float32)
     return rows
+
+def matrix_ident():
+    """Produce indentity transform."""
+    return np.identity(4).astype(np.float64)
+
+def matrix_translate(displacement_xyz):
+    """Produce translation transform matrix."""
+    M = matrix_ident()
+    M[3,0:3] = displacement_xyz
+    return M
+
+def matrix_scale(s):
+    """Produce scaling transform matrix with uniform scale s in all 3 dimensions."""
+    M = matrix_ident()
+    M[0:3,0:3] = np.diag([ s, s, s ]).astype(np.float64)
+    return M
+
+def matrix_rotate(axis, radians):
+    """Produce rotation transform matrix about axis through origin."""
+    s = math.sin(radians)
+    c = math.cos(radians)
+    C = 1 - c
+    x, y, z = axis / np.linalg.norm(axis)
+    R = np.array(
+        [
+            [ x*x*C + c,   x*y*C - z*s, x*z*C + y*s ],
+            [ y*x*C + z*s, y*y*C + c,   y*z*C - x*s ],
+            [ z*x*C - y*s, z*y*C + x*s, z*z*C + c   ],
+        ],
+        dtype=np.float64
+    )
+    M = matrix_ident()
+    M[0:3,0:3] = R
+    return M
+
+x_axis = np.array([1,0,0], np.float64)
+y_axis = np.array([0,1,0], np.float64)
+z_axis = np.array([0,0,1], np.float64)
+

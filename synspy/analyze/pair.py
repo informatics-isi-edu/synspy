@@ -367,14 +367,14 @@ def gross_unit_alignment(xyz_triple):
        points chosen consistently in two images.
 
        Arguments:
-          *xyz_triple[0,:]: P0
-          *xyz_triple[1,:]: P1
-          *xyz_triple[2,:]: P2
+          xyz_triple[0,:]: P0
+          xyz_triple[1,:]: P1
+          xyz_triple[2,:]: P2
 
        Alignment:
           1. P0 will be translated to origin (0,0,0)
-          2. P1 will be aligned to Y-axis unit vector (0,1,0) via scale+rotate
-          3. P2 will be aligned into Z=0 plane via roll around Y-axis
+          2. P2 will be aligned to Y-axis unit vector (0,1,0) via scale+rotate
+          3. P1 will be aligned into Z=0 plane via roll around Y-axis
 
        Results:
           M: 4x4 transform matrix
@@ -383,35 +383,41 @@ def gross_unit_alignment(xyz_triple):
     """
     v = xyz_triple
 
-    # scale to have unit length P0-P1
-    length = np.linalg.norm(v[1,:]-v[0,:])
+    # scale to have unit length P2-P0
+    length = np.linalg.norm(v[2,:]-v[0,:])
     Ms = matrix_scale(1./length)
     v = transform_points(Ms, v, np.float64)
 
-    # translate to have first point as origin
+    # translate to have P0 as origin
     Mt = matrix_translate(0 - v[0,:])
     v = transform_points(Mt, v, np.float64)
 
-    # rotate to align P0-P1 to Y axis
+    # rotate to align P2 to (0,1,0) on Y axis
     Mr1 = matrix_rotate(
         # axis perpindicular to plane
-        np.cross(y_axis, v[1,:]),
+        np.cross(y_axis, v[2,:]),
         # rotate by angle within plane
         math.acos(
-            np.inner(y_axis, v[1,:])
-            / (np.linalg.norm(y_axis) * np.linalg.norm(v[1,:]))
+            np.inner(y_axis, v[2,:])
+            / (np.linalg.norm(y_axis) * np.linalg.norm(v[2,:]))
         )
     )
     v = transform_points(Mr1, v, np.float64)
 
-    # roll on Y axis to place P0-P2 into XY plane
+    # roll on Y axis to place P1 into Z=0 plane
     u1 = np.cross(y_axis, x_axis) # use X-axis as reference for XY plane
-    u2 = np.cross(y_axis, v[2,:]) # find comparable vector
-    roll = -math.acos(
+    u2 = np.cross(y_axis, v[1,:]) # find comparable vector
+    roll = math.acos(
         np.inner(u1, u2)
         / (np.linalg.norm(u1) * np.linalg.norm(u2))
     )
+    if v[1,0] > 0:
+        if v[1,2] >= 0:
+            roll = 0 - roll
+    else:
+        raise NotImplementedError('P1 outside of expected right-handed semi-space during final roll calculation!')
     Mr2 = matrix_rotate(y_axis, roll)
+    #Mr2 = matrix_ident()
     v = transform_points(Mr2, v, np.float64)
 
     # compose stacked transforms as single matrix

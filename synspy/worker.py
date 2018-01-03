@@ -210,7 +210,7 @@ def synaptic_pair_row_job(handler):
         'Status': "aligned"
     }
     handler.put_row_update(updated_row)
-    sys.stderr.write('Processing complete.\n')
+    sys.stderr.write('Synaptic pair %s processing complete.\n' % handler.row['ID'])
 
 _work_units.append(
     WorkUnit(
@@ -218,6 +218,35 @@ _work_units.append(
         '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status',
         '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID',
         synaptic_pair_row_job
+    )
+)
+
+def nucleic_pair_row_job(handler):
+    # Image Pair Study state machine:
+    # -> Status NULL and IP.Status="aligned" and S1.Status="processed" and S2.Status="processed"
+    # -> Status="processing..." (claimed to generate aligned files)
+    #    -> Status="aligned" (alignment complete)
+    #       Region 1 URL set
+    #       Region 2 URL set
+    # *-> Status={"failed": "reason"}
+    r1_url, r2_url = handler.register_synapses(handler.row['r1_URL'], handler.row['r2_URL'])
+    updated_row = {
+        'RID': handler.row['RID'],
+        'Region 1 URL': r1_url,
+        'Region 2 URL': r2_url,
+        'Status': "aligned"
+    }
+    handler.put_row_update(updated_row)
+    sys.stderr.write('Nucleic pair %s processing complete.\n' % handler.row['RID'])
+
+_work_units.append(
+    WorkUnit(
+        '/attribute/N:=Nucleic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$N/R1:=(Nucleic%20Region%201)/Status=%22processed%22/$N/R2:=(Nucleic%20Region%202)/Status=%22processed%22/$N/*,Subject:=IP:Subject,Alignment:=IP:Alignment,r1_URL:=R1:Segments%20Filtered%20URL,r2_URL:=R2:Segments%20Filtered%20URL?limit=1',
+        '/attributegroup/Zebrafish:Nucleic%20Pair%20Study/RID;Status',
+        '/attributegroup/Zebrafish:Nucleic%20Pair%20Study/RID',
+        nucleic_pair_row_job,
+        lambda row: {'RID': row['RID'], 'Status': "pre-processing..."},
+        lambda row, e: {'RID': row['RID'], 'Status': {"failed": "%s" % e}}
     )
 )
 
@@ -258,7 +287,7 @@ class Worker (object):
     idle_etag = None
 
     def __init__(self, row, unit):
-        sys.stderr.write('Claimed job %s.\n' % row['ID'])
+        sys.stderr.write('Claimed job %s.\n' % row.get('ID', row.get('RID')))
 
         self.row = row
         self.unit = unit
@@ -444,8 +473,8 @@ class Worker (object):
         syn2cmsp = util.load_segment_info_from_csv(s2_filename, zyx_scale, filter_status=filter_status)
         M = np.array(self.row['Alignment'], dtype=np.float64)
         syn2cmsp = (register.transform_centroids(M, syn2cmsp[0]),) + syn2cmsp[1:]
-        s1_outfile = '%s-s1-registered.csv' % self.row['ID']
-        s2_outfile = '%s-s2-registered.csv' % self.row['ID']
+        s1_outfile = '%s-s1-registered.csv' % self.row.get('ID', self.row.get('RID'))
+        s2_outfile = '%s-s2-registered.csv' % self.row.get('ID', self.row.get('RID'))
         register.dump_registered_file_pair(
             (s1_outfile, s2_outfile),
             (syn1cmsp, syn2cmsp)
@@ -504,6 +533,7 @@ class Worker (object):
             # batch may be empty if no work was found...
             for row, claim in batch:
                 found_work = True
+                handler = None
                 try:
                     handler = cls(row, unit)
                     unit.run_row_job(handler)
@@ -516,7 +546,8 @@ class Worker (object):
                     cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
                     raise
                 finally:
-                    handler.cleanup()
+                    if handler is not None:
+                        handler.cleanup()
 
         return found_work
 
@@ -527,7 +558,7 @@ class Worker (object):
 @atexit.register
 def _atexit_cleanup():
     os.chdir(Worker.startup_working_dir)
-    for dirname in Worker.working_dirs:
+    for dirname in list(Worker.working_dirs):
         Worker.cleanup_working_dir(dirname)
         del Worker.working_dirs[dirname]
 

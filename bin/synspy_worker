@@ -1,0 +1,13 @@
+#!/usr/bin/python
+#
+# Copyright 2015-2018 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import synspy.worker
+
+#
+# This worker script performs async work on several tables.
+#
+synspy.worker.Worker.blocking_poll()

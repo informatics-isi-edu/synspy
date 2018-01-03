@@ -1,6 +1,6 @@
-#!/usr/bin/python
+
 #
-# Copyright 2015-2017 University of Southern California
+# Copyright 2015-2018 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -38,6 +38,189 @@ class WorkerBadDataError (RuntimeError):
 # handle to /dev/null we can use in Popen() calls...
 fnull = open(os.devnull, 'r+b')
 
+class WorkUnit (object):
+    def __init__(
+            self,
+            get_claimable_url,
+            put_claim_url,
+            put_update_baseurl,
+            run_row_job,
+            claim_input_data=lambda row: {'ID': row['ID'], 'Status': "pre-processing..."},
+            failure_input_data=lambda row, e: {'ID': row['ID'], 'Status': {"failed": "%s" % e}}
+    ):
+        self.get_claimable_url = get_claimable_url
+        self.put_claim_url = put_claim_url
+        self.put_update_baseurl = put_update_baseurl
+        self.run_row_job = run_row_job
+        self.claim_input_data = claim_input_data
+        self.failure_input_data = failure_input_data
+        self.idle_etag = None
+
+_work_units = []
+
+def image_row_job(handler):
+    # Image state machine:
+    # Status is NULL and image URL is not NULL
+    # -> Status="pre-processing..." (claimed)
+    #    -> Status="ready"
+    #       ZYX Spacing=[0.4,0.26,0.26]
+    #       CZYX Shape=[C,D,H,W]
+    #    -> Status={"failed": "reason"}
+    assert handler.row['URL'], handler.row
+    img_filename = handler.get_file(handler.row['URL'])
+    zyx_spacing, czyx_shape = handler.get_image_info(img_filename)
+    zyx_spacing = {
+        axis: spacing
+        for axis, spacing in zip(['z','y','x'], zyx_spacing)
+    }
+    czyx_shape = {
+        axis: span
+        for axis, span in zip(['c','z','y','x'], czyx_shape)
+    }
+    handler.put_row_update({
+        'ID': handler.row['ID'],
+        'ZYX Spacing': zyx_spacing,
+        'CZYX Shape': czyx_shape,
+        'Status': "ready",
+    })
+    sys.stderr.write('Image %s processing complete.\n' % handler.row['ID'])
+
+_work_units.append(
+    WorkUnit(
+        '/entity/Zebrafish:Image/Status::null::;Status=null/!URL::null::?limit=1',
+        '/attributegroup/Zebrafish:Image/ID;Status',
+        '/attributegroup/Zebrafish:Image/ID',
+        image_row_job
+    )
+)
+
+def region_row_job(handler):
+    # ImageRegion state machine:
+    # ImageStatus="ready" and Status is NULL and Classifier is not NULL
+    # -> Status="pre-processing..." (claimed to generate NPZ)
+    #    -> Status="analysis pending" (will be available to launcher)
+    #       ZYX Slice is set
+    #       Npz URL set
+    #       -> Status="analysis complete" (launcher has declared success)
+    #          Segments URL and/or Segments Filtered URL set
+    #          -> Status="pre-processing..." (claimed to filter CSV)
+    #             -> Status="processed"
+    #                Segments Filtered URL set
+    # *-> Status={"failed": "reason"}
+    updated_row = {}
+
+    zyx_slice = handler.row['ZYX Slice']
+    if zyx_slice is None:
+        # calculate the actual slice using the alternate data input fields...
+        czyx_shape = handler.row['CZYX Shape']
+
+        z_lower, z_upper, y_lower, y_span, x_lower, x_span = [
+            int(handler.row[k])
+            for k in ['Z lower', 'Z upper', 'Y lower', 'Y span', 'X lower', 'X span']
+        ]
+
+        try:
+            # convert Y and X spans to ZYX Slice bounds
+            y_upper = y_lower + y_span
+            x_upper = x_lower + x_span
+
+            zyx_slice = ','.join([
+                '%d:%d' % (b0, b1)
+                for b0, b1 in [(z_lower, z_upper), (y_lower, y_upper), (x_lower, x_upper)]
+            ])
+
+            updated_row['ZYX Slice'] = zyx_slice
+        except TypeError:
+            pass
+
+    if handler.row['Status'] is None:
+        if handler.row['Npz URL'] is None and zyx_slice is not None and handler.row['Segmentation Mode'] == 'synaptic':
+            # we only generate NPZ for synaptic regions to save resources
+            img_filename = handler.get_file(handler.row['URL'])
+            updated_row['Npz URL'] = handler.preprocess_roi(img_filename, zyx_slice)
+            updated_row['Status'] = "analysis pending"
+
+    if handler.row['Segments URL'] is not None and handler.row['Segments Filtered URL'] is None:
+        updated_row['Segments Filtered URL'] = handler.filter_synspy_csv(handler.row['Segments URL'])
+        updated_row.update(handler.compute_synspy_stats(updated_row['Segments Filtered URL'], handler.row))
+        updated_row['Status'] = "processed"
+    elif handler.row['Segments Filtered URL']:
+        updated_row.update(handler.compute_synspy_stats(handler.row['Segments Filtered URL'], handler.row))
+        updated_row['Status'] = "processed"
+
+    if updated_row:
+        updated_row['ID'] = handler.row['ID']
+        handler.put_row_update(updated_row)
+    else:
+        raise WorkerRuntimeError('row had no work pending %s' % (handler.row,))
+
+    sys.stderr.write('Region %s processing complete.\n' % handler.row['ID'])
+
+_work_units.append(
+    WorkUnit(
+        '/attribute/I:=Zebrafish:Image/Status=%22ready%22/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;Status=%22analysis%20complete%22/*,I:URL,I:Subject,I:CZYX%20Shape?limit=1',
+        '/attributegroup/Zebrafish:Image%20Region/ID;Status',
+        '/attributegroup/Zebrafish:Image%20Region/ID',
+        region_row_job
+    )
+)
+
+def image_pair_row_job(handler):
+    # Image Pair Study state machine:
+    # -> Status NULL and N1.Status="processed" and N2.Status="processed"
+    # -> Status="processing..." (claimed to generate alignment)
+    #    -> Status="aligned" (alignment complete)
+    #       Alignment set
+    #       Region 1 URL set
+    #       Region 2 URL set
+    # *-> Status={"failed": "reason"}
+    M, n1_url, n2_url = handler.register_nuclei(handler.row['N1_URL'], handler.row['N2_URL'])
+    updated_row = {
+        'ID': handler.row['ID'],
+        'Alignment': handler.matrix_to_prejson(M),
+        'Region 1 URL': n1_url,
+        'Region 2 URL': n2_url,
+        'Status': "aligned"
+    }
+    handler.put_row_update(updated_row)
+    sys.stderr.write('Image pair %s processing complete.\n' % handler.row['ID'])
+
+_work_units.append(
+    WorkUnit(
+        '/attribute/S:=Image%20Pair%20Study/Status::null::;Status=null/N1:=(Nucleic%20Region%201)/Status=%22processed%22/$S/N2:=(Nucleic%20Region%202)/Status=%22processed%22/$S/*,N1_URL:=N1:Segments%20Filtered%20URL,N2_URL:=N2:Segments%20Filtered%20URL?limit=1',
+        '/attributegroup/Zebrafish:Image%20Pair%20Study/ID;Status',
+        '/attributegroup/Zebrafish:Image%20Pair%20Study/ID',
+        image_pair_row_job
+    )
+)
+
+def synaptic_pair_row_job(handler):
+    # Image Pair Study state machine:
+    # -> Status NULL and IP.Status="aligned" and S1.Status="processed" and S2.Status="processed"
+    # -> Status="processing..." (claimed to generate aligned files)
+    #    -> Status="aligned" (alignment complete)
+    #       Region 1 URL set
+    #       Region 2 URL set
+    # *-> Status={"failed": "reason"}
+    s1_url, s2_url = handler.register_synapses(handler.row['S1_URL'], handler.row['S2_URL'])
+    updated_row = {
+        'ID': handler.row['ID'],
+        'Region 1 URL': s1_url,
+        'Region 2 URL': s2_url,
+        'Status': "aligned"
+    }
+    handler.put_row_update(updated_row)
+    sys.stderr.write('Processing complete.\n')
+
+_work_units.append(
+    WorkUnit(
+        '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1',
+        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status',
+        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID',
+        synaptic_pair_row_job
+    )
+)
+
 class Worker (object):
     # server to talk to... defaults to our own FQDN
     servername = os.getenv('SYNSPY_SERVER', platform.uname()[1])
@@ -45,6 +228,8 @@ class Worker (object):
     # secret session cookie
     credfile = os.getenv('SYNSPY_CREDENTIALS', 'credentials.json')
     credentials = json.load(open(credfile))
+
+    poll_seconds = int(os.getenv('SYNSPY_POLL_SECONDS', '600'))
 
     # remember where we started
     startup_working_dir = os.getcwd()
@@ -72,10 +257,11 @@ class Worker (object):
     # for state-tracking across look_for_work() iterations
     idle_etag = None
 
-    def __init__(self, row):
+    def __init__(self, row, unit):
         sys.stderr.write('Claimed job %s.\n' % row['ID'])
 
         self.row = row
+        self.unit = unit
         self.subject_path = '/hatrac/Zf/%s' % row['Subject']
 
         # we want a temporary work space for our working files
@@ -276,42 +462,25 @@ class Worker (object):
         )
         return s1_url, s2_url
 
-    get_claimable_work_url = None # GET URL returning row(s) to claim
-    put_claim_url = None  # PUT URL to claim work
-
-    @staticmethod
-    def claim_input_data(row):
-        return {'ID': row['ID'], 'Status': "pre-processing..."}
-
-    @staticmethod
-    def failure_input_data(row, e):
-        return {'ID': row['ID'], 'Status': {"failed": "%s" % e}}
-
-    put_row_update_baseurl = '/attributegroup/Zebrafish:Image/ID'
-    
     def put_row_update(self, update_row):
         self.catalog.put(
             '%s;%s' % (
-                self.put_row_update_baseurl,
+                self.unit.put_update_baseurl,
                 ','.join([
                     urlquote(col, safe='')
                     for col in list(update_row.keys())
-                    if col != 'ID'
+                    if col not in ['ID', 'RID']
                 ])
             ),
             json=[update_row]
         )
         sys.stderr.write('\nupdated in ERMrest: %s' % json.dumps(update_row, indent=2))
     
+    work_units = _work_units # these are defined above w/ their funcs and URLs...
+
     @classmethod
     def look_for_work(cls):
-        """Find, claim, and process one record.
-
-        1. Find row with actionable state (partial data and Status="analysis complete")
-        2. Claim by setting Status="in progress"
-        3. Download and process data as necessary
-        4. Upload processing results to Hatrac
-        5. Update ERMrest w/ processing result URLs and Status="processed"
+        """Find, claim, and process work for each work unit.
 
         Do find/claim with HTTP opportunistic concurrency control and
         caching for efficient polling and quiescencs.
@@ -322,34 +491,38 @@ class Worker (object):
          true: there might be more work to claim
          false: we failed to find any work
         """
-        # this handled concurrent update for us to safely and efficiently claim a record
-        cls.idle_etag, batch = cls.catalog.state_change_once(
-            cls.get_claimable_work_url,
-            cls.put_claim_url,
-            cls.claim_input_data,
-            cls.idle_etag
-        )
-        # we used a batch size of 1 due to ?limit=1 above...
-        for row, claim in batch:
-            try:
-                handler = cls(row)
-                handler.run_row_job()
-            except WorkerBadDataError as e:
-                sys.stderr.write("Aborting task %s on data error: %s\n" % (row["ID"], e))
-                cls.catalog.put(cls.put_claim_url, json=[cls.failure_input_data(row, e)])
-                # continue with next task...?
-            except Exception as e:
-                # TODO: eat some exceptions and return True to continue?
-                cls.catalog.put(cls.put_claim_url, json=[cls.failure_input_data(row, e)])
-                raise
+        found_work = False
 
-            return True
-        else:
-            return False
+        for unit in cls.work_units:
+            # this handled concurrent update for us to safely and efficiently claim a record
+            unit.idle_etag, batch = cls.catalog.state_change_once(
+                unit.get_claimable_url,
+                unit.put_claim_url,
+                unit.claim_input_data,
+                unit.idle_etag
+            )
+            # batch may be empty if no work was found...
+            for row, claim in batch:
+                found_work = True
+                try:
+                    handler = cls(row, unit)
+                    unit.run_row_job(handler)
+                except WorkerBadDataError as e:
+                    sys.stderr.write("Aborting task %s on data error: %s\n" % (row["ID"], e))
+                    cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
+                    # continue with next task...?
+                except Exception as e:
+                    # TODO: eat some exceptions and return True to continue?
+                    cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
+                    raise
+                finally:
+                    handler.cleanup()
+
+        return found_work
 
     @classmethod
     def blocking_poll(cls):
-        return cls.catalog.blocking_poll(cls.look_for_work)
+        return cls.catalog.blocking_poll(cls.look_for_work, polling_seconds=cls.poll_seconds)
 
 @atexit.register
 def _atexit_cleanup():

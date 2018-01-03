@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright 2015-2017 University of Southern California
+# Copyright 2015-2018 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -55,8 +55,8 @@ def align_centroids(centroids1, centroids2):
     nuc1 = centroids_zx_swap(centroids1)
     nuc2 = centroids_zx_swap(transform_centroids(M, centroids2))
     diff = nuc2 - results[2]
-    assert diff.min() == 0
-    assert diff.max() == 0
+    assert diff.min() <= 0.00001, 'Our transform differs from PCL by %s minimum.' % diff.min()
+    assert diff.max() <= 0.001, 'Our transform differs from PCL by %s maximum.' % diff.max()
     return M, angles
 
 def dump_registered_file_pair(dstfilenames, parts):

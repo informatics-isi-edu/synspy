@@ -482,7 +482,8 @@ class ImageGrossAlignment (object):
                     ]
                     for colname in ['Align P0 ZYX', 'Align P1 ZYX', 'Align P2 ZYX']
                 ],
-                dtype=np.float32
+                #  Using np.float32 causes errors on some platforms, so use float64
+                dtype=np.float64
             ) * grid_zyx
         )
 

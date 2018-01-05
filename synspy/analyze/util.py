@@ -213,7 +213,7 @@ def transform_points(M, v, dtype=np.float32):
     a1 = np.ones((v.shape[0], 4), dtype=np.float64)
     a1[:,0:3] = v
     a2 = np.matmul(a1,M)
-    return (a2[:,0:3] / a2[:,3]).astype(dtype)
+    return (a2[:,0:3] / a2[:,3,None]).astype(dtype)
 
 def transform_centroids(M, centroids):
     """Transform each ZYX point in centroids[k,3] using np.dot(M, xyzw) intermediate representation.

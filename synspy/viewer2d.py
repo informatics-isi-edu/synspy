@@ -558,8 +558,8 @@ class Canvas(app.Canvas):
 
         for mesg in [
                 'Click segments with mouse to toggle classification status.',
-                'Drag primary (i.e. left) button to set "true" segments en masse.',
-                'Drag secondary (i.e. right) button to clear segments en masse.',
+#                'Drag primary (i.e. left) button to set "true" segments en masse.',
+ #               'Drag secondary (i.e. right) button to clear segments en masse.',
                 'Keyboard commands:',
                 '  Exit (ESC).',
         ] + [ '  ' + p[0].__doc__ for p in handlers ]:
@@ -666,7 +666,7 @@ class Canvas(app.Canvas):
         )
 
         # defer this to on_mouse_press so we can scale differently for each button
-        self.program['u_paint_radii2_inv'] = (0, 0)
+        self.program['u_paint_radii2_inv'] = (float("inf"), float("inf"))
 
         daspect = dw/dh
         if ww/wh > daspect:
@@ -1033,7 +1033,8 @@ class Canvas(app.Canvas):
         self.update()
             
     def on_mouse_move(self, event):
-        if event.is_dragging:
+        # drag-based paint and erase disabled at request of BDemps.
+        if event.is_dragging and False:
             if event.button == 0:
                 self.mouse_button_offset = 1
             self.start_drag(event.button)

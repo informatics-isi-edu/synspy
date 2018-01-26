@@ -782,8 +782,8 @@ class Canvas(app.Canvas):
         self.paint_center = (x, y)
         self.program['u_paint_center'] = self.paint_center
 
-        if event.button and not self.sticky_drag:
-            self.drag_button = event.button + self.mouse_button_offset
+        #if event.button and not self.sticky_drag:
+        #    self.drag_button = event.button + self.mouse_button_offset
         self.pick_idx = 0
 
         if self.paint_center != self.prev_paint_center \

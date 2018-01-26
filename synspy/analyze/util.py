@@ -239,7 +239,7 @@ def load_segment_info_from_csv(infilename, zyx_grid_scale=None, zx_swap=False, f
     """Load a segment list and return content as arrays.
 
     """
-    csvfile = open(infilename, 'rb')
+    csvfile = open(infilename, 'r')
     reader = csv.DictReader(csvfile)
     centroids = []
     measures = []

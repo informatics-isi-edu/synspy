@@ -139,6 +139,11 @@ def region_row_job(handler):
             img_filename = handler.get_file(handler.row['URL'])
             updated_row['Npz URL'] = handler.preprocess_roi(img_filename, zyx_slice)
             updated_row['Status'] = "analysis pending"
+        elif zyx_slice is not None and handler.row['Segmentation Mode'] == 'nucleic':
+            # we need to let nucleic tasks proceed with the 3D viewer in the launcher
+            updated_row['Status'] = "analysis pending"
+        else:
+            raise WorkerRuntimeError('Classifier is set, but ZYX Slice could not be determined.')
 
     if handler.row['Segments URL'] is not None and handler.row['Segments Filtered URL'] is None:
         updated_row['Segments Filtered URL'] = handler.filter_synspy_csv(handler.row['Segments URL'])

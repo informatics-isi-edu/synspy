@@ -1,6 +1,6 @@
 
 #
-# Copyright 2017 University of Southern California
+# Copyright 2017-2018 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -377,7 +377,8 @@ def gross_unit_alignment(xyz_triple):
           3. P1 will be aligned into Z=0 plane via roll around Y-axis
 
        Results:
-          M: 4x4 transform matrix
+          M: 4x4 transform matrix  image microns -> unit space
+          M_inv: 4x4 transform matrix  unit space -> image microns
           length: micron per unit distance for this image
 
     """
@@ -386,22 +387,28 @@ def gross_unit_alignment(xyz_triple):
     # scale to have unit length P2-P0
     length = np.linalg.norm(v[2,:]-v[0,:])
     Ms = matrix_scale(1./length)
+    Ms_inv = matrix_scale(length/1.)
     v = transform_points(Ms, v, np.float64)
 
     # translate to have P0 as origin
     Mt = matrix_translate(0 - v[0,:])
+    Mt_inv = matrix_translate(0 + v[0,:])
     v = transform_points(Mt, v, np.float64)
 
     # rotate to align P2 to (0,1,0) on Y axis
-    Mr1 = matrix_rotate(
-        # axis perpindicular to plane
-        np.cross(y_axis, v[2,:]),
-        # rotate by angle within plane
-        math.acos(
-            np.inner(y_axis, v[2,:])
-            / (np.linalg.norm(y_axis) * np.linalg.norm(v[2,:]))
-        )
+    Mr1_axis = np.cross(y_axis, v[2,:])
+    Mr1_angle = math.acos(
+        np.inner(y_axis, v[2,:])
+        / (np.linalg.norm(y_axis) * np.linalg.norm(v[2,:]))
     )
+
+    if np.linalg.norm(Mr1_axis) > 0:
+        Mr1 = matrix_rotate(Mr1_axis, Mr1_angle)
+        Mr1_inv = matrix_rotate(Mr1_axis, 0 - Mr1_angle)
+    else:
+        Mr1 = matrix_ident()
+        Mr1_inv = matrix_ident()
+
     v = transform_points(Mr1, v, np.float64)
 
     # roll on Y axis to place P1 into Z=0 plane
@@ -417,18 +424,18 @@ def gross_unit_alignment(xyz_triple):
     else:
         raise NotImplementedError('P1 outside of expected right-handed semi-space during final roll calculation!')
     Mr2 = matrix_rotate(y_axis, roll)
-    #Mr2 = matrix_ident()
+    Mr2_inv = matrix_rotate(y_axis, 0 - roll)
     v = transform_points(Mr2, v, np.float64)
 
     # compose stacked transforms as single matrix
+    M_inv = np.matmul(np.matmul(np.matmul(Mr2_inv, Mr1_inv), Mt_inv), Ms_inv)
     M = np.matmul(np.matmul(np.matmul(Ms, Mt), Mr1), Mr2)
-    return M, length
+    return M, M_inv, length
 
 class ImageGrossAlignment (object):
     """Local representation of one image and its alignment data.
 
        WORK IN PROGRESS...
-
     """
     @classmethod
     def from_image_id(cls, ermrest_catalog, image_id):
@@ -444,9 +451,16 @@ class ImageGrossAlignment (object):
     def metadata_query_url(image_id):
         """Build ERMrest query URL returning metadata record needed by class."""
         return (
-            '/attributegroup/'
-            'I:=Zebrafish:Image/ID=%(id)s/'
-            '*'
+            '/attributegroup'
+            '/I:=Zebrafish:Image/ID=%(id)s'
+            '/IS:=left(I:RID)=(Zebrafish:Alignment%%20Standard:Image)'
+            '/AS:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
+            '/AI:=left(AS:Image)=(Zebrafish:Image:RID)'
+            '/$I'
+            '/*'
+            ',IS_RID:=IS:RID'
+            ';AI_obj:=array(AI:*)'
+            ',AS_obj:=array(AS:*)'
         ) % {
             'id': urlquote(image_id),
         }
@@ -461,8 +475,12 @@ class ImageGrossAlignment (object):
         """
         self._metadata = metadata
         self.id = self._metadata['ID']
+        AI_obj = metadata['AI_obj']
+        AS_obj = metadata['AS_obj']
+        self.alignment_standard = AS_obj[0] if AS_obj is not None else None
+        self.alignment_standard_image = AI_obj[0] if AI_obj is not None else None
 
-        grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float32)
+        grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float64)
         def get_align_coord(colname, axis):
             p = self._metadata[colname]
             if isinstance(p, dict):
@@ -487,4 +505,33 @@ class ImageGrossAlignment (object):
             ) * grid_zyx
         )
 
-        self.M, self.length = gross_unit_alignment(self.alignment_points_xyz)
+        self.M, self.M_inv, self.length = gross_unit_alignment(self.alignment_points_xyz)
+
+    @property
+    def is_standard(self):
+        return self._metadata['IS_RID'] is not None
+
+    @property
+    def has_standard(self):
+        return self.alignment_standard_image is not None
+
+    @property
+    def M_canonical(self):
+        if not self.has_standard:
+            raise ValueError('Image %s has no alignment standard.' % self.id)
+        if not self.alignment_standard_image['Canonical Alignment']:
+            raise ValueError('Alignment image %s has no canonical alignment matrix.' % self.alignment_standard_image['ID'])
+        M2 = np.array(self.alignment_standard_image['Canonical Alignment'], dtype=np.float64)
+        return np.matmul(self.M, M2)
+
+    def set_alignments(self, ermrest_catalog, alignment=None, canonical_alignment=None):
+        data = {
+            'ID': self.id,
+            'Alignment': alignment.tolist() if alignment is not None else None,
+            'Canonical Alignment': canonical_alignment.tolist() if canonical_alignment is not None else None,
+        }
+        r = ermrest_catalog.put(
+            '/attributegroup/Zebrafish:Image/ID;%s' % ','.join([ urlquote(k) for k in data if k != 'ID' ]),
+            json=[data],
+        )
+        r.raise_for_status()

@@ -39,6 +39,10 @@ class SynspyImageManager (object):
             self.data = parts['voxels'].astype(np.float32) * np.float32(self.properties['voxel_divisor'])
             self.measures = parts['measures'].astype(np.float32) * np.float32(self.properties['measures_divisor'])
             self.centroids = parts['centroids'].astype(np.int32)
+            if 'statuses' in parts:
+                self.statuses = parts['statuses']
+            else:
+                self.statuses = None
             self.slice_origin = np.array(self.properties['slice_origin'], dtype=np.int32)
             self.meta = ImageMetadata(
                 self.properties['image_grid'][2],
@@ -112,6 +116,7 @@ class SynspyImageManager (object):
         self.textures = None
         self.minval = self.data.min()
         self.maxval = self.data.max()
+        self.value_norm = max(abs(self.minval), abs(self.maxval))
         self.last_Z = None
         self.last_channels = None
         self.channels = None
@@ -169,7 +174,12 @@ class SynspyImageManager (object):
             for texture in self.textures:
                 texture.interpolation = 'nearest'
                 texture.wrapping = 'clamp_to_edge'
-            
+
+            if self.statuses is not None:
+                # if NPZ included initial status, load it here!
+                status3d_flat = self.status3d.reshape((256**3,))
+                status3d_flat[1:self.statuses.shape[0]+1] = self.statuses[:]
+
         elif self.last_channels == self.channels and self.last_Z == Z:
             #print 'reusing textures'
             return self.textures
@@ -178,7 +188,7 @@ class SynspyImageManager (object):
             pass
 
         # normalize image data for OpenGL [0,1.0] or [0,2**N-1] and zero black-level
-        scale = 1.0/(float(self.maxval) - float(self.minval))
+        scale = 1.0/self.value_norm
         if I0.dtype == np.uint8 or I0.dtype == np.int8:
             tmpout = np.zeros((H, W, C), dtype=np.uint8)
             scale *= float(2**8-1)
@@ -251,7 +261,7 @@ class SynspyImageManager (object):
             meas3d_flat[1:self.measures.shape[0]+1,2] = self.measures[:,4]
 
         # renormalize to [0,1]
-        self.measures3d[:,:] = self.measures3d[:,:] / self.properties['measures_divisor']
+        self.measures3d[:,:] = self.measures3d[:,:] * (1.0/self.value_norm)
 
         # pack statuses into 3D grid
         status3d_flat = self.status3d.reshape((256**3,))
@@ -386,7 +396,7 @@ def adjust_level(uniform, attribute, step=0.0005, altstep=None, tracenorm=True):
             self.program[uniform] = level
 
             if tracenorm:
-                level = level * self.vol_slicer.properties['measures_divisor']
+                level = level * self.vol_slicer.value_norm
             self.trace(attribute, level)
 
             self.update()
@@ -469,15 +479,15 @@ class Canvas(app.Canvas):
                 )
             ),
             (
-                'gray intensity with magenta classified synapses',
+                'gray intensity with classified synapses',
                 frag_shader(
                     colorxfer='vec4(pixel.r, pixel.r, pixel.r, 1.0/u_gain) * u_gain',
                     pick_off= 'vec3(0.2, 1, 1)',
                     pick_on=  'vec3(1, 0.2, 1)',
                     pick_def= 'vec3(1, 1, 1)',
-                    off=      'result.rgb',
+                    off=      'vec3(0.2 * result.g, result.g, result.g) * 1.2',
                     on=       'vec3(result.g, 0.2 * result.g, result.g) * 1.2',
-                    inrange=  'result.rgb',
+                    inrange=  'vec3(result.g, result.g, 0.2 * result.g) * 1.2',
                 )
             )
         ]
@@ -593,9 +603,9 @@ class Canvas(app.Canvas):
         
         for attribute, value in [
                 ('gain', self.gain),
-                ('black_level', self.black_level),
-                ('feature_level', self.feature_level),
-                ('neighbor_level', self.neighbor_level),
+                ('black_level', self.black_level * self.vol_slicer.value_norm),
+                ('feature_level', self.feature_level * self.vol_slicer.value_norm),
+                ('neighbor_level', self.neighbor_level * self.vol_slicer.value_norm),
                 ('paint_zoom', self.paint_zoom),
         ]:
             self.trace(attribute, value)
@@ -618,8 +628,8 @@ class Canvas(app.Canvas):
         self.paint_zoom = 1.0
 
         self.gain = 1.0
-        self.feature_level = 0.0
-        self.neighbor_level = 0.0
+        self.feature_level = 0.0 if self.vol_slicer.statuses is None else self.vol_slicer.measures[:,0].min() / self.vol_slicer.value_norm
+        self.neighbor_level = 0.0 if self.vol_slicer.statuses is None else self.vol_slicer.measures[:,1].max() / self.vol_slicer.value_norm
         self.black_level = 0.0
         # for compatibility with 3d viewer, save these unused values
         self.saved_opacity = 0.8
@@ -955,6 +965,8 @@ class Canvas(app.Canvas):
 
     def load_csv(self, event=None):
         """Load (L) segment classification from CSV file."""
+        if self.vol_slicer.statuses is not None:
+            return
         csvfile = self.csv_file_name()
         try:
             status, saved_params = load_segment_status_from_csv(
@@ -996,6 +1008,8 @@ class Canvas(app.Canvas):
 
     def dump_csv(self, event=None):
         """Dump (D) segment CSV file."""
+        if self.vol_slicer.statuses is not None:
+            return
         csvfile = self.csv_file_name()
         try:
             saved_params = {

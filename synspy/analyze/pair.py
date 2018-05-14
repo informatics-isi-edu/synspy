@@ -149,7 +149,7 @@ class NucleicPairStudy (object):
         """Build ERMrest query URL returning metadata record needed by class."""
         return (
             '/attributegroup/'
-            'NPS:=%(nps)s/ID=%(sid)s/'
+            'NPS:=%(nps)s/ID=%(sid)s;RID=%(sid)s/'
             'IPS:=(NPS:Study)/'
             'N1:=(NPS:%(n1)s)/'
             'N2:=(NPS:%(n2)s)/'
@@ -298,7 +298,7 @@ class SynapticPairStudy (NucleicPairStudy):
         """Build ERMrest query URL returning metadata record needed by class."""
         return (
             '/attributegroup/'
-            'SPS:=%(sps)s/ID=%(sid)s/'
+            'SPS:=%(sps)s/ID=%(sid)s;RID=%(sid)s/'
             'IPS:=(SPS:Study)/'
             'S1:=(SPS:%(s1)s)/'
             'S2:=(SPS:%(s2)s)/'
@@ -452,7 +452,7 @@ class ImageGrossAlignment (object):
         """Build ERMrest query URL returning metadata record needed by class."""
         return (
             '/attributegroup'
-            '/I:=Zebrafish:Image/ID=%(id)s'
+            '/I:=Zebrafish:Image/ID=%(id)s;RID=%(id)s'
             '/IS:=left(I:RID)=(Zebrafish:Alignment%%20Standard:Image)'
             '/AS:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
             '/AI:=left(AS:Image)=(Zebrafish:Image:RID)'

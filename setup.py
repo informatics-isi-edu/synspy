@@ -14,6 +14,7 @@ setup(
     packages=find_packages(),
     scripts=[
         "bin/synspy-analyze",
+        "bin/synspy-pair-npz",
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy-register-batch",

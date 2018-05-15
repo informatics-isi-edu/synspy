@@ -37,8 +37,8 @@ def get_centroids_bbox_slice(centroids):
         centroids.max(axis=0)
     )
 
-    print 'Points bbox: %s' % (bbox,)
-    print 'Points bbox shape: %s' % (bbox[1] - bbox[0],)
+    print('Points bbox: %s' % (bbox,))
+    print('Points bbox shape: %s' % (bbox[1] - bbox[0],))
 
     lower = bbox[0] - np.array([4, 4, 4])
     upper = bbox[1] + np.array([4, 4, 4])
@@ -58,13 +58,13 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     s1_only = pair_study.get_unpaired(s1_to_s2[0,:], pair_study.s1)
     s2_only = pair_study.get_unpaired(s2_to_s1[0,:], pair_study.s2)
     s1_pair, s2_pair = pair_study.get_pairs(s1_to_s2[0,:], pair_study.s1, pair_study.s2)
-    print 'Study %s pairing status: before=%s paired0=%s paired1=%s after=%s' % (
+    print('Study %s pairing status: before=%s paired0=%s paired1=%s after=%s' % (
         pair_study,
         s1_only.shape,
         s1_pair.shape,
         s2_pair.shape,
         s2_only.shape,
-    )
+    ))
 
     # set fake override status
     s1_only[:,-1] = 7 # force ON
@@ -209,7 +209,7 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
 
     outf = open(dump_fname, 'wb')
 
-    print image.shape
+    print(image.shape)
 
     np.savez(
         outf,
@@ -241,7 +241,6 @@ ERROR: Please use deriva-auth to authenticate with the server %s first.
                     sys.exit(1)
             raise
     except Exception as e:
-        print e
         sys.stderr.write("""
 ERROR: %s
 usage: synspy-pair-npz <voxel_img_rid> <pair_src_rid> 

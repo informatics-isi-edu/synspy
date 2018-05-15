@@ -249,11 +249,11 @@ usage: synspy-pair-npz <voxel_img_rid> <pair_src_rid>
 
 Examples:
 
-- synspy-pair-npz FGE 1R0 
+- synspy-pair-npz 1R0 FGE
    - pair study FGE over its "before" image 1R0
-- synspy-pair-npz SynStd6025 ImgZfDsy20160116A2
+- synspy-pair-npz ImgZfDsy20160116A2 SynStd6025
    - pair study SynStd6025 over its "before" image ImgZfDsy20160116A2
-- synspy-pair-npz 105T ZBG
+- synspy-pair-npz ZBG 105T
    - cohort 105T over atlas image ZBG
 
 This tool accepts either "ID" and "RID" column values for each argument.

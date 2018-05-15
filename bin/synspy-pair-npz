@@ -152,7 +152,7 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
          - work files: '<DUMP_DIR>/tmp-*'
 
     """
-    dump_dir = '/scratch/karlcz'
+    dump_dir = '.'
     dump_dir = os.getenv('DUMP_DIR', dump_dir)
     dump_fname = '%s/%s-%s.npz' % (dump_dir, pair_src_rid, voxel_img_rid)
     ref_image_fname = '%s/tmp-img-%s.tiff' % (dump_dir, voxel_img_rid)

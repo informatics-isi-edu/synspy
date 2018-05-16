@@ -69,9 +69,9 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     # set fake override status
     s1_only[:,-1] = 7 # force ON
     s2_only[:,-1] = 5 # force OFF
-    s1_pair[:,-1] = 0 # unclassified
+    s2_pair[:,-1] = 0 # unclassified
     
-    centroids = np.concatenate((s1_only, s2_only, s1_pair), axis=0)
+    centroids = np.concatenate((s1_only, s2_only, s2_pair), axis=0)
     measures = centroids[:,3:-1]
     statuses = centroids[:,-1]
     centroids = centroids[:,0:3]

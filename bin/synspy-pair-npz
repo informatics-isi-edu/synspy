@@ -20,6 +20,19 @@ from synspy.analyze.util import transform_points, centroids_zx_swap
 
 servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
 catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
+dump_dir = '.'
+dump_dir = os.getenv('DUMP_DIR', dump_dir)
+zyx_margin = np.array([4, 4, 4])
+try:
+    a = np.array([ int(x) for x in os.getenv('ZYX_MARGIN', '4,4,4').split(',') ])
+    zyx_margin[0:a.shape[0]] = a[:]
+except:
+    pass
+
+print('Effective SYNAPSE_SERVER="%s"' % servername)
+print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
+print('Effective ZYX_MARGIN="%s"' % ','.join([ str(x) for x in zyx_margin ]))
+print('Effective DUMP_DIR="%s"' % dump_dir)
 
 credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
@@ -31,22 +44,30 @@ def get_zyx_spacing(aligner):
         spacing = {'z': 0.4, 'y': 0.26, 'x': 0.26}
     return np.array([ spacing[a] for a in 'zyx' ])
 
-def get_centroids_bbox_slice(centroids):
+def get_centroids_bbox_slice(centroids, image):
     bbox = (
         centroids.min(axis=0),
         centroids.max(axis=0)
     )
 
     print('Points bbox: %s' % (bbox,))
-    print('Points bbox shape: %s' % (bbox[1] - bbox[0],))
 
-    lower = bbox[0] - np.array([4, 4, 4])
-    upper = bbox[1] + np.array([4, 4, 4])
+    def clamp(v):
+        return np.clip(
+            v,
+            np.array([0, 0, 0]),
+            np.array(image.shape[0:3])
+        )
 
-    return tuple([
+    lower = clamp(bbox[0] - zyx_margin)
+    upper = clamp(bbox[1] + zyx_margin)
+    slc = tuple([
         slice(lower[d], upper[d])
         for d in range(3)
-    ]), lower
+    ])
+
+    print('Sliced bbox: %s' % (slc,))
+    return slc, lower
 
 def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     image1 = ImageGrossAlignment.from_image_id(catalog, pair_study._metadata['Image 1'])
@@ -138,6 +159,7 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
 
        Environment parameters:
          DUMP_DIR: defaults to './'
+         ZYX_MARGIN: defaults to '4,4,4' extra voxels in each margin
          SYNAPSE_SERVER: defaults to 'synapse.isrd.isi.edu'
          SYNAPSE_CATALOG: defaults to '1'
 
@@ -152,8 +174,6 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
          - work files: '<DUMP_DIR>/tmp-*'
 
     """
-    dump_dir = '.'
-    dump_dir = os.getenv('DUMP_DIR', dump_dir)
     dump_fname = '%s/%s-%s.npz' % (dump_dir, pair_src_rid, voxel_img_rid)
     ref_image_fname = '%s/tmp-img-%s.tiff' % (dump_dir, voxel_img_rid)
 
@@ -169,10 +189,7 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
     image, meta, slice_origin = load_and_mangle_image(ref_image_fname)
     assert slice_origin == (0, 0, 0)
 
-    slc, lower = get_centroids_bbox_slice(centroids)
-    for d in [0,1,2]:
-        assert slc[d].start >= 0, "cannot slice below lower bound for reference image"
-        assert slc[d].stop <= image.shape[d], "cannot slice above upper bound for reference image"
+    slc, lower = get_centroids_bbox_slice(centroids, image)
 
     image = image[slc + (slice(None),)]
 

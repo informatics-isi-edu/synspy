@@ -360,6 +360,8 @@ class SynapticPairStudy (NucleicPairStudy):
             max_w_ratio
         )
 
+gross_points_swap = False
+
 def gross_unit_alignment(xyz_triple):
     """Return transformation to convert XYZ points into unit space.
 
@@ -383,6 +385,10 @@ def gross_unit_alignment(xyz_triple):
 
     """
     v = xyz_triple
+    if gross_points_swap:
+        p1 = v[1,:]
+        v[1,:] = v[2,:]
+        v[2,:] = p1
 
     # scale to have unit length P2-P0
     length = np.linalg.norm(v[2,:]-v[0,:])
@@ -422,7 +428,8 @@ def gross_unit_alignment(xyz_triple):
         if v[1,2] >= 0:
             roll = 0 - roll
     else:
-        raise NotImplementedError('P1 outside of expected right-handed semi-space during final roll calculation!')
+        if v[1,2] <= 0:
+            roll = 0 - roll
     Mr2 = matrix_rotate(y_axis, roll)
     Mr2_inv = matrix_rotate(y_axis, 0 - roll)
     v = transform_points(Mr2, v, np.float64)
@@ -519,10 +526,14 @@ class ImageGrossAlignment (object):
     def M_canonical(self):
         if not self.has_standard:
             raise ValueError('Image %s has no alignment standard.' % self.id)
-        if not self.alignment_standard_image['Canonical Alignment']:
-            raise ValueError('Alignment image %s has no canonical alignment matrix.' % self.alignment_standard_image['ID'])
-        M2 = np.array(self.alignment_standard_image['Canonical Alignment'], dtype=np.float64)
-        return np.matmul(self.M, M2)
+        metadata = dict(self.alignment_standard_image)
+        metadata.update({
+            'IS_RID': self.alignment_standard['RID'],
+            'AI_obj': None,
+            'AS_obj': None,
+        })
+        standard = ImageGrossAlignment(metadata)
+        return np.matmul(self.M, standard.M_inv)
 
     def set_alignments(self, ermrest_catalog, alignment=None, canonical_alignment=None):
         data = {

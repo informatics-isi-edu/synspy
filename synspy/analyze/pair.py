@@ -386,7 +386,7 @@ def gross_unit_alignment(xyz_triple):
     """
     v = xyz_triple
     if gross_points_swap:
-        p1 = v[1,:]
+        p1 = v[1,:].copy()
         v[1,:] = v[2,:]
         v[2,:] = p1
 

@@ -442,12 +442,9 @@ def gross_unit_alignment(origin_xyz, yunit_xyz, zinterc_xyz):
 class ImageGrossAlignment (object):
     """Local representation of one image and its alignment data.
 
-       Instance Properties:
-         self.id: Image identifier
-         self.M: 4x4 transform, image_microns -> unit_space
-         self.M_inv: 4x4 transform, inverse of self.M
-         self.M_canonical: 4x4 transform, image_microns -> canonical image_microns
-         self.M_canonical_inv: 4x4 transform, inverse of self.M_canonical
+    Several computed properties are made available, with priority
+    going to explicit alignment matrices stored in the catalog.
+
     """
     @classmethod
     def from_image_id(cls, ermrest_catalog, image_id):
@@ -486,13 +483,6 @@ class ImageGrossAlignment (object):
 
         """
         self._metadata = metadata
-        self.id = self._metadata['ID']
-        ASI1_obj = metadata['ASI1_obj']
-        AS1_obj = metadata['AS1_obj']
-        AS2_obj = metadata['AS2_obj']
-        self.alignment_standard = AS1_obj[0] if AS1_obj is not None else None
-        self.alignment_standard2 = AS2_obj[0] if AS2_obj is not None else None
-        self.alignment_standard_image = ASI1_obj[0] if ASI1_obj is not None else None
 
         grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float64)
         def get_align_coord(colname, axis):
@@ -524,7 +514,37 @@ class ImageGrossAlignment (object):
         if swap_p1_p2:
             p1, p2 = p2, p1
 
-        self.M, self.M_inv, self.length = gross_unit_alignment(p0, p1, p2)
+        self._M, self._M_inv, self.length = gross_unit_alignment(p0, p1, p2)
+
+    @property
+    def id(self):
+        """The ID column of this Image record."""
+        return self._metadata['ID']
+
+    @property
+    def RID(self):
+        """The RID column of this Image record."""
+        return self._metadata['RID']
+
+    def _coalesce_first(self, k):
+        a = self._metadata[k]
+        if a is not None:
+            return a[0]
+
+    @property
+    def alignment_standard(self):
+        """Alignment Standard record content for this Image, or None."""
+        return self._coalesce_first('AS1_obj')
+
+    @property
+    def alignment_standard_image(self):
+        """Image record content for self.alignment_standard, or None."""
+        return self._coalesce_first('ASI1_obj')
+
+    @property
+    def alignment_standard2(self):
+        """Second-level Alignment Standard record content for nested standards, or None."""
+        return self._coalesce_first('AS2_obj')
 
     @property
     def has_standard(self):
@@ -532,11 +552,24 @@ class ImageGrossAlignment (object):
         return self.alignment_standard_image is not None
 
     @property
+    def M(self):
+        """4x4 transform matrix to move image microns into unit space."""
+        return self._M
+
+    @property
+    def M_inv(self):
+        """4x4 (inverse) transform matrix to move unit space into image microns."""
+        return self._M_inv
+
+    @property
     def M_canonical(self):
         """4x4 transform matrix to move image microns into canonical micron space.
 
-           The canonical micron space depends on the Alignment
-           Standard and Alignment data referenced by the image.
+           If an explicit "Canonical Alignment" field is populated in
+           this Image record in the catalog, that matrix is
+           returned. Otherwise, an alignment is computed via the
+           "Alignment Standard" which must itself then be a canonical
+           alignment.
 
         """
         if not self.has_standard:
@@ -563,8 +596,11 @@ class ImageGrossAlignment (object):
     def M_canonical_inv(self):
         """4x4 (inverse) transform matrix to canonical microns into image micron space.
 
-           The canonical micron space depends on the Alignment
-           Standard and Alignment data referenced by the image.
+           If an explicit "Canonical Alignment" field is populated in
+           this Image record in the catalog, the inverse of that
+           matrix is computed. Otherwise, an inverted alignment is
+           computed via the "Alignment Standard" which must itself
+           then be a canonical alignment.
 
         """
         if not self.has_standard:

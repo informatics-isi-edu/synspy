@@ -448,7 +448,12 @@ class ImageGrossAlignment (object):
     """
     @classmethod
     def from_image_id(cls, ermrest_catalog, image_id):
-        """Instantiate class by finding metadata for a given image_id in ermrest_catalog."""
+        """Instantiate class by finding metadata for a given image_id in ermrest_catalog.
+
+        :param ermrest_catalog: an ErmrestCatalog instance to use for metadata queries
+        :param image_id: an ID or RID value to locate one record from the Image table
+
+        """
         r = ermrest_catalog.get(cls.metadata_query_url(image_id))
         r.raise_for_status()
         result = r.json()
@@ -464,12 +469,10 @@ class ImageGrossAlignment (object):
             '/I:=Zebrafish:Image/ID=%(id)s;RID=%(id)s'
             '/AS1:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
             '/ASI1:=left(AS1:Image)=(Zebrafish:Image:RID)'
-            '/AS2:=left(ASI1:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
             '/$I'
             '/*'
             ';ASI1_obj:=array(ASI1:*)'
             ',AS1_obj:=array(AS1:*)'
-            ',AS2_obj:=array(AS2:*)'
         ) % {
             'id': urlquote(image_id),
         }
@@ -477,9 +480,8 @@ class ImageGrossAlignment (object):
     def __init__(self, metadata, swap_p1_p2=False):
         """Instantiate with record metadata retrieved from image and related entities.
 
-           The exact format of metadata is an implementation detail
-           and will be produced by the metadata_query_url(id)
-           class-method.
+        :param metadata: single row result from metadata_query_url(image_id)
+        :param swap_p1_p2: align Y-axes to P0->P2 vector if True, else P0->P1 (default)
 
         """
         self._metadata = metadata
@@ -542,9 +544,19 @@ class ImageGrossAlignment (object):
         return self._coalesce_first('ASI1_obj')
 
     @property
-    def alignment_standard2(self):
-        """Second-level Alignment Standard record content for nested standards, or None."""
-        return self._coalesce_first('AS2_obj')
+    def alignment_standard_is_indirect(self):
+        """Whether this Image has an indirected alignment standard.
+
+           Possible values:
+              True: self.alignment_standard_image['Alignment Standard'] is set
+              False: self.alignment_standard_image['Alignment Standard'] is None
+              None: self.alignmment_standard_image is None
+        """
+        img_row = self.alignment_standard_image
+        if img_row is not None:
+            return img_row['Alignment Standard'] is not None
+        else:
+            return None
 
     @property
     def has_standard(self):
@@ -579,7 +591,7 @@ class ImageGrossAlignment (object):
         if self._metadata['Canonical Alignment']:
             return np.array(self._metadata['Canonical Alignment'], dtype=np.float64)
 
-        if self.alignment_standard2 is not None:
+        if self.alignment_standard_is_indirect:
             raise ValueError('Image %s has a multi-hop alignment standard.' % self.id)
 
         # compute alignment
@@ -610,7 +622,7 @@ class ImageGrossAlignment (object):
         if self._metadata['Canonical Alignment']:
             return np.linalg.inv(np.array(self._metadata['Canonical Alignment'], dtype=np.float64))
 
-        if self.alignment_standard2 is not None:
+        if self.alignment_standard_is_indirect:
             raise ValueError('Image %s has a multi-hop alignment standard.' % self.id)
 
         # compute inverted alignment

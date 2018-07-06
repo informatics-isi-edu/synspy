@@ -31,12 +31,6 @@ credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
 store = HatracStore('https', servername, credentials)
 
-def get_zyx_spacing(aligner):
-    spacing = aligner._metadata['ZYX Spacing']
-    if spacing is None:
-        spacing = {'z': 0.4, 'y': 0.26, 'x': 0.26}
-    return np.array([ spacing[a] for a in 'zyx' ])
-
 def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     image1 = ImageGrossAlignment.from_image_id(catalog, pair_study._metadata['Image 1'])
 
@@ -69,10 +63,12 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     points_voxel_um = transform_points(xform, points_image1_um, np.float64)
     centroids[:,0:3] = centroids_zx_swap(points_voxel_um)
 
-    voxel_scale = get_zyx_spacing(voxel_image_aligner)
-    centroids /= voxel_scale
-
-    return centroids.astype(np.int32), measures, statuses.astype(np.uint8)
+    return (
+        centroids.astype(np.int32),
+        measures,
+        statuses.astype(np.uint8),
+        [ pair_study.id for i in range(centroids.shape[0]) ],
+    )
 
 def get_centroids_measures(pair_src_rid, voxel_image_aligner):
     # try to use pair_src_rid as a Cohort Analysis RID
@@ -93,10 +89,18 @@ def get_centroids_measures(pair_src_rid, voxel_image_aligner):
             parts.append(
                 get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
             )
+
+        def concatenate(srcs):
+            result = list()
+            for src in srcs:
+                result.extend(src)
+            return result
+
         return (
             np.concatenate([ p[0] for p in parts ], axis=0),
             np.concatenate([ p[1] for p in parts ], axis=0),
             np.concatenate([ p[2] for p in parts ], axis=0),
+            concatenate([ p[3] for p in parts ]),
         )
     else:
         # otherwise, assume pair_src_rid is a single Synaptic Pair Study
@@ -141,18 +145,20 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
     dump_fname = '%s/%s-%s.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
 
     ref_image_aligner = ImageGrossAlignment.from_image_id(catalog, voxel_img_rid)
-    centroids, measures, statuses = get_centroids_measures(pair_src_rid, ref_image_aligner)
+    centroids, measures, statuses, study_ids = get_centroids_measures(pair_src_rid, ref_image_aligner)
 
     outf = open(dump_fname, 'w')
     writer = csv.writer(outf)
-    writer.writerow(('x', 'y', 'z', 't'))
+    writer.writerow(('x', 'y', 'z', 't', 'core intensity', 'study_id'))
 
     for i in range(centroids.shape[0]):
         writer.writerow((
-            '%d' % centroids[i,2],
-            '%d' % centroids[i,1],
-            '%d' % centroids[i,0],
-            '%d' % ({0: 0, 7: 1, 5: 2}[int(statuses[i])])
+            '%f' % centroids[i,2],
+            '%f' % centroids[i,1],
+            '%f' % centroids[i,0],
+            '%d' % ({0: 0, 7: 1, 5: 2}[int(statuses[i])]),
+            '%f' % measures[i,0],
+            study_ids[i],
         ))
 
     del writer

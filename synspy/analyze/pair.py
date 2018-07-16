@@ -469,10 +469,14 @@ class ImageGrossAlignment (object):
             '/I:=Zebrafish:Image/ID=%(id)s;RID=%(id)s'
             '/AS1:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
             '/ASI1:=left(AS1:Image)=(Zebrafish:Image:RID)'
+            '/AS2:=left(ASI1:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
+            '/ASI2:=left(AS2:Image)=(Zebrafish:Image:RID)'
             '/$I'
             '/*'
             ';ASI1_obj:=array(ASI1:*)'
             ',AS1_obj:=array(AS1:*)'
+            ',ASI2_obj:=array(ASI2:*)'
+            ',AS2_obj:=array(AS2:*)'
         ) % {
             'id': urlquote(image_id),
         }
@@ -544,24 +548,49 @@ class ImageGrossAlignment (object):
         return self._coalesce_first('ASI1_obj')
 
     @property
-    def alignment_standard_is_indirect(self):
-        """Whether this Image has an indirected alignment standard.
+    def alignment_depth(self):
+        """Number of hops of Alignment Standard for this image.
 
            Possible values:
-              True: self.alignment_standard_image['Alignment Standard'] is set
-              False: self.alignment_standard_image['Alignment Standard'] is None
-              None: self.alignmment_standard_image is None
+           0: Alignment Standard is not configured
+           1: Alignment Standard is canonical
+           2: Alignment Standard uses one intermediate image
+
+           Deeper chains are not currently supported and will raise a ValueError.
         """
-        img_row = self.alignment_standard_image
-        if img_row is not None:
-            return img_row['Alignment Standard'] is not None
-        else:
-            return None
+        if self.alignment_standard is None:
+            return 0
+        elif self.alignment_standard_image["Alignment Standard"] is None:
+            return 1
+        ASI2 = self._coalesce_first('ASI2_obj')
+        if ASI2["Alignment Standard"] is not None:
+            raise ValueError("Alignment Standard %s is non-canonical." % AS2["RID"])
+        return 2
 
     @property
     def has_standard(self):
         """True if self references an Alignment Standard."""
-        return self.alignment_standard_image is not None
+        return self.alignment_depth > 0
+
+    @property
+    def canonical_alignment_standard(self):
+        try:
+            return {
+                1: self._coalesce_first('AS1_obj'),
+                2: self._coalesce_first('AS2_obj'),
+            }[self.alignment_depth]
+        except KeyError:
+            raise ValueError('Unexpected alignment depth %s' % self.alignment_depth)
+
+    @property
+    def canonical_alignment_standard_image(self):
+        try:
+            return {
+                1: self._coalesce_first('ASI1_obj'),
+                2: self._coalesce_first('ASI2_obj'),
+            }[self.alignment_depth]
+        except KeyError:
+            raise ValueError('Unexpected alignment depth %s' % self.alignment_depth)
 
     @property
     def M(self):
@@ -584,22 +613,20 @@ class ImageGrossAlignment (object):
            alignment.
 
         """
-        if not self.has_standard:
-            raise ValueError('Image %s has no alignment standard.' % self.id)
-
         # return stored alignment, if present
         if self._metadata['Canonical Alignment']:
             return np.array(self._metadata['Canonical Alignment'], dtype=np.float64)
 
-        if self.alignment_standard_is_indirect:
-            raise ValueError('Image %s has a multi-hop alignment standard.' % self.id)
+        if self.alignment_depth == 1 and self._metadata['Alignment']:
+            return np.array(self._metadata['Alignment'], dtype=np.float64)
 
         # compute alignment
-        metadata = dict(self.alignment_standard_image)
+        metadata = dict(self.canonical_alignment_standard_image)
         metadata.update({
-            'ASI1_obj': None,
             'AS1_obj': None,
+            'ASI1_obj': None,
             'AS2_obj': None,
+            'ASI2_obj': None,
         })
         standard = ImageGrossAlignment(metadata, self.swap_p1_p2)
         return np.matmul(self.M, standard.M_inv)
@@ -615,22 +642,20 @@ class ImageGrossAlignment (object):
            then be a canonical alignment.
 
         """
-        if not self.has_standard:
-            raise ValueError('Image %s has no alignment standard.' % self.id)
-
         # return invert of stored alignment, if present
         if self._metadata['Canonical Alignment']:
             return np.linalg.inv(np.array(self._metadata['Canonical Alignment'], dtype=np.float64))
 
-        if self.alignment_standard_is_indirect:
-            raise ValueError('Image %s has a multi-hop alignment standard.' % self.id)
+        if self.alignment_depth == 1 and self._metadata['Alignment']:
+            return np.linalg.inv(np.array(self._metadata['Alignment'], dtype=np.float64))
 
         # compute inverted alignment
-        metadata = dict(self.alignment_standard_image)
+        metadata = dict(self.canonical_alignment_standard_image)
         metadata.update({
-            'ASI1_obj': None,
             'AS1_obj': None,
+            'ASI1_obj': None,
             'AS2_obj': None,
+            'ASI2_obj': None,
         })
         standard = ImageGrossAlignment(metadata, self.swap_p1_p2)
         return np.matmul(standard.M, self.M_inv)

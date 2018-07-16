@@ -34,15 +34,27 @@ store = HatracStore('https', servername, credentials)
 def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     image1 = ImageGrossAlignment.from_image_id(catalog, pair_study._metadata['Image 1'])
 
-    
-    xform = np.matmul(image1.M, voxel_image_aligner.M_inv)
-    
+    xform = None
+
+    if image1.has_standard:
+        # not safe to access these properties if we don't have_standard...
+        if image1.canonical_alignment_standard_image["RID"] == voxel_image_aligner.RID:
+            xform = image1.M_canonical
+        elif image1.alignment_standard_image["RID"] == voxel_image_aligner.RID:
+            # special case: stop at intermediate reference image w/ custom alignment?
+            if image1._metadata["Alignment"]:
+                xform = np.array(image1._metadata["Alignment"], dtype=np.float64)
+
+    if xform is None:
+        # fall back to 3-point alignment
+        xform = np.matmul(image1.M, voxel_image_aligner.M_inv)
+
     s1_to_s2, s2_to_s1 = pair_study.syn_pairing_maps(max_dx_seq=(3.0,), dx_w_ratio=None, max_w_ratio=None)
     s1_only = pair_study.get_unpaired(s1_to_s2[0,:], pair_study.s1)
     s2_only = pair_study.get_unpaired(s2_to_s1[0,:], pair_study.s2)
     s1_pair, s2_pair = pair_study.get_pairs(s1_to_s2[0,:], pair_study.s1, pair_study.s2)
     print('Study %s pairing status: before=%s paired0=%s paired1=%s after=%s' % (
-        pair_study,
+        pair_study.id,
         s1_only.shape,
         s1_pair.shape,
         s2_pair.shape,
@@ -85,10 +97,13 @@ def get_centroids_measures(pair_src_rid, voxel_image_aligner):
         parts = []
         for row in study_rows:
             pair_study = SynapticPairStudy.from_study_id(catalog, row['RID'])
-            pair_study.retrieve_data(store)
-            parts.append(
-                get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
-            )
+            try:
+                pair_study.retrieve_data(store)
+                parts.append(
+                    get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
+                )
+            except Exception as e:
+                print('WARNING: got error "%s" retrieving data for %s, skipping!' % (e, pair_study.id))
 
         def concatenate(srcs):
             result = list()
@@ -203,6 +218,7 @@ This tool accepts either "ID" and "RID" column values for each argument.
     e,
     paired_csv_cli.__doc__
 ))
+        raise
         sys.exit(1)
 
 

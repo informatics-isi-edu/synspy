@@ -23,11 +23,13 @@ catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
 dump_dir = '.'
 dump_dir = os.getenv('DUMP_DIR', dump_dir)
 pairing_radius = float(os.getenv('SYNAPSE_PAIR_RADIUS', '4.0'))
+include_all = os.getenv('INCLUDE_PAIR_BEFORE', 'false').lower() == 'true'
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
 print('Effective SYNAPSE_PAIR_RADIUS="%s"' % pairing_radius)
 print('Effective DUMP_DIR="%s"' % dump_dir)
+print('Effective INCLUDE_PAIR_BEFORE="%s"' % str(include_all).lower())
 
 credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
@@ -63,12 +65,13 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
         s2_only.shape,
     ))
 
-    # set fake override status
-    s1_only[:,-1] = 7 # force ON
-    s2_only[:,-1] = 5 # force OFF
-    s2_pair[:,-1] = 0 # unclassified
+    # set fake override status (not compatible with other synspy tools override coding)
+    s1_only[:,-1] = 1
+    s2_only[:,-1] = 2
+    s2_pair[:,-1] = 0
+    s1_pair[:,-1] = 3
     
-    centroids = np.concatenate((s1_only, s2_only, s2_pair), axis=0)
+    centroids = np.concatenate((s1_only, s2_only, s2_pair) + ((s1_pair,) if include_all else ()), axis=0)
     measures = centroids[:,3:-1]
     statuses = centroids[:,-1]
     centroids = centroids[:,0:3]
@@ -173,7 +176,7 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
             '%f' % centroids[i,2],
             '%f' % centroids[i,1],
             '%f' % centroids[i,0],
-            '%d' % ({0: 0, 7: 1, 5: 2}[int(statuses[i])]),
+            '%d' % statuses[i],
             '%f' % measures[i,0],
             study_ids[i],
         ))

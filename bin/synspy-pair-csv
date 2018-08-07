@@ -22,9 +22,11 @@ servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
 catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
 dump_dir = '.'
 dump_dir = os.getenv('DUMP_DIR', dump_dir)
+pairing_radius = float(os.getenv('SYNAPSE_PAIR_RADIUS', '4.0'))
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
+print('Effective SYNAPSE_PAIR_RADIUS="%s"' % pairing_radius)
 print('Effective DUMP_DIR="%s"' % dump_dir)
 
 credentials = get_credential(servername)
@@ -49,7 +51,7 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
         # fall back to 3-point alignment
         xform = np.matmul(image1.M, voxel_image_aligner.M_inv)
 
-    s1_to_s2, s2_to_s1 = pair_study.syn_pairing_maps(max_dx_seq=(3.0,), dx_w_ratio=None, max_w_ratio=None)
+    s1_to_s2, s2_to_s1 = pair_study.syn_pairing_maps(max_dx_seq=(pairing_radius,), dx_w_ratio=None, max_w_ratio=None)
     s1_only = pair_study.get_unpaired(s1_to_s2[0,:], pair_study.s1)
     s2_only = pair_study.get_unpaired(s2_to_s1[0,:], pair_study.s2)
     s1_pair, s2_pair = pair_study.get_pairs(s1_to_s2[0,:], pair_study.s1, pair_study.s2)

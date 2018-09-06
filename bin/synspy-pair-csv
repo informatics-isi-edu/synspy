@@ -150,7 +150,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter, in
 
     def dump_csv(centroids, study_id):
         assert int(centroids.shape[1]) % 2 == 1, 'centroids.shape[1] is %s' % (centroids.shape[1],)
-        k = (centroids.shape[1]-1)/2
+        k = (centroids.shape[1]-1)//2
         for i in range(centroids.shape[0]):
             status = int(centroids[i,-1])
             if status == 0:

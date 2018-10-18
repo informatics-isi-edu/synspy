@@ -336,7 +336,7 @@ class Worker (object):
         try:
             I, md = load_image(str(img_filename))
         except Exception as e:
-            raise WorkerBadDataError('Image %s could not be loaded... is it the wrong format?' % img_filename)
+            raise WorkerBadDataError('Image %s could not be loaded... is it the wrong format? %s' % (img_filename, e))
         if not hasattr(I, 'micron_spacing'):
             raise WorkerBadDataError('Image %s lacks expected micron_spacing attribute.' % img_filename)
         return I.micron_spacing, I.shape

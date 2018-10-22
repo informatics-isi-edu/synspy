@@ -360,21 +360,16 @@ class SynapticPairStudy (NucleicPairStudy):
             max_w_ratio
         )
 
-def gross_unit_alignment(xyz_triple):
+def gross_unit_alignment(origin_xyz, yunit_xyz, zinterc_xyz):
     """Return transformation to convert XYZ points into unit space.
 
        This is a gross anatomical alignment based on three reference
        points chosen consistently in two images.
 
        Arguments:
-          xyz_triple[0,:]: P0
-          xyz_triple[1,:]: P1
-          xyz_triple[2,:]: P2
-
-       Alignment:
-          1. P0 will be translated to origin (0,0,0)
-          2. P2 will be aligned to Y-axis unit vector (0,1,0) via scale+rotate
-          3. P1 will be aligned into Z=0 plane via roll around Y-axis
+          origin_xyz: will become origin (0,0,0)
+          yunit_xyz: will become (0,1,0) to form unit vector on Y axis
+          zinterc_xyz: will become Z=0 intercept
 
        Results:
           M: 4x4 transform matrix  image microns -> unit space
@@ -382,50 +377,62 @@ def gross_unit_alignment(xyz_triple):
           length: micron per unit distance for this image
 
     """
-    v = xyz_triple
-
-    # scale to have unit length P2-P0
-    length = np.linalg.norm(v[2,:]-v[0,:])
+    # scale to have unit length
+    length = np.linalg.norm(yunit_xyz-origin_xyz)
     Ms = matrix_scale(1./length)
     Ms_inv = matrix_scale(length/1.)
-    v = transform_points(Ms, v, np.float64)
-
-    # translate to have P0 as origin
-    Mt = matrix_translate(0 - v[0,:])
-    Mt_inv = matrix_translate(0 + v[0,:])
-    v = transform_points(Mt, v, np.float64)
-
-    # rotate to align P2 to (0,1,0) on Y axis
-    Mr1_axis = np.cross(y_axis, v[2,:])
-    Mr1_angle = math.acos(
-        np.inner(y_axis, v[2,:])
-        / (np.linalg.norm(y_axis) * np.linalg.norm(v[2,:]))
+    origin_xyz, yunit_xyz, zinterc_xyz = transform_points(
+        Ms,
+        np.stack((origin_xyz, yunit_xyz, zinterc_xyz)),
+        np.float64
     )
 
+    # translate to origin
+    Mt = matrix_translate(0 - origin_xyz)
+    Mt_inv = matrix_translate(0 + origin_xyz)
+    origin_xyz, yunit_xyz, zinterc_xyz = transform_points(
+        Mt,
+        np.stack([origin_xyz, yunit_xyz, zinterc_xyz]),
+        np.float64
+    )
+
+    # rotate unit vector onto Y axis
+    Mr1_axis = np.cross(y_axis, yunit_xyz)
+    Mr1_angle = math.acos(
+        np.inner(y_axis, yunit_xyz)
+        / (np.linalg.norm(y_axis) * np.linalg.norm(yunit_xyz))
+    )
     if np.linalg.norm(Mr1_axis) > 0:
         Mr1 = matrix_rotate(Mr1_axis, Mr1_angle)
         Mr1_inv = matrix_rotate(Mr1_axis, 0 - Mr1_angle)
     else:
         Mr1 = matrix_ident()
         Mr1_inv = matrix_ident()
-
-    v = transform_points(Mr1, v, np.float64)
-
-    # roll on Y axis to place P1 into Z=0 plane
-    u1 = np.cross(y_axis, x_axis) # use X-axis as reference for XY plane
-    u2 = np.cross(y_axis, v[1,:]) # find comparable vector
-    roll = math.acos(
-        np.inner(u1, u2)
-        / (np.linalg.norm(u1) * np.linalg.norm(u2))
+    origin_xyz, yunit_xyz, zinterc_xyz = transform_points(
+        Mr1,
+        np.stack([origin_xyz, yunit_xyz, zinterc_xyz]),
+        np.float64
     )
-    if v[1,0] > 0:
-        if v[1,2] >= 0:
-            roll = 0 - roll
-    else:
-        raise NotImplementedError('P1 outside of expected right-handed semi-space during final roll calculation!')
-    Mr2 = matrix_rotate(y_axis, roll)
-    Mr2_inv = matrix_rotate(y_axis, 0 - roll)
-    v = transform_points(Mr2, v, np.float64)
+
+    # roll on Y axis to set Z=0 intercept
+    Mr2_axis = y_axis
+    zinterc_in_xz = zinterc_xyz.copy()
+    zinterc_in_xz[1] = 0
+    Mr2_angle = math.acos(
+        np.inner(x_axis, zinterc_in_xz)
+        / (np.linalg.norm(x_axis) * np.linalg.norm(zinterc_in_xz))
+    )
+    xpos = 1 if zinterc_in_xz[0] >= 0 else -1
+    zpos = 1 if zinterc_in_xz[2] >= 0 else -1
+    if (xpos*zpos) < 0:
+        Mr2_angle = 0 - Mr2_angle
+    Mr2 = matrix_rotate(Mr2_axis, Mr2_angle)
+    Mr2_inv = matrix_rotate(Mr2_axis, 0 - Mr2_angle)
+    origin_xyz, yunit_xyz, zinterc_xyz = transform_points(
+        Mr2,
+        np.stack([origin_xyz, yunit_xyz, zinterc_xyz]),
+        np.float64
+    )
 
     # compose stacked transforms as single matrix
     M_inv = np.matmul(np.matmul(np.matmul(Mr2_inv, Mr1_inv), Mt_inv), Ms_inv)
@@ -435,11 +442,18 @@ def gross_unit_alignment(xyz_triple):
 class ImageGrossAlignment (object):
     """Local representation of one image and its alignment data.
 
-       WORK IN PROGRESS...
+    Several computed properties are made available, with priority
+    going to explicit alignment matrices stored in the catalog.
+
     """
     @classmethod
     def from_image_id(cls, ermrest_catalog, image_id):
-        """Instantiate class by finding metadata for a given image_id in ermrest_catalog."""
+        """Instantiate class by finding metadata for a given image_id in ermrest_catalog.
+
+        :param ermrest_catalog: an ErmrestCatalog instance to use for metadata queries
+        :param image_id: an ID or RID value to locate one record from the Image table
+
+        """
         r = ermrest_catalog.get(cls.metadata_query_url(image_id))
         r.raise_for_status()
         result = r.json()
@@ -453,32 +467,28 @@ class ImageGrossAlignment (object):
         return (
             '/attributegroup'
             '/I:=Zebrafish:Image/ID=%(id)s;RID=%(id)s'
-            '/IS:=left(I:RID)=(Zebrafish:Alignment%%20Standard:Image)'
-            '/AS:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
-            '/AI:=left(AS:Image)=(Zebrafish:Image:RID)'
+            '/AS1:=left(I:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
+            '/ASI1:=left(AS1:Image)=(Zebrafish:Image:RID)'
+            '/AS2:=left(ASI1:Alignment%%20Standard)=(Zebrafish:Alignment%%20Standard:RID)'
+            '/ASI2:=left(AS2:Image)=(Zebrafish:Image:RID)'
             '/$I'
             '/*'
-            ',IS_RID:=IS:RID'
-            ';AI_obj:=array(AI:*)'
-            ',AS_obj:=array(AS:*)'
+            ';ASI1_obj:=array(ASI1:*)'
+            ',AS1_obj:=array(AS1:*)'
+            ',ASI2_obj:=array(ASI2:*)'
+            ',AS2_obj:=array(AS2:*)'
         ) % {
             'id': urlquote(image_id),
         }
 
-    def __init__(self, metadata):
+    def __init__(self, metadata, swap_p1_p2=False):
         """Instantiate with record metadata retrieved from image and related entities.
 
-           The exact format of metadata is an implementation detail
-           and will be produced by the metadata_query_url(id)
-           class-method.
+        :param metadata: single row result from metadata_query_url(image_id)
+        :param swap_p1_p2: align Y-axes to P0->P2 vector if True, else P0->P1 (default)
 
         """
         self._metadata = metadata
-        self.id = self._metadata['ID']
-        AI_obj = metadata['AI_obj']
-        AS_obj = metadata['AS_obj']
-        self.alignment_standard = AS_obj[0] if AS_obj is not None else None
-        self.alignment_standard_image = AI_obj[0] if AI_obj is not None else None
 
         grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float64)
         def get_align_coord(colname, axis):
@@ -491,7 +501,7 @@ class ImageGrossAlignment (object):
             else:
                 raise ValueError('"%s" should be an object, not %s' % (colname, type(p)))
 
-        self.alignment_points_xyz = centroids_zx_swap(
+        p0, p1, p2 = centroids_zx_swap(
             np.array(
                 [
                     [
@@ -504,34 +514,148 @@ class ImageGrossAlignment (object):
                 dtype=np.float64
             ) * grid_zyx
         )
+        self.alignment_points_xyz = np.stack((p0, p1, p2))
 
-        self.M, self.M_inv, self.length = gross_unit_alignment(self.alignment_points_xyz)
+        self.swap_p1_p2 = swap_p1_p2
+        if swap_p1_p2:
+            p1, p2 = p2, p1
+
+        self._M, self._M_inv, self.length = gross_unit_alignment(p0, p1, p2)
 
     @property
-    def is_standard(self):
-        return self._metadata['IS_RID'] is not None
+    def id(self):
+        """The ID column of this Image record."""
+        return self._metadata['ID']
+
+    @property
+    def RID(self):
+        """The RID column of this Image record."""
+        return self._metadata['RID']
+
+    def _coalesce_first(self, k):
+        a = self._metadata[k]
+        if a is not None:
+            return a[0]
+
+    @property
+    def alignment_standard(self):
+        """Alignment Standard record content for this Image, or None."""
+        return self._coalesce_first('AS1_obj')
+
+    @property
+    def alignment_standard_image(self):
+        """Image record content for self.alignment_standard, or None."""
+        return self._coalesce_first('ASI1_obj')
+
+    @property
+    def alignment_depth(self):
+        """Number of hops of Alignment Standard for this image.
+
+           Possible values:
+           0: Alignment Standard is not configured
+           1: Alignment Standard is canonical
+           2: Alignment Standard uses one intermediate image
+
+           Deeper chains are not currently supported and will raise a ValueError.
+        """
+        if self.alignment_standard is None:
+            return 0
+        elif self.alignment_standard_image["Alignment Standard"] is None:
+            return 1
+        ASI2 = self._coalesce_first('ASI2_obj')
+        if ASI2["Alignment Standard"] is not None:
+            raise ValueError("Alignment Standard %s is non-canonical." % AS2["RID"])
+        return 2
 
     @property
     def has_standard(self):
-        return self.alignment_standard_image is not None
+        """True if self references an Alignment Standard."""
+        return self.alignment_depth > 0
+
+    @property
+    def canonical_alignment_standard(self):
+        try:
+            return {
+                1: self._coalesce_first('AS1_obj'),
+                2: self._coalesce_first('AS2_obj'),
+            }[self.alignment_depth]
+        except KeyError:
+            raise ValueError('Unexpected alignment depth %s' % self.alignment_depth)
+
+    @property
+    def canonical_alignment_standard_image(self):
+        try:
+            return {
+                1: self._coalesce_first('ASI1_obj'),
+                2: self._coalesce_first('ASI2_obj'),
+            }[self.alignment_depth]
+        except KeyError:
+            raise ValueError('Unexpected alignment depth %s' % self.alignment_depth)
+
+    @property
+    def M(self):
+        """4x4 transform matrix to move image microns into unit space."""
+        return self._M
+
+    @property
+    def M_inv(self):
+        """4x4 (inverse) transform matrix to move unit space into image microns."""
+        return self._M_inv
 
     @property
     def M_canonical(self):
-        if not self.has_standard:
-            raise ValueError('Image %s has no alignment standard.' % self.id)
-        if not self.alignment_standard_image['Canonical Alignment']:
-            raise ValueError('Alignment image %s has no canonical alignment matrix.' % self.alignment_standard_image['ID'])
-        M2 = np.array(self.alignment_standard_image['Canonical Alignment'], dtype=np.float64)
-        return np.matmul(self.M, M2)
+        """4x4 transform matrix to move image microns into canonical micron space.
 
-    def set_alignments(self, ermrest_catalog, alignment=None, canonical_alignment=None):
-        data = {
-            'ID': self.id,
-            'Alignment': alignment.tolist() if alignment is not None else None,
-            'Canonical Alignment': canonical_alignment.tolist() if canonical_alignment is not None else None,
-        }
-        r = ermrest_catalog.put(
-            '/attributegroup/Zebrafish:Image/ID;%s' % ','.join([ urlquote(k) for k in data if k != 'ID' ]),
-            json=[data],
-        )
-        r.raise_for_status()
+           If an explicit "Canonical Alignment" field is populated in
+           this Image record in the catalog, that matrix is
+           returned. Otherwise, an alignment is computed via the
+           "Alignment Standard" which must itself then be a canonical
+           alignment.
+
+        """
+        # return stored alignment, if present
+        if self._metadata['Canonical Alignment']:
+            return np.array(self._metadata['Canonical Alignment'], dtype=np.float64)
+
+        if self.alignment_depth == 1 and self._metadata['Alignment']:
+            return np.array(self._metadata['Alignment'], dtype=np.float64)
+
+        # compute alignment
+        metadata = dict(self.canonical_alignment_standard_image)
+        metadata.update({
+            'AS1_obj': None,
+            'ASI1_obj': None,
+            'AS2_obj': None,
+            'ASI2_obj': None,
+        })
+        standard = ImageGrossAlignment(metadata, self.swap_p1_p2)
+        return np.matmul(self.M, standard.M_inv)
+
+    @property
+    def M_canonical_inv(self):
+        """4x4 (inverse) transform matrix to canonical microns into image micron space.
+
+           If an explicit "Canonical Alignment" field is populated in
+           this Image record in the catalog, the inverse of that
+           matrix is computed. Otherwise, an inverted alignment is
+           computed via the "Alignment Standard" which must itself
+           then be a canonical alignment.
+
+        """
+        # return invert of stored alignment, if present
+        if self._metadata['Canonical Alignment']:
+            return np.linalg.inv(np.array(self._metadata['Canonical Alignment'], dtype=np.float64))
+
+        if self.alignment_depth == 1 and self._metadata['Alignment']:
+            return np.linalg.inv(np.array(self._metadata['Alignment'], dtype=np.float64))
+
+        # compute inverted alignment
+        metadata = dict(self.canonical_alignment_standard_image)
+        metadata.update({
+            'AS1_obj': None,
+            'ASI1_obj': None,
+            'AS2_obj': None,
+            'ASI2_obj': None,
+        })
+        standard = ImageGrossAlignment(metadata, self.swap_p1_p2)
+        return np.matmul(standard.M, self.M_inv)

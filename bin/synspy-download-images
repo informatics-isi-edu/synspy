@@ -1,0 +1,165 @@
+#!/usr/bin/python
+
+#
+# Copyright 2018 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import os
+import os.path
+import re
+import json
+
+from requests import HTTPError
+from deriva.core import ErmrestCatalog, HatracStore, get_credential, urlquote
+
+servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
+catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
+dump_dir = os.getenv('DUMP_DIR', '.').rstrip("/")
+dump_dir = '.' if not dump_dir else dump_dir
+dry_run = os.getenv('DRY_RUN', 'false').lower() in {'true', 't', 'yes', 'y'}
+
+print('Effective SYNAPSE_SERVER="%s"' % servername)
+print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
+print('Effective DUMP_DIR="%s"' % dump_dir)
+print('Effective DRY_RUN="%s"' % dry_run)
+
+credentials = get_credential(servername)
+catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
+store = HatracStore('https', servername, credentials)
+
+def find_image_basename(row):
+    # try to observe suggested filename, if present and sane
+    if 'content-disposition' in row['headers']:
+        m = re.match("^filename[*]=UTF-8''(?P<basename>[-_A-Za-z0-9.]*)", row['headers']['content-disposition'])
+        if m:
+            return m.groupdict()['basename']
+    # fall-back, assume SPIM image and name via ID
+    return '%(ID)s.ome.tiff'
+
+def get_image(row):
+    row = row.copy() # copy so we can freely mutate it...
+    row['dump_dir'] = dump_dir
+    if row['URL'] is None:
+        print('Skipping image record RID=%(RID)s ID=%(ID)s with no image file URL present!' % row)
+    else:
+        # get object metadata to help with download planning
+        r = store.head(row['URL'])
+        r.raise_for_status()
+        row['headers'] = r.headers
+        row['basename'] = find_image_basename(row)
+        if dry_run:
+            print('Skipping image record RID=%(RID)s ID=%(ID)s due to dry-run mode.' % row)
+        else:
+            if os.path.isfile('%(dump_dir)s/%(basename)s' % row) \
+               and 'content-length' in row['headers'] \
+               and os.path.getsize('%(dump_dir)s/%(basename)s' % row) == int(row['headers']['content-length']):
+                print('Found image record RID=%(RID)s ID=%(ID)s: %(dump_dir)s/%(basename)s exists with same size.' % row)
+            else:
+                r = store.get_obj(row['URL'], destfilename='%(dump_dir)s/%(basename)s' % row)
+                print('Found image record RID=%(RID)s ID=%(ID)s: %(dump_dir)s/%(basename)s written.' % row)
+
+def get_images(id, idempotent=True):
+    """Download image(s) by identifier.
+
+       Arguments:
+       - id: record identifier
+
+       Returns: None
+
+       Raises:
+       - ValueError: identifier does not resolve to image(s)
+
+    """
+    # dictionary of ERMrest query URL fragments we can compose from templates below...
+    parts = {
+        'Image': 'Zebrafish:Image',
+        'Cohort': 'Zebrafish:Cohort%20Analysis',
+        'Cohort_Pair': 'Zebrafish:Cohort%20Analysis_Synaptic%20Pair%20Study',
+        'Pair': 'Zebrafish:Synaptic%20Pair%20Study',
+        'id': urlquote(id),
+    }
+
+    url_templates = [
+        # get single image for matching image ID
+        '/entity/%(Image)s/ID=%(id)s',
+        # get single image for matching image RID
+        '/entity/%(Image)s/RID=%(id)s',
+        # get all images for matching cohort RID
+        '/entity/%(Cohort)s/RID=%(id)s/%(Cohort_Pair)s/%(Pair)s/%(Image)s',
+    ]
+
+    for template in url_templates:
+        r = catalog.get(template % parts)
+        r.raise_for_status()
+        rows = r.json()
+        if rows:
+            results = []
+            print('Found %d image records for identifier %s.' % (len(rows), id))
+            for row in rows:
+                get_image(row)
+            # stop searching after first successful match
+            return
+
+    raise ValueError('No image record found for identifier %s.' % id)
+    
+def get_images_cli(*idlist):
+    """Download images by identifier.
+
+       Arguments:
+         idlist: image source identifiers
+
+       Each identifier is resolved in this order and first match is
+       considered sole image source for that identifier:
+         1. Image:ID
+         2. Image:RID
+         3. Cohort Analysis:RID
+
+       Environment parameters:
+         DUMP_DIR: defaults to './'
+         SYNAPSE_SERVER: defaults to 'synapse.isrd.isi.edu'
+         SYNAPSE_CATALOG: defaults to '1'
+         DRY_RUN: don't actually retrieve files (defaults to 'false')
+
+       Output is written to files:
+         - per image: '<DUMP_DIR>/<image file>'
+
+    """
+    for id in idlist:
+        get_images(id)
+
+    return 0
+
+if __name__ == '__main__':
+    try:
+        try:
+            status = get_images_cli(*sys.argv[1:])
+            sys.exit(status)
+        except HTTPError as e:
+            if hasattr(e, 'response'):
+                if e.response.status_code == 401:
+                    sys.stderr.write("""
+ERROR: Please use deriva-auth to authenticate with the server %s first.
+""" % (
+    servername,
+))
+                    sys.exit(1)
+            raise
+    except Exception as e:
+        sys.stderr.write("""
+ERROR: %s
+usage: synspy-download-images <id>...
+%s
+
+Examples:
+
+- synspy-download-images 105T
+   - download cohort 105T images
+
+""" % (
+    e,
+    get_images_cli.__doc__
+))
+        raise
+        sys.exit(1)

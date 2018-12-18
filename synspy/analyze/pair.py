@@ -308,6 +308,7 @@ class SynapticPairStudy (NucleicPairStudy):
             '$SPS/'
             '*;'
             'I1:%(zs)s,'
+            'I1:Subject,'
             'IPS:Alignment,'
             'n1:=IPS:%(r1u)s,'
             'n2:=IPS:%(r2u)s,'

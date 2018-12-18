@@ -132,11 +132,21 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
 
     return (centroids, pair_study.id)
 
-def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter, include_header=True):
+def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, csvwriter2, include_header=True):
     """Dump one CSV row per point pair.
     """
     if include_header:
-        csvwriter.writerow(('x1', 'y1', 'z1', 'core1', 'x2', 'y2', 'z2', 'core2', 't', 'study_id'))
+        csvwriter1.writerow(('x1', 'y1', 'z1', 'core1', 'x2', 'y2', 'z2', 'core2', 't', 'study_id', 'subject'))
+        csvwriter2.writerow(
+            ('x all', 'y all', 'z all')
+            + ('x 1st', 'y 1st', 'z 1st')
+            + ('x 2nd', 'y 2nd', 'z 2nd')
+            + ('x lost', 'y lost', 'z lost')
+            + ('x gained', 'y gained', 'z gained')
+            + ('x 1st->2nd', 'y 1st->2nd', 'z 1st->2nd')
+            + ('x lost->gained', 'y lost->gained', 'z lost->gained')
+            + ('study_id', 'subject')
+        )
 
     # try to use pair_src_rid as a Cohort Analysis RID
     r = catalog.get('/attribute/%(atable)s/%(ccol)s=%(crid)s/%(stable)s/RID' % {
@@ -148,53 +158,83 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter, in
     r.raise_for_status()
     study_rows = r.json()
 
-    def dump_csv(centroids, study_id):
+    def dump_csv(centroids, study_id, subject):
         assert int(centroids.shape[1]) % 2 == 1, 'centroids.shape[1] is %s' % (centroids.shape[1],)
         k = (centroids.shape[1]-1)//2
-        for i in range(centroids.shape[0]):
-            status = int(centroids[i,-1])
-            if status == 0:
-                csvwriter.writerow((
-                    '%f' % centroids[i,2],
-                    '%f' % centroids[i,1],
-                    '%f' % centroids[i,0],
-                    '%f' % centroids[i,3],
-                    '%f' % centroids[i,k+2],
-                    '%f' % centroids[i,k+1],
-                    '%f' % centroids[i,k+0],
-                    '%f' % centroids[i,k+3],
-                    '%d' % status,
-                    study_id,
-                ))
-            elif status == 1:
-                csvwriter.writerow((
-                    '%f' % centroids[i,2],
-                    '%f' % centroids[i,1],
-                    '%f' % centroids[i,0],
-                    '%f' % centroids[i,3],
-                    '',
-                    '',
-                    '',
-                    '',
-                    '%d' % status,
-                    study_id,
-                ))
-            elif status == 2:
-                csvwriter.writerow((
-                    '',
-                    '',
-                    '',
-                    '',
-                    '%f' % centroids[i,k+2],
-                    '%f' % centroids[i,k+1],
-                    '%f' % centroids[i,k+0],
-                    '%f' % centroids[i,k+3],
-                    '%d' % status,
-                    study_id,
-                ))
-            else:
-                raise NotImplementedError('pair status %s not expected' % centroids[i,-1])
 
+        loss = centroids[np.where(centroids[:,-1] == 1)]
+        both = centroids[np.where(centroids[:,-1] == 0)]
+        gain = centroids[np.where(centroids[:,-1] == 2)]
+        
+        for i in range(both.shape[0]):
+            csvwriter1.writerow((
+                '%f' % both[i,2],
+                '%f' % both[i,1],
+                '%f' % both[i,0],
+                '%f' % both[i,3],
+                '%f' % both[i,k+2],
+                '%f' % both[i,k+1],
+                '%f' % both[i,k+0],
+                '%f' % both[i,k+3],
+                '%d' % both[i,-1],
+                study_id,
+                subject,
+            ))
+
+        for i in range(loss.shape[0]):
+            csvwriter1.writerow((
+                '%f' % loss[i,2],
+                '%f' % loss[i,1],
+                '%f' % loss[i,0],
+                '%f' % loss[i,3],
+                '',
+                '',
+                '',
+                '',
+                '%d' % loss[i,-1],
+                study_id,
+                subject,
+            ))
+
+        for i in range(gain.shape[0]):
+            csvwriter1.writerow((
+                '',
+                '',
+                '',
+                '',
+                '%f' % gain[i,k+2],
+                '%f' % gain[i,k+1],
+                '%f' % gain[i,k+0],
+                '%f' % gain[i,k+3],
+                '%d' % gain[i,-1],
+                study_id,
+                subject,
+            ))
+
+        every = np.concatenate((loss[:,0:3], both[:,0:3], both[:,k:k+3], gain[:,k:k+3]), axis=0)
+        first = np.concatenate((loss[:,0:3], both[:,0:3]), axis=0)
+        second = np.concatenate((both[:,k:k+3], gain[:,k:k+3]), axis=0)
+        before = loss[:,0:3]
+        after = gain[:,k:k+3]
+            
+        csvwriter2.writerow((
+            # centers of mass combining both pointclouds
+            tuple(every.sum(axis=0) / every.shape[0])
+            # centers of mass for 1st pointcloud
+            + tuple(first.sum(axis=0) / first.shape[0])
+            # centers of mass for 2nd pointcloud
+            + tuple(second.sum(axis=0) / second.shape[0])
+            # centers of "lost" points
+            + tuple(before.sum(axis=0) / before.shape[0])
+            # centers of "gained" points
+            + tuple(after.sum(axis=0) / after.shape[0])
+            # 1st->2nd centroid motion
+            + tuple( (second.sum(axis=0) / second.shape[0]) - (first.sum(axis=0) / first.shape[0]) )
+            # lost->gained centroid motion
+            + tuple( (after.sum(axis=0) / after.shape[0]) - (before.sum(axis=0) / before.shape[0]) )
+            + (study_id, subject)
+        ))
+            
     if study_rows:
         # if we found cohort members, then combine them in an ensemble result
         for row in study_rows:
@@ -202,7 +242,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter, in
             try:
                 pair_study.retrieve_data(store)
                 centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
-                dump_csv(centroids, study_id)
+                dump_csv(centroids, study_id, pair_study._metadata['Subject'])
             except Exception as e:
                 print('WARNING: got error "%s" retrieving data for %s, skipping!' % (e, pair_study.id))
                 raise
@@ -252,15 +292,21 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
          - work files: '<DUMP_DIR>/tmp-*'
 
     """
-    dump_fname = '%s/%s-%s.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
+    dump_fname1 = '%s/%s-%s.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
+    dump_fname2 = '%s/%s-%s-centers.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
 
     ref_image_aligner = ImageGrossAlignment.from_image_id(catalog, voxel_img_rid)
-    outf = open(dump_fname, 'w')
-    writer = csv.writer(outf)
-    dump_paired_points_csv_rows(pair_src_rid, ref_image_aligner, writer)
-    del writer
-    outf.close()
-    print('Dumped paired synapse CSV to %s' % dump_fname)
+    outf1 = open(dump_fname1, 'w')
+    outf2 = open(dump_fname2, 'w')
+    writer1 = csv.writer(outf1)
+    writer2 = csv.writer(outf2)
+    dump_paired_points_csv_rows(pair_src_rid, ref_image_aligner, writer1, writer2)
+    del writer1
+    del writer2
+    outf1.close()
+    outf2.close()
+    print('Dumped paired synapse CSV to %s' % dump_fname1)
+    print('Dumped centers of mass CSV to %s' % dump_fname2)
 
     return 0
 

@@ -19,6 +19,7 @@ setup(
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy-register-batch",
+        "bin/synspy-spanning",
         "bin/synspy_worker",
     ],
     entry_points={

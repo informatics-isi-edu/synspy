@@ -1,0 +1,214 @@
+#!/usr/bin/python3
+
+#
+# Copyright 2018-2019 University of Southern California
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+#
+
+import sys
+import os
+import os.path
+import numpy as np
+from scipy.spatial import cKDTree
+import scipy.sparse
+from scipy.sparse.csgraph import minimum_spanning_tree
+import csv
+import vispy.scene
+from vispy.scene import visuals
+import math
+
+from requests import HTTPError
+from deriva.core import ErmrestCatalog, HatracStore, get_credential, urlquote
+from synspy.analyze.util import transform_points, centroids_zx_swap, load_registered_csv
+
+servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
+catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
+dump_dir = os.getenv('DUMP_DIR', '.')
+max_neighbors = int(os.getenv('MAX_NEIGHBORS', '20'))
+max_radius_um = float(os.getenv('MAX_RADIUS', '5.0'))
+bgcolor = os.getenv('BACKGROUND_RGB', '0.15,0.15,0.15')
+bgcolor = tuple([ float(c) for c in bgcolor.split(',') ]) + (1.0,)
+syn_face_size = float(os.getenv('SEGMENT_SIZE', '4'))
+
+print('Effective SYNAPSE_SERVER="%s"' % servername)
+print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
+print('Effective DUMP_DIR="%s"' % dump_dir)
+print('Effective MAX_NEIGHBORS="%d"' % max_neighbors)
+print('Effective MAX_RADIUS="%f"' % max_radius_um)
+print('Effective BACKGROUND_RGB="%s"' % ','.join([ "%2.2f" % c for c in bgcolor[0:3] ]))
+print('Effective SEGMENT_SIZE="%f"' % syn_face_size)
+
+credentials = get_credential(servername)
+catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
+store = HatracStore('https', servername, credentials)
+
+
+def process_region(region_id):
+    """Process one Image Region record.
+    """
+    r = catalog.get('/entity/%(table)s/RID=%(id)s;ID=%(id)s' % {
+        'table': urlquote('Image Region'),
+        'id': urlquote(region_id),
+    })
+    r.raise_for_status()
+    region_rows = r.json()
+
+    if region_rows:
+        row = region_rows[0]
+        if row['Segments Filtered URL'] is None:
+            raise ValueError('Image Region ID="%(ID)s" lacks synaptic point-cloud.' % row)
+        try:
+            points = centroids_zx_swap(load_registered_csv(store, row['Segments Filtered URL'])[:,0:3]) # repack XYZ
+            # find a handful of nearest neighbors for each centroid
+            dx, pairs = cKDTree(points).query(points, max_neighbors, max_radius_um * 2)
+            # pack neighbor information as sparse graph weighted by distance between neighbors
+            edges1 = scipy.sparse.dok_matrix((points.shape[0], points.shape[0]), dtype=np.float64)
+            for i in range(points.shape[0]):
+                for d in range(max_neighbors):
+                    if dx[i, d] < max_radius_um and i < pairs[i, d]:
+                        edges1[i, pairs[i, d]] = dx[i, d]
+            # try to prune graph to remove some longer redundant edges
+            edges2 = minimum_spanning_tree(edges1)
+            return row, points, edges1, edges2
+        except Exception as e:
+            print('WARNING: got error "%s" retrieving data for ID=%s, skipping!' % (e, row['ID']))
+            raise
+    else:
+        raise ValueError('Image Region "%s" not found.' % region_id)
+
+def draw_points(view, a, face_color, size=10):
+    scatter = visuals.Markers()
+    scatter.set_gl_state(depth_test=False)
+    scatter.antialias = False
+    colors = np.zeros((a.shape[0], 4), np.float32)
+    colors[:,:] = np.array(face_color, np.float32)
+    scatter.set_data(a, edge_color=None, face_color=colors, edge_width=0, size=size)
+    view.add(scatter)
+    return scatter
+
+def draw_lines(view, a, face_color, size=10):
+    a2 = np.zeros((a.shape[0] * 2, a.shape[2]), dtype=a.dtype)
+    cl = np.zeros((a.shape[0] * 2, 4), dtype=np.float32)
+
+    a2[0::2,:] = a[:,0,:]
+    a2[1::2,:] = a[:,1,:]
+
+    cl[:,:] = np.array(face_color, np.float32)
+
+    lines = visuals.Arrow(connect='segments')
+    lines.set_gl_state(depth_test=False)
+    lines.antialias = False
+    lines.set_data(a2, cl, 1, 'segments')
+    view.add(lines)
+
+    return lines
+
+def spanning_cli(source_id):
+    """Infer topology which spans synaptic points based on adjacency.
+
+       Arguments:
+         source_id: reference Image Region:RID or Image Region:ID key
+
+       TODO: allow cohort RID for ensembles?
+
+       Environment parameters:
+         SYNAPSE_SERVER: defaults to 'synapse.isrd.isi.edu'
+         SYNAPSE_CATALOG: defaults to '1'
+
+         MAX_NEIGHBORS: maximum nearest neighbors to consider per point (default 20)
+         MAX_RADIUS: maximum microns to connected neighbors (default 5.0)
+         
+         BACKGROUND_RGB: RGB color for viz background (default 0.15,0.15,0.15)
+         SEGMENT_SIZE: size for drawn points (default 4)
+
+    """
+    row, points, edges1, edges2 = process_region(source_id)
+    print('Processing Image Region RID=%(RID)s ID=%(ID)s' % row)
+    print('Number of points: %d' % points.shape[0])
+    print('Number of connections by radius: %d' % edges1.nnz)
+    print('Number of connections to span: %d' % edges2.nnz)
+
+    edges1_coo = scipy.sparse.coo_matrix(edges1)
+    edges2_coo = scipy.sparse.coo_matrix(edges2)
+
+    def bbox_kd(a):
+        bbox = np.zeros((2, a.shape[1]), dtype=a.dtype)
+        bbox[0,:] = a.min(axis=0)
+        bbox[1,:] = a.max(axis=0)
+        return bbox
+
+    bbox = bbox_kd(points)
+    print('Bounding box size: %s' % (bbox[1,:] - bbox[0,:]))
+    
+    # translate cloud center to origin
+    origin_offset = (bbox[1,:] - bbox[0,:]) / 2.
+    points = points - origin_offset
+    # normalize points size for viz
+    scale = abs(points).max()
+    points = points / scale
+    
+    canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor=bgcolor)
+
+    view = canvas.central_widget.add_view()
+    view.set_gl_state(depth_test=False)
+
+    syn_face_color = (1, 1, 0, 0.4)
+    edge1_face_color = (0.25, 0.25, 0.25, 0.9)
+    edge2_face_color = (1, 0, 1, 0.9)
+
+    def graph_segments(g):
+        vertices = np.zeros((g.nnz, 2, 3))
+        vertices[:,0,:] = points[g.row,:]
+        vertices[:,1,:] = points[g.col,:]
+        return vertices
+    
+    points_scatter = draw_points(view, points, syn_face_color, syn_face_size)
+    edges1_scatter = draw_lines(view, graph_segments(edges1_coo), edge1_face_color, syn_face_size)
+    edges2_scatter = draw_lines(view, graph_segments(edges2_coo), edge2_face_color, syn_face_size)
+
+    axis = visuals.XYZAxis(parent=view.scene)
+    view.camera = 'arcball'
+    vispy.app.run()
+
+    return 0
+
+if __name__ == '__main__':
+    try:
+        try:
+            status = spanning_cli(*sys.argv[1:])
+            sys.exit(status)
+        except HTTPError as e:
+            if hasattr(e, 'response'):
+                if e.response.status_code == 401:
+                    sys.stderr.write("""
+ERROR: Please use deriva-auth to authenticate with the server %s first.
+""" % (
+    servername,
+))
+                    sys.exit(1)
+            raise
+    except Exception as e:
+        sys.stderr.write("""
+ERROR: %s
+usage: synspy-spanning <synapse source identifier>
+%s
+
+Examples:
+
+- synspy-spanning ZBP
+   - Image Region RID=ZBP (aka SynImgZfDsy20180404B3A)
+- synspy-spanning SynImgZfDsy20180404B3A
+   - Image Region RID=ZBP (aka SynImgZfDsy20180404B3A)
+
+- synspy-spanning 1640
+   - Cohort RID=1640  [COHORT BULK ACCESS NOT YET SUPPORTED]
+
+This tool accepts either "ID" and "RID" column values for each argument.
+
+""" % (
+    e,
+    spanning_cli.__doc__
+))
+        raise
+        sys.exit(1)
+

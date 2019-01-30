@@ -29,6 +29,7 @@ max_radius_um = float(os.getenv('MAX_RADIUS', '5.0'))
 bgcolor = os.getenv('BACKGROUND_RGB', '0.15,0.15,0.15')
 bgcolor = tuple([ float(c) for c in bgcolor.split(',') ]) + (1.0,)
 syn_face_size = float(os.getenv('SEGMENT_SIZE', '4'))
+xyz_grid_scale = (0.26, 0.26, 0.4)
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
@@ -59,6 +60,7 @@ def process_region(region_id):
             raise ValueError('Image Region ID="%(ID)s" lacks synaptic point-cloud.' % row)
         try:
             points = centroids_zx_swap(load_registered_csv(store, row['Segments Filtered URL'])[:,0:3]) # repack XYZ
+            points[:,:] *= np.array(xyz_grid_scale, dtype=np.float32)
             # find a handful of nearest neighbors for each centroid
             dx, pairs = cKDTree(points).query(points, max_neighbors, max_radius_um * 2)
             # pack neighbor information as sparse graph weighted by distance between neighbors

@@ -479,7 +479,19 @@ class Canvas(app.Canvas):
                 )
             ),
             (
-                'gray intensity with classified synapses',
+                'gray intensity with magenta=ON synapses',
+                frag_shader(
+                    colorxfer='vec4(pixel.r, pixel.r, pixel.r, 1.0/u_gain) * u_gain',
+                    pick_off= 'vec3(0.2, 1, 1)',
+                    pick_on=  'vec3(1, 0.2, 1)',
+                    pick_def= 'vec3(1, 1, 1)',
+                    off=      'result.rgb',
+                    on=       'vec3(result.g, 0.2 * result.g, result.g) * 1.2',
+                    inrange=  'result.rgb',
+                )
+            ),
+            (
+                'gray intensity with magenta=ON cyan=OFF yellow=neither synapses',
                 frag_shader(
                     colorxfer='vec4(pixel.r, pixel.r, pixel.r, 1.0/u_gain) * u_gain',
                     pick_off= 'vec3(0.2, 1, 1)',

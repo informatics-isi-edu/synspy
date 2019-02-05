@@ -11,7 +11,7 @@ import os.path
 import numpy as np
 from scipy.spatial import cKDTree
 import scipy.sparse
-from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.sparse.csgraph import minimum_spanning_tree, connected_components
 import csv
 import vispy.scene
 from vispy.scene import visuals
@@ -30,6 +30,8 @@ bgcolor = os.getenv('BACKGROUND_RGB', '0.15,0.15,0.15')
 bgcolor = tuple([ float(c) for c in bgcolor.split(',') ]) + (1.0,)
 syn_face_size = float(os.getenv('SEGMENT_SIZE', '4'))
 xyz_grid_scale = (0.26, 0.26, 0.4)
+min_group_size = int(os.getenv('MIN_GROUP_SIZE', '4'))
+draw_pruned = os.getenv('DRAW_PRUNED', 'false').lower() == 'true'
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
@@ -38,6 +40,8 @@ print('Effective MAX_NEIGHBORS="%d"' % max_neighbors)
 print('Effective MAX_RADIUS="%f"' % max_radius_um)
 print('Effective BACKGROUND_RGB="%s"' % ','.join([ "%2.2f" % c for c in bgcolor[0:3] ]))
 print('Effective SEGMENT_SIZE="%f"' % syn_face_size)
+print('Effective MIN_GROUP_SIZE="%d"' % min_group_size)
+print('Effective DRAW_PRUNED="%s"' % draw_pruned)
 
 credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
@@ -71,7 +75,10 @@ def process_region(region_id):
                         edges1[i, pairs[i, d]] = dx[i, d]
             # try to prune graph to remove some longer redundant edges
             edges2 = minimum_spanning_tree(edges1)
-            return row, points, edges1, edges2
+            # also determine connected component labels for points
+            n_components, labels = connected_components(edges2, directed=False)
+            discard, sizes = np.unique(labels, return_counts=True)
+            return row, points, edges1, edges2, n_components, labels, sizes
         except Exception as e:
             print('WARNING: got error "%s" retrieving data for ID=%s, skipping!' % (e, row['ID']))
             raise
@@ -95,7 +102,8 @@ def draw_lines(view, a, face_color, size=10):
     a2[0::2,:] = a[:,0,:]
     a2[1::2,:] = a[:,1,:]
 
-    cl[:,:] = np.array(face_color, np.float32)
+    cl[0::2,:] = np.array(face_color, np.float32)
+    cl[1::2,:] = np.array(face_color, np.float32)
 
     lines = visuals.Arrow(connect='segments')
     lines.set_gl_state(depth_test=False)
@@ -119,16 +127,20 @@ def spanning_cli(source_id):
 
          MAX_NEIGHBORS: maximum nearest neighbors to consider per point (default 20)
          MAX_RADIUS: maximum microns to connected neighbors (default 5.0)
+         MIN_GROUP_SIZE: ignore groups smaller than this size (default 4)
          
          BACKGROUND_RGB: RGB color for viz background (default 0.15,0.15,0.15)
          SEGMENT_SIZE: size for drawn points (default 4)
+         DRAW_PRUNED: whether to draw edges pruned by spanning-tree algorithm (default False)
 
     """
-    row, points, edges1, edges2 = process_region(source_id)
+    row, points, edges1, edges2, n_components, labels, sizes = process_region(source_id)
     print('Processing Image Region RID=%(RID)s ID=%(ID)s' % row)
     print('Number of points: %d' % points.shape[0])
     print('Number of connections by radius: %d' % edges1.nnz)
     print('Number of connections to span: %d' % edges2.nnz)
+    print('Number of components: %d' % n_components)
+    print('Number of components size %d or larger: %d' % (min_group_size, np.count_nonzero(sizes >= min_group_size)))
 
     edges1_coo = scipy.sparse.coo_matrix(edges1)
     edges2_coo = scipy.sparse.coo_matrix(edges2)
@@ -163,10 +175,28 @@ def spanning_cli(source_id):
         vertices[:,0,:] = points[g.row,:]
         vertices[:,1,:] = points[g.col,:]
         return vertices
-    
+
+    def graph_segments_groups(g):
+        e_sizes = sizes[labels[g.row]]
+        e_cnt = np.count_nonzero(e_sizes >= min_group_size)
+        e_subset_idx = np.nonzero(e_sizes >= min_group_size)[0]
+
+        vertices = np.zeros((e_cnt, 2, 3))
+        vertices[:,0,:] = points[g.row[e_subset_idx],:]
+        vertices[:,1,:] = points[g.col[e_subset_idx],:]
+
+        label_colors = np.zeros((labels.shape[0], 4), dtype=np.float32)
+        label_colors[:,0:3] = np.random.random((labels.shape[0], 3)) * 0.75 + 0.25
+        label_colors[:,3] = 0.9
+        colors = label_colors[labels[g.row[e_subset_idx]]]
+        return vertices, colors
+
+    edges2, colors2 = graph_segments_groups(edges2_coo)
+
+    if draw_pruned:
+        edges1_scatter = draw_lines(view, graph_segments(edges1_coo), edge1_face_color, syn_face_size)
+    edges2_scatter = draw_lines(view, edges2, colors2, syn_face_size)
     points_scatter = draw_points(view, points, syn_face_color, syn_face_size)
-    edges1_scatter = draw_lines(view, graph_segments(edges1_coo), edge1_face_color, syn_face_size)
-    edges2_scatter = draw_lines(view, graph_segments(edges2_coo), edge2_face_color, syn_face_size)
 
     axis = visuals.XYZAxis(parent=view.scene)
     view.camera = 'arcball'

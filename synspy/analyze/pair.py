@@ -4,6 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
+import sys
 import math
 import numpy as np
 from scipy.spatial import cKDTree
@@ -448,7 +449,7 @@ class ImageGrossAlignment (object):
 
     """
     @classmethod
-    def from_image_id(cls, ermrest_catalog, image_id):
+    def from_image_id(cls, ermrest_catalog, image_id, disable_gross_align=False):
         """Instantiate class by finding metadata for a given image_id in ermrest_catalog.
 
         :param ermrest_catalog: an ErmrestCatalog instance to use for metadata queries
@@ -460,7 +461,7 @@ class ImageGrossAlignment (object):
         result = r.json()
         if len(result) != 1:
             raise ValueError('Expected exactly 1 catalog result for %s but found %d.' % (image_id, len(result)))
-        return cls(result[0])
+        return cls(result[0], disable_gross_align=disable_gross_align)
 
     @staticmethod
     def metadata_query_url(image_id):
@@ -482,14 +483,16 @@ class ImageGrossAlignment (object):
             'id': urlquote(image_id),
         }
 
-    def __init__(self, metadata, swap_p1_p2=False):
+    def __init__(self, metadata, swap_p1_p2=False, disable_gross_align=False):
         """Instantiate with record metadata retrieved from image and related entities.
 
         :param metadata: single row result from metadata_query_url(image_id)
         :param swap_p1_p2: align Y-axes to P0->P2 vector if True, else P0->P1 (default)
+        :param disable_gross_align: fallback to 3-point canonical alignment when False (default)
 
         """
         self._metadata = metadata
+        self.disable_gross_align = disable_gross_align
 
         grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float64)
         def get_align_coord(colname, axis):
@@ -619,7 +622,25 @@ class ImageGrossAlignment (object):
             return np.array(self._metadata['Canonical Alignment'], dtype=np.float64)
 
         if self.alignment_depth == 1 and self._metadata['Alignment']:
+            sys.stderr.write('using alignment matrix for image %s -> %s\n' % (
+                self.RID,
+                self.alignment_standard_image['RID'],
+            ))
             return np.array(self._metadata['Alignment'], dtype=np.float64)
+
+        if self.alignment_depth == 2 and self._metadata['Alignment'] \
+           and self.alignment_standard_image['Alignment']:
+            M0 = np.array(self._metadata['Alignment'], dtype=np.float64)
+            M1 = np.array(self.alignment_standard_image['Alignment'], dtype=np.float64)
+            sys.stderr.write('using compound alignment matrices for image %s -> %s -> %s\n' % (
+                self.RID,
+                self.alignment_standard_image['RID'],
+                self.canonical_alignment_standard_image['RID'],
+            ))
+            return np.matmul(M0, M1)
+
+        if self.disable_gross_align:
+            raise ValueError('canonical alignment not available for Image %s' % self.RID)
 
         # compute alignment
         metadata = dict(self.canonical_alignment_standard_image)
@@ -630,6 +651,10 @@ class ImageGrossAlignment (object):
             'ASI2_obj': None,
         })
         standard = ImageGrossAlignment(metadata, self.swap_p1_p2)
+        sys.stderr.write('using 3-point alignment for image %s -> %s\n' % (
+            self.RID,
+            standard.RID,
+        ))
         return np.matmul(self.M, standard.M_inv)
 
     @property
@@ -649,6 +674,15 @@ class ImageGrossAlignment (object):
 
         if self.alignment_depth == 1 and self._metadata['Alignment']:
             return np.linalg.inv(np.array(self._metadata['Alignment'], dtype=np.float64))
+
+        if self.alignment_depth == 2 and self._metadata['Alignment'] \
+           and self.alignment_standard_image['Alignment']:
+            M0 = np.array(self._metadata['Alignment'], dtype=np.float64)
+            M1 = np.array(self.alignment_standard_image['Alignment'], dtype=np.float64)
+            return np.linalg.inv(np.matmul(M0, M1))
+
+        if self.disable_gross_align:
+            raise ValueError('canonical alignment not available for Image %s' % self.RID)
 
         # compute inverted alignment
         metadata = dict(self.canonical_alignment_standard_image)

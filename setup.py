@@ -15,6 +15,7 @@ setup(
     scripts=[
         "bin/synspy-analyze",
         "bin/synspy-download-images",
+        "bin/synspy-pair-csv",
         "bin/synspy-pair-npz",
         "bin/synspy-reclassify",
         "bin/synspy-register",

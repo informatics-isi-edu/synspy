@@ -23,11 +23,13 @@ catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
 dump_dir = '.'
 dump_dir = os.getenv('DUMP_DIR', dump_dir)
 pairing_radius = float(os.getenv('SYNAPSE_PAIR_RADIUS', '4.0'))
+disable_3point = os.getenv('DISABLE_3POINT', 'false').lower() == 'true'
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
 print('Effective SYNAPSE_PAIR_RADIUS="%s"' % pairing_radius)
 print('Effective DUMP_DIR="%s"' % dump_dir)
+print('Effective DISABLE_3POINT="%s"' % disable_3point)
 
 credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
@@ -65,7 +67,7 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     the after point values are meaningless and filled with zeros.
 
     """
-    image1 = ImageGrossAlignment.from_image_id(catalog, pair_study._metadata['Image 1'])
+    image1 = ImageGrossAlignment.from_image_id(catalog, pair_study._metadata['Image 1'], disable_gross_align=disable_3point)
 
     xform = None
 
@@ -79,7 +81,13 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
                 xform = np.array(image1._metadata["Alignment"], dtype=np.float64)
 
     if xform is None:
+        if disable_3point:
+            raise ValueError('3-point alignment disabled for image %s' % image1.RID)
         # fall back to 3-point alignment
+        sys.stderr.write('using adhoc 3-point alignment for image %s -> %s\n' % (
+            image1.RID,
+            voxel_image_aligner.RID,
+        ))
         xform = np.matmul(image1.M, voxel_image_aligner.M_inv)
 
     s1_to_s2, s2_to_s1 = pair_study.syn_pairing_maps(max_dx_seq=(pairing_radius,), dx_w_ratio=None, max_w_ratio=None)
@@ -245,7 +253,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
                 dump_csv(centroids, study_id, pair_study._metadata['Subject'])
             except Exception as e:
                 print('WARNING: got error "%s" retrieving data for %s, skipping!' % (e, pair_study.id))
-                raise
+                #raise
     else:
         # otherwise, assume pair_src_rid is a single Synaptic Pair Study
         # this will raise ValueError if it doesn't match anything...
@@ -265,16 +273,21 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
        that pair's synapse pointclouds will be combined into the
        resulting CSV.
 
-       TODO: allow cohort RID for ensembles?
+       If the pair source identifier is a Cohort Analysis:RID key, all
+       member pairs' synapse pointclouds will be combined into the
+       resulting CSV.
 
        All involved Image records must have their 3-point alignment
        coordinates so that synaptic pointclouds can be aligned into
-       the reference image space.
+       the reference image space. If custom alignment matrices are
+       present, they are preferred. With DISABLE_3POINT=true, custom
+       matrices are required.
 
        Environment parameters:
          DUMP_DIR: defaults to './'
          SYNAPSE_SERVER: defaults to 'synapse.isrd.isi.edu'
          SYNAPSE_CATALOG: defaults to '1'
+         DISABLE_3POINT: defaults to 'false'
 
        Output CSV columns:
          x1: centroid X coord

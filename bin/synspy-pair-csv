@@ -77,6 +77,10 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
             xform = image1.M_canonical
         elif image1.alignment_standard_image["RID"] == voxel_image_aligner.RID:
             # special case: stop at intermediate reference image w/ custom alignment?
+            sys.stderr.write('using alignment matrix for image %s -> %s\n' % (
+                image1.RID,
+                voxel_image_aligner.RID,
+            ))
             if image1._metadata["Alignment"]:
                 xform = np.array(image1._metadata["Alignment"], dtype=np.float64)
 
@@ -260,7 +264,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
         pair_study = SynapticPairStudy.from_study_id(catalog, pair_src_rid)
         pair_study.retrieve_data(store)
         centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
-        dump_csv(centroids, study_id)
+        dump_csv(centroids, study_id, pair_study._metadata['Subject'])
 
 def paired_csv_cli(voxel_img_rid, pair_src_rid):
     """Align paired synapses and write CSV output file.

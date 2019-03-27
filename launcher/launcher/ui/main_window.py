@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
 
     def displayWorklist(self, worklist):
         keys = ["ID",
+                "Source Image",
                 "Classifier",
                 "Subject Issue Date",
                 "Due Date",
@@ -269,9 +270,13 @@ class MainWindow(QMainWindow):
 
     def retrieveFiles(self):
         # if there is an existing segments file, download it first, otherwise just initiate the input file download
+        seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments Filtered URL")
         if segments_url:
-            segments_filename = os.path.basename(segments_url).split(":")[0]
+            segments_filename = '%s.%s-only.csv' % (
+                self.ui.workList.getCurrentTableItemTextByName("ID"),
+                "synapses" if seg_mode == "synaptic" else "nucleic"
+            )
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
             self.updateStatus("Downloading file: [%s]" % segments_destfile)
             downloadTask = FileRetrieveTask(self.store)
@@ -286,8 +291,14 @@ class MainWindow(QMainWindow):
 
     def retrieveInputFile(self):
         # get the main TIFF file for analysis if not already cached
-        input_url = "URL" if self.use_3D_viewer else "Npz URL"
-        url = self.ui.workList.getCurrentTableItemTextByName(input_url)
+        seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
+        if self.use_3D_viewer:
+            url = self.ui.workList.getCurrentTableItemTextByName("URL")
+            filename = '%s.ome.tiff' % self.ui.workList.getCurrentTableItemTextByName("Source Image")
+        else:
+            url = self.ui.workList.getCurrentTableItemTextByName("Npz URL")
+            filename = '%s.npz' % self.ui.workList.getCurrentTableItemTextByName("ID")
+        destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not url and not self.use_3D_viewer:
             self.resetUI("Unable to launch 2D viewer due to missing NPZ file for %s." %
                          self.ui.workList.getCurrentTableItemTextByName("ID"))
@@ -296,8 +307,6 @@ class MainWindow(QMainWindow):
                 "The launcher is currently configured to execute the 2D viewer, which requires NPZ files for input. " +
                 "No NPZ file could be found on the server for this task.")
             return
-        filename = os.path.basename(url).split(":")[0]
-        destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not os.path.isfile(destfile):
             self.updateStatus("Downloading file: [%s]" % destfile)
             downloadTask = FileRetrieveTask(self.store)
@@ -312,10 +321,7 @@ class MainWindow(QMainWindow):
 
     def getSubprocessPath(self):
         executable = "synspy-viewer" if self.use_3D_viewer else "synspy-viewer2d"
-        if platform.system() == "Windows":
-            base_path = None
-        else:
-            base_path = "/bin"
+        base_path = None
         return os.path.normpath(resource_path(executable, base_path))
 
     def executeViewer(self, file_path):

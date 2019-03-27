@@ -1,0 +1,276 @@
+#!/usr/bin/python3
+
+import sys
+import os
+import os.path
+import json
+
+from requests import HTTPError
+from deriva.core import ErmrestCatalog, get_credential, urlquote
+
+servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
+catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
+
+sys.stderr.write('Effective SYNAPSE_SERVER="%s"\n' % servername)
+sys.stderr.write('Effective SYNAPSE_CATALOG="%s"\n' % catalog_id)
+
+credentials = get_credential(servername)
+catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
+
+pathbuilder = catalog.getPathBuilder()
+
+def strip_prefix(rows, talias):
+    prefix = "%s:" % talias
+    return [
+        {
+            k[len(prefix):] if k.startswith(prefix) else k: v
+            for k, v in row.items()
+        }
+        for row in rows
+    ]
+
+def dict_updated(src, overrides):
+    d = dict(src)
+    d.update(overrides)
+    return d
+
+def cohort_qa_clone_cli(*src_cohort_rids):
+    """Idempotently create QA clone for source cohort.
+
+    Arguments:
+       src_cohort_rids: source Cohort Collection record
+
+    """
+    src_sps_query = (
+        "/Cohort%20Analysis_Synaptic%20Pair%20Study"
+        + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+        + "/SSPS:=Synaptic%20Pair%20Study"
+    )
+
+    src_regions_query = (
+        src_sps_query
+        # this will join on disjunction of Synaptic Region 1/2 fkeys!
+        + "/SIR:=Image%20Region"
+    )
+
+    resp = catalog.get(
+        ("/attribute"
+         + src_regions_query
+         + "/QIR:=left(RID)=(Image%20Region:QA_Source)"
+         + "/$SIR"
+         + "/SIR:*,qrid:=QIR:RID,qid:=QIR:ID"
+        )
+    )
+    rows = strip_prefix(resp.json(), "SIR")
+
+    regions_src2qa = {
+        row['RID']: row['qrid']
+        for row in rows
+        if row['qrid'] is not None
+    }
+    regions_rid2id = {
+        row['RID']: row['ID']
+        for row in rows
+    }
+    regions_rid2id.update({
+        row['qrid']: row['qid']
+        for row in rows
+        if row['qrid'] is not None
+    })
+
+    regions_to_clone = [
+        dict_updated(row, {
+            "QA_Source": row["RID"],
+            "Status": "analysis in progress",
+            "Classifier": None,
+            "Due Date": None,
+            "History": None,
+        })
+        for row in rows
+        if row['qrid'] is None
+    ]
+    if regions_to_clone:
+        resp = catalog.post(
+            "/entity/Image%20Region?defaults=ID,Sub-Sequence",
+            json=regions_to_clone
+        )
+        sys.stderr.write('\n')
+        for row in resp.json():
+            regions_src2qa[row['QA_Source']] = row['RID']
+            regions_rid2id[row['RID']] = row['ID']
+            sys.stderr.write("Cloned Image Region %(QA_Source)s into %(RID)s\n" % row)
+
+    sys.stderr.write("\nUsing Image Region source -> QA clone:\n%s\n" % json.dumps(regions_src2qa, indent=2))
+
+    regions_id2rid = {
+        v: k
+        for k, v in regions_rid2id.items()
+    }
+        
+    resp = catalog.get(
+        ("/attribute"
+         + src_sps_query
+         + "/QSPS:=left(RID)=(Synaptic%20Pair%20Study:QA_Source)"
+         + "/$SSPS"
+         + "/SSPS:*,qrid:=QSPS:RID"
+        )
+    )
+    rows = strip_prefix(resp.json(), "SSPS")
+
+    sps_src2qa = {
+        row['RID']: row['qrid']
+        for row in rows
+        if row['qrid'] is not None
+    }
+
+    def get_region_clone(src_id):
+        src_rid = regions_id2rid[src_id]
+        qa_rid = regions_src2qa[src_rid]
+        qa_id = regions_rid2id[qa_rid]
+        return qa_id
+        
+    sps_to_clone = [
+        dict_updated(row, {
+            "QA_Source": row["RID"],
+            "Synaptic Region 1": get_region_clone(row["Synaptic Region 1"]),
+            "Synaptic Region 2": get_region_clone(row["Synaptic Region 2"]),
+            "Region 1 URL": None,
+            "Region 2 URL": None,
+            "Status": None,
+            "Notes": "QA clone\n\n" + (row["Notes"] or ""),
+        })
+        for row in rows
+        if row['qrid'] is None
+    ]
+    if sps_to_clone:
+        resp = catalog.post(
+            "/entity/Synaptic%20Pair%20Study?defaults=RID,ID",
+            json=sps_to_clone
+        )
+        sys.stderr.write('\n')
+        for row in resp.json():
+            sps_src2qa[row["QA_Source"]] = row["RID"]
+            sys.stderr.write("Cloned Synaptic Pair Study %(QA_Source)s into %(RID)s\n" % row)
+
+    sys.stderr.write("\nUsing Synaptic Pair Study source -> QA clone:\n%s\n" % json.dumps(sps_src2qa, indent=2))
+                
+    resp = catalog.get(
+        ("/attribute"
+         + "/SC:=Cohort%20Analysis"
+         + "/" + ";".join([ "RID=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/QC:=left(RID)=(Cohort%20Analysis:QA_Source)"
+         + "/$SC"
+         + "/SC:*,qrid:=QC:RID"
+        )
+    )
+    rows = strip_prefix(resp.json(), "SC")
+
+    cohorts_src2qa = {
+        row["RID"]: row['qrid']
+        for row in rows
+        if row['qrid'] is not None
+    }
+
+    cohort_to_clone = [
+        dict_updated(row, {
+            "QA_Source": row["RID"],
+            "Description": "QA clone\n\n" + (row["Description"] or ""),
+        })
+        for row in rows
+        if row['qrid'] is None
+    ]
+    if cohort_to_clone:
+        resp = catalog.post(
+            "/entity/Cohort%20Analysis",
+            json=cohort_to_clone
+        )
+        sys.stderr.write('\n')
+        for row in resp.json():
+            cohorts_src2qa[row["QA_Source"]] = row["RID"]
+            sys.stderr.write("Cloned Cohort Analysis %(QA_Source)s into %(RID)s\n" % row)
+
+    sys.stderr.write("\nUsing Cohort Analysis source -> QA clone:\n%s\n" % json.dumps(cohorts_src2qa, indent=2))
+
+    resp = catalog.get(
+        ("/attribute"
+         + "/Sassoc:=Cohort%20Analysis_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/SSPS:=Synaptic%20Pair%20Study"
+         + "/QSPS:=(SSPS:RID)=(Synaptic%20Pair%20Study:QA_Source)"
+         + "/$Sassoc"
+         + "/cohort:=Sassoc:Cohort%20Analysis,ssps:=SSPS:RID,qsps:=QSPS:RID"
+        )
+    )
+    rows = resp.json()
+    
+    desired_qa_assocs = {
+        (cohorts_src2qa[row['cohort']], row['qsps'])
+        for row in rows
+    }
+
+    resp = catalog.get(
+        ("/attribute"
+         + "/Qassoc:=Cohort%20Analysis_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(cohorts_src2qa[rid]) for rid in src_cohort_rids ])
+         + "/QSPS:=Synaptic%20Pair%20Study"
+         + "/$Qassoc"
+         + "/cohort:=Qassoc:Cohort%20Analysis,qsps:=QSPS:RID"
+        )
+    )
+    rows = resp.json()
+
+    found_qa_assocs = {
+        (row['cohort'], row['qsps'])
+        for row in rows
+    }
+    sys.stderr.write("\nWant %d assocs\n" % len(desired_qa_assocs))
+    sys.stderr.write("Found %d assocs\n" % len(found_qa_assocs))
+    sys.stderr.write("Missing %d assocs\n" % len(desired_qa_assocs - found_qa_assocs))
+
+    needed_assocs = [
+        {
+            "Cohort Analysis": cohort,
+            "Synaptic Pair Study": qsps,
+        }
+        for cohort, qsps in desired_qa_assocs - found_qa_assocs
+    ]
+    
+    if needed_assocs:
+        resp = catalog.post(
+            "/entity/Cohort%20Analysis_Synaptic%20Pair%20Study",
+            json=needed_assocs
+        )
+        for row in resp.json():
+            sys.stderr.write("Cloned cohort-pair association %(Cohort Analysis)s-%(Synaptic Pair Study)s\n" % row)
+
+    print('')
+    for src, qa in cohorts_src2qa.items():
+        print("Cohort Analysis source %s has QA clone %s." % (src, qa))
+    
+            
+if __name__ == '__main__':
+    try:
+        try:
+            status = cohort_qa_clone_cli(*sys.argv[1:])
+            sys.exit(status)
+        except HTTPError as e:
+            if hasattr(e, 'response'):
+                if e.response.status_code == 401:
+                    sys.stderr.write("""
+ERROR: Please use deriva-auth to authenticate with the server %s first.
+""" % (
+    servername
+))
+            raise
+    except Exception as e:
+        sys.stderr.write("""
+ERROR: %s
+usage: synspy-qa-cohort <src_chort_rid>...
+
+Examples:
+- synspy-qa-cohort 105T
+""" % (
+    e,
+    cohort_qa_clone_cli.__doc__
+))
+        raise

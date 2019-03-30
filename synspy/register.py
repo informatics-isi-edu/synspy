@@ -11,8 +11,8 @@ import pcl.registration
 import numpy as np
 import csv
 import math
+from transformations import decompose_matrix
 
-from .analyze.transformations import decompose_matrix
 from .analyze.util import load_segment_info_from_csv, dump_segment_info_to_csv, centroids_zx_swap, transform_centroids
 
 def get_env_grid_scale():

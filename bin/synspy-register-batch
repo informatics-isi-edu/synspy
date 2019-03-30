@@ -10,7 +10,6 @@ import pcl
 import pcl.registration
 import numpy as np
 import csv
-from MDAnalysis.lib.transformations import decompose_matrix
 import math
 
 from synspy.register import get_env_grid_scale, register, dump_registered_file_pair

@@ -17,6 +17,7 @@ setup(
         "bin/synspy-download-images",
         "bin/synspy-pair-csv",
         "bin/synspy-pair-npz",
+        "bin/synspy-qa-cohort",
         "bin/synspy-reclassify",
         "bin/synspy-register",
         "bin/synspy-register-batch",

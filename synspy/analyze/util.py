@@ -23,8 +23,8 @@ def Gsigma(sigma):
 
 def gaussian_kernel(s):
     G = Gsigma(s) # G(x) gaussian function
-    kernel_width = 2 * (int(6.0 * s - 1) / 2) + 1 # force always odd
-    kernel_radius = (kernel_width - 1) / 2 # doesn't include central cell
+    kernel_width = 2 * (int(6.0 * s - 1) // 2) + 1 # force always odd
+    kernel_radius = (kernel_width - 1) // 2 # doesn't include central cell
     kernel = list(map(G, list(range(-kernel_radius, kernel_radius+1))))
     mag = sum(kernel)
     kernel = [x / mag for x in kernel]
@@ -32,7 +32,7 @@ def gaussian_kernel(s):
 
 def crop_centered(orig, newshape):
     return orig[tuple(
-        diff and slice(diff/2, -(diff/2)) or slice(None)
+        diff and slice(diff//2, -(diff//2)) or slice(None)
         for diff in map(lambda l, s: l-s, orig.shape, newshape)
     )]
 
@@ -46,7 +46,7 @@ def pad_centered(orig, newshape, pad=0):
     
     def helper1d(dstlen, srclen):
         if dstlen > srclen:
-            return slice((dstlen-srclen)/2, -(dstlen-srclen)/2)
+            return slice((dstlen-srclen)//2, -(dstlen-srclen)//2)
         else:
             return None
 
@@ -67,9 +67,9 @@ def compose_3d_kernel(klist):
 def clamp_center_edge(orig, axis=0):
     return orig * (orig >= orig[
         tuple(
-            orig.shape[d]/2 for d in range(axis)
+            orig.shape[d]//2 for d in range(axis)
         ) + (0,) + tuple(
-            orig.shape[d]/2 for d in range(axis+1, 3)
+            orig.shape[d]//2 for d in range(axis+1, 3)
         )
     ])
 
@@ -141,7 +141,7 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
     syn_kernels = list(map(lambda d, s: gaussian_kernel(d/s/6.), synapse_diam_microns, gridsize))
     low_kernels = list(map(lambda d, s: gaussian_kernel(peak_factor*d/s/6.), synapse_diam_microns, gridsize))
     vlow_kernels = list(map(lambda d, s: gaussian_kernel(d/s/6.), vicinity_diam_microns, gridsize))
-    span_kernels = list(map(lambda d, s: (1,) * (2*(int(d/s)/2)+1), vicinity_diam_microns, gridsize))
+    span_kernels = list(map(lambda d, s: (1,) * (2*(int(d/s)//2)+1), vicinity_diam_microns, gridsize))
 
     # TODO: investigate variants?
     #  adjust diameter by a fudge factor?
@@ -155,7 +155,7 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
 
     hollow_kernel = span_kernel * (pad_centered(core_kernel, span_kernel.shape) <= 0)
         
-    max_kernel = ones(list(map(lambda d, s: 2*(int(0.7*d/s)/2)+1, synapse_diam_microns, gridsize)), dtype=float32)
+    max_kernel = ones(list(map(lambda d, s: 2*(int(0.7*d/s)//2)+1, synapse_diam_microns, gridsize)), dtype=float32)
 
     # sanity check kernel shapes
     for d in range(3):
@@ -188,10 +188,10 @@ def prepare_kernels(gridsize, synapse_diam_microns, vicinity_diam_microns, redbl
         )
 
 def radii_3x1d(k3x1d):
-    return np.array([len(k1d)/2 for k1d in k3x1d], dtype=np.int32)
+    return np.array([len(k1d)//2 for k1d in k3x1d], dtype=np.int32)
 
 def radii_3d(k3d):
-    return np.array([d/2 for d in k3d.shape], dtype=np.int32)
+    return np.array([d//2 for d in k3d.shape], dtype=np.int32)
 
 def centroids_zx_swap(centroids):
     """Return a copy of centroids array with Z and X swapped, e.g. ZYX<->XYZ."""

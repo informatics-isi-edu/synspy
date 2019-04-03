@@ -265,6 +265,9 @@ class Worker (object):
 
     poll_seconds = int(os.getenv('SYNSPY_POLL_SECONDS', '600'))
 
+    scriptdir = os.getenv('SYNSPY_PATH')
+    scriptdir = '%s/' % scriptdir if scriptdir else ''
+
     # remember where we started
     startup_working_dir = os.getcwd()
 
@@ -343,7 +346,7 @@ class Worker (object):
 
     def preprocess_roi(self, img_filename, zyx_slice):
         """Analyze ROI and upload resulting NPZ file, returning NPZ URL."""
-        command = [ 'synspy-analyze', img_filename ]
+        command = [ self.scriptdir + 'synspy-analyze', img_filename ]
         env = {
             'ZYX_SLICE': zyx_slice,
             'ZYX_IMAGE_GRID': '0.4,0.26,0.26',

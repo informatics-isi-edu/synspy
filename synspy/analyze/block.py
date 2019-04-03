@@ -194,7 +194,7 @@ class BlockedAnalyzer (object):
 
             assert lower % self.view_reduction[d] == 0
             assert upper % self.view_reduction[d] == 0
-            return slice(lower/self.view_reduction[d], upper/self.view_reduction[d])
+            return slice(lower//self.view_reduction[d], upper//self.view_reduction[d])
        
         slc = tuple([ slice1d(d) for d in range(3)] + [slice(None)])
         return slc
@@ -237,13 +237,13 @@ class BlockedAnalyzer (object):
                     raise ValueError("Dimension %d, length %d, smaller than desired block size %d but not divisible by reduction %d" % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
             # prefer desired_block_size or something a bit smaller
-            for w in range(desired_block_size[d], max(desired_block_size[d]/2, 2*self.max_border_widths[d]), -1):
+            for w in range(desired_block_size[d], max(desired_block_size[d]//2, 2*self.max_border_widths[d]), -1):
                 if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
-                    return w, self.image.shape[d] / w
+                    return w, self.image.shape[d] // w
             # also consider something larger
             for w in range(max(desired_block_size[d], 2*self.max_border_widths[d]), desired_block_size[d]*2):
                 if (self.image.shape[d] % w) == 0 and (w % self.view_reduction[d]) == 0:
-                    return w, self.image.shape[d] / w
+                    return w, self.image.shape[d] // w
             raise ValueError("No blocking found for image dimension %d, length %d, desired block size %d, reduction %d"
                              % (d, self.image.shape[d], desired_block_size[d], self.view_reduction[d]))
 
@@ -256,8 +256,8 @@ class BlockedAnalyzer (object):
             except ValueError:
                 # try trimming one voxel and repeating
                 print("WARNING: trimming image dimension %d to try to find divisible block size" % d)
-                axis_size = self.view_reduction[d]*(min(desired_block_size[d], self.image.shape[d])/self.view_reduction[d])
-                trimmed_shape = axis_size*(self.image.shape[d]/axis_size)
+                axis_size = self.view_reduction[d]*(min(desired_block_size[d], self.image.shape[d])//self.view_reduction[d])
+                trimmed_shape = axis_size*(self.image.shape[d]//axis_size)
                 trim_slice = tuple(
                     [ slice(None) for i in range(d) ]
                     + [ slice(0, trimmed_shape) ]
@@ -273,7 +273,7 @@ class BlockedAnalyzer (object):
                         
     def volume_process(self):
         view_image = zeros(tuple(
-            list(map(lambda w, r: w/r, self.image.shape[0:3], self.view_reduction))
+            list(map(lambda w, r: w//r, self.image.shape[0:3], self.view_reduction))
             + [self.image.shape[-1]]
         ), dtype=np.float32)
 
@@ -301,9 +301,9 @@ class BlockedAnalyzer (object):
                 centroid_measures = np.concatenate((centroid_measures, meas))
                 perf_vector = list(map(lambda a, b: (a[0]+b[0], a[1]), perf_vector, perf))
             done_blocks += 1
-            progress = int(100 * done_blocks / total_blocks)
+            progress = int(100 * done_blocks // total_blocks)
             for i in range(last_progress, progress, 2):
-                sys.stderr.write('%x' % (i/10))
+                sys.stderr.write('%x' % (i//10))
             last_progress = progress
         sys.stderr.write(' DONE.\n')
 
@@ -396,7 +396,7 @@ class BlockedAnalyzer (object):
         clipbox = tuple(
             slice(peaks_border, peaks_width-peaks_border)
             for peaks_width, peaks_border in map(
-                    lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                    lambda iw, bw, pw: (pw, bw - (iw-pw)//2),
                     image.shape[0:3],
                     self.max_border_widths,
                     peaks.shape
@@ -702,7 +702,7 @@ try:
             clipbox = tuple(
                 slice(peaks_border, peaks_width-peaks_border)
                 for peaks_width, peaks_border in map(
-                        lambda iw, bw, pw: (pw, bw - (iw-pw)/2),
+                        lambda iw, bw, pw: (pw, bw - (iw-pw)//2),
                         image.shape[0:3],
                         self.max_border_widths,
                         peaks.shape
@@ -755,7 +755,7 @@ try:
                 # image_centroids are in block image grid
                 image_centroids = centroids + array(self.max_border_widths, int32)
                 # dog_centroids are in difference-of-gaussians grid
-                dog_centroids = centroids + array(list(map(lambda iw, dw: (iw-dw)/2, image.shape[0:3], dog.shape)))
+                dog_centroids = centroids + array(list(map(lambda iw, dw: (iw-dw)//2, image.shape[0:3], dog.shape)))
                 # global_centroids are in self.image grid
                 global_centroids = (
                     array([slc.start or 0 for slc in self.block_slice_src(blockpos)[0:3]], int32)

@@ -313,8 +313,8 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
     dump_fname2 = '%s/%s-%s-centers.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
 
     ref_image_aligner = ImageGrossAlignment.from_image_id(catalog, voxel_img_rid)
-    outf1 = open(dump_fname1, 'w')
-    outf2 = open(dump_fname2, 'w')
+    outf1 = open(dump_fname1, 'w', newline='')
+    outf2 = open(dump_fname2, 'w', newline='')
     writer1 = csv.writer(outf1)
     writer2 = csv.writer(outf2)
     dump_paired_points_csv_rows(pair_src_rid, ref_image_aligner, writer1, writer2)

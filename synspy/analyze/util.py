@@ -336,7 +336,7 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
         centroids = centroids * zyx_grid_scale
     # correct dumped centroids to global coordinate space of unsliced source image
     centroids = centroids + np.array(offset_origin, np.int32)
-    csvfile = open(outfilename, 'w')
+    csvfile = open(outfilename, 'w', newline='')
     writer = csv.writer(csvfile)
     writer.writerow(
         ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')

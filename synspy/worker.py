@@ -379,7 +379,7 @@ class Worker (object):
 
         # prepare to write filtered CSV to temp dir
         filtered_filename = '%s-only.csv' % base
-        filtered_file = open(filtered_filename, 'w')
+        filtered_file = open(filtered_filename, 'w', newline='')
         writer = csv.writer(filtered_file)
 
         # write header

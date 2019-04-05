@@ -219,7 +219,7 @@ def synaptic_pair_row_job(handler):
 
 _work_units.append(
     WorkUnit(
-        '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1',
+        '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1',
         '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status',
         '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID',
         synaptic_pair_row_job
@@ -246,7 +246,7 @@ def nucleic_pair_row_job(handler):
 
 _work_units.append(
     WorkUnit(
-        '/attribute/N:=Nucleic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$N/R1:=(Nucleic%20Region%201)/Status=%22processed%22/$N/R2:=(Nucleic%20Region%202)/Status=%22processed%22/$N/*,Alignment:=IP:Alignment,r1_URL:=R1:Segments%20Filtered%20URL,r2_URL:=R2:Segments%20Filtered%20URL?limit=1',
+        '/attribute/N:=Nucleic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$N/R1:=(Nucleic%20Region%201)/Status=%22processed%22/$N/R2:=(Nucleic%20Region%202)/Status=%22processed%22/$N/*,Subject:=IP:Subject,Alignment:=IP:Alignment,r1_URL:=R1:Segments%20Filtered%20URL,r2_URL:=R2:Segments%20Filtered%20URL?limit=1',
         '/attributegroup/Zebrafish:Nucleic%20Pair%20Study/RID;Status',
         '/attributegroup/Zebrafish:Nucleic%20Pair%20Study/RID',
         nucleic_pair_row_job,

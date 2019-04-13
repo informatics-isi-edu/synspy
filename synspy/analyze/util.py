@@ -9,6 +9,7 @@ import sys
 import os
 import csv
 import random
+import tempfile
 import numpy as np
 from numpy import array, float32, int32, empty, newaxis, dot, cross, zeros, ones
 from numpy.linalg import norm
@@ -407,6 +408,37 @@ def load_registered_csv(hatrac_store, object_path):
         )
     rows = np.array(rows, dtype=np.float32)
     return rows
+
+def load_registered_npz(hatrac_store, object_path, alignment=None):
+    """Load registered segment list from the object store.
+
+       Returns:
+         a: an array of shape (N, k) of type float32
+    
+       The array has N centroids and k values packed as:
+          Z, Y, X, raw core, raw hollow, DoG core, DoG hollow (, red)?, override
+
+    """
+    if alignment is not None:
+        alignment = np.array(alignment, np.float64)
+    else:
+        alignment = np.eye(4, dtype=np.float64)
+    try:
+        fd, fname = tempfile.mkstemp(suffix='.npz')
+        hatrac_store.get_obj(object_path, destfilename=fname)
+        with np.load(fname) as parts:
+            properties = json.loads(parts['properties'].tostring().decode('utf8'))
+            measures = parts['measures'].astype(np.float32) * np.float32(properties['measures_divisor'])
+            centroids = parts['centroids'].astype(np.int32)
+            slice_origin = np.array(properties['slice_origin'], dtype=np.int32)
+            image_grid = np.array(properties['image_grid'], dtype=np.float32)
+            result = np.zeros((centroids.shape[0], 3 + measures.shape[1] + 1), np.float32)
+            result[:,0:3] = transform_centroids(alignment, (centroids + slice_origin) * image_grid)
+            result[:,3:-1] = measures[:,:]
+            return result
+    finally:
+        os.unlink(fname)
+        os.close(fd)
 
 def matrix_ident():
     """Produce indentity transform."""

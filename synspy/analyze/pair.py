@@ -8,7 +8,7 @@ import sys
 import math
 import numpy as np
 from scipy.spatial import cKDTree
-from .util import load_registered_csv, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, centroids_zx_swap
+from .util import load_registered_csv, load_registered_npz, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, centroids_zx_swap
 
 from deriva.core import urlquote
 
@@ -314,7 +314,9 @@ class SynapticPairStudy (NucleicPairStudy):
             'n1:=IPS:%(r1u)s,'
             'n2:=IPS:%(r2u)s,'
             's1:=SPS:%(r1u)s,'
-            's2:=SPS:%(r2u)s'
+            's2:=SPS:%(r2u)s,'
+            's1n:=S1:%(nu)s,'
+            's2n:=S2:%(nu)s'
         ) % {
             'sid': urlquote(study_id),
             'sps': urlquote('Synaptic Pair Study'),
@@ -326,17 +328,42 @@ class SynapticPairStudy (NucleicPairStudy):
             'zs': urlquote('ZYX Spacing'),
             'r1u': urlquote('Region 1 URL'),
             'r2u': urlquote('Region 2 URL'),
+            'nu': urlquote('Npz URL'),
         }
 
-    def retrieve_data(self, hatrac_store):
+    def retrieve_data(self, hatrac_store, classifier_override=None):
         """Download registered CSV pointcloud data from Hatrac object store.
+
+           Arguments:
+             hatrac_store: Instance of HatracStore from which to retrieve files
+             classifier_override: Dictionary of override parameters
 
            Pointclouds are saved to self.n1, self.n2, self.s1, self.s2
         """
         self.n1 = load_registered_csv(hatrac_store, self._metadata['n1'])
         self.n2 = load_registered_csv(hatrac_store, self._metadata['n2'])
-        self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
-        self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
+        if classifier_override is None:
+            self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
+            self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
+        else:
+            s1 = load_registered_npz(hatrac_store, self._metadata['s1n'])
+            s2 = load_registered_npz(hatrac_store, self._metadata['s2n'], self._metadata['Alignment'])
+
+            if not isinstance(classifier_override, dict):
+                raise ValueError('Classifier override must be a dictionary or null')
+            
+            if 'cmin' in classifier_override:
+                def cmin(a, q):
+                    cond = ((a[:,3] - a[:,4]) / a[:,4]) > q
+                    print('Retaining %d/%d centroids for cmin=%f criteria' % (cond.sum(), a.shape[0], q))
+                    a2 = a[np.nonzero(cond)[0],:]
+                    return a2
+                q = np.float32(classifier_override['cmin'])
+                self.s1 = cmin(s1, q)
+                self.s2 = cmin(s2, q)
+                return
+
+            raise ValueError('Unsupported classifier override: %s' % (classifier_override,))
 
     def syn_pairing_maps(self, max_dx_seq=(4.0,), dx_w_ratio=None, max_w_ratio=None):
         """Return (s1_to_s2, s2_to_s1) adjacency matrices after pairing search.

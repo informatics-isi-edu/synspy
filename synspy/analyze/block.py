@@ -421,9 +421,9 @@ class BlockedAnalyzer (object):
                 array(
                     list(range(0, peaks.shape[d])) 
                 ).astype('float32')[
-                    [ None for i in range(d) ]  # add dims before axis
-                    + [ slice(None) ]              # get axis
-                    + [ None for i in range(peaks.ndim - 1 - d) ] # add dims after axis
+                    tuple([ None for i in range(d) ])  # add dims before axis
+                    + ( slice(None), )              # get axis
+                    + tuple([ None for i in range(peaks.ndim - 1 - d) ]) # add dims after axis
                 ],
                 ones(peaks.shape, 'float32') # broadcast to full volume
             )

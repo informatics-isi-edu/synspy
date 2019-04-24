@@ -470,7 +470,7 @@ class Canvas(base.Canvas):
         print("segment map splat kernel", splat_kern.shape, splat_kern.sum(), splat_kern.max())
         segment_map = assign_voxels_opt(
             centroid_measures[:,0],
-            np.array(centroids, dtype=np.int32) / np.array(reduction, dtype=np.int32),
+            np.array(centroids, dtype=np.int32) // np.array(reduction, dtype=np.int32),
             shape,
             splat_kern
         )

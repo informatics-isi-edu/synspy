@@ -150,7 +150,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
     """Dump one CSV row per point pair.
     """
     if include_header:
-        csvwriter1.writerow(('x1', 'y1', 'z1', 'core1', 'x2', 'y2', 'z2', 'core2', 't', 'study_id', 'subject'))
+        csvwriter1.writerow(('x1', 'y1', 'z1', 'core1', 'vcn1', 'x2', 'y2', 'z2', 'core2', 'vcn2', 't', 'study_id', 'subject'))
         csvwriter2.writerow(
             ('x all', 'y all', 'z all')
             + ('x 1st', 'y 1st', 'z 1st')
@@ -186,10 +186,12 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
                 '%f' % both[i,1],
                 '%f' % both[i,0],
                 '%f' % both[i,3],
+                '%f' % both[i,4],
                 '%f' % both[i,k+2],
                 '%f' % both[i,k+1],
                 '%f' % both[i,k+0],
                 '%f' % both[i,k+3],
+                '%f' % both[i,k+4],
                 '%d' % both[i,-1],
                 study_id,
                 subject,
@@ -201,6 +203,8 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
                 '%f' % loss[i,1],
                 '%f' % loss[i,0],
                 '%f' % loss[i,3],
+                '%f' % loss[i,4],
+                '',
                 '',
                 '',
                 '',
@@ -216,10 +220,12 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
                 '',
                 '',
                 '',
+                '',
                 '%f' % gain[i,k+2],
                 '%f' % gain[i,k+1],
                 '%f' % gain[i,k+0],
                 '%f' % gain[i,k+3],
+                '%f' % gain[i,k+4],
                 '%d' % gain[i,-1],
                 study_id,
                 subject,

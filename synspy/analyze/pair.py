@@ -31,7 +31,7 @@ def nearest_pairs(v1, kdt1, v2, radius, out1, out2):
          out2: for each point in v2, gives index of paired point from v1 or -1
 
     """
-    depth = max(out1.shape[0], out2.shape[0])
+    depth = min(max(out1.shape[0], out2.shape[0]), 100)
     out1[:] = -1
     out2[:] = -1
     dx, pairs = kdt1.query(v2, depth, distance_upper_bound=radius)

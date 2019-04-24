@@ -8,7 +8,7 @@ import sys
 import math
 import numpy as np
 from scipy.spatial import cKDTree
-from .util import load_registered_csv, load_registered_npz, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, centroids_zx_swap
+from .util import load_registered_csv, load_registered_npz, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, transform_centroids, centroids_zx_swap
 
 from deriva.core import urlquote
 
@@ -315,6 +315,8 @@ class SynapticPairStudy (NucleicPairStudy):
             'n2:=IPS:%(r2u)s,'
             's1:=SPS:%(r1u)s,'
             's2:=SPS:%(r2u)s,'
+            's1box:=S1:%(slice)s,'
+            's2box:=S2:%(slice)s,'
             's1n:=S1:%(nu)s,'
             's2n:=S2:%(nu)s'
         ) % {
@@ -328,10 +330,11 @@ class SynapticPairStudy (NucleicPairStudy):
             'zs': urlquote('ZYX Spacing'),
             'r1u': urlquote('Region 1 URL'),
             'r2u': urlquote('Region 2 URL'),
+            'slice': urlquote('ZYX Slice'),
             'nu': urlquote('Npz URL'),
         }
 
-    def retrieve_data(self, hatrac_store, classifier_override=None):
+    def retrieve_data(self, hatrac_store, classifier_override=None, use_intersect=False):
         """Download registered CSV pointcloud data from Hatrac object store.
 
            Arguments:
@@ -346,12 +349,53 @@ class SynapticPairStudy (NucleicPairStudy):
             self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
             self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
         else:
-            s1 = load_registered_npz(hatrac_store, self._metadata['s1n'])
-            s2 = load_registered_npz(hatrac_store, self._metadata['s2n'], self._metadata['Alignment'])
+            self.s1 = load_registered_npz(hatrac_store, self._metadata['s1n'])
+            self.s2 = load_registered_npz(hatrac_store, self._metadata['s2n'], self._metadata['Alignment'])
 
+        if use_intersect:
+            # conservative border padding (rounded up slightly)
+            zyx_pad = np.array((16, 16, 16), dtype=np.float32)
+            zyx_scale = np.array((0.4, 0.26, 0.26), dtype=np.float32)
+
+            def bbox(zyxslice):
+                res = np.zeros((2,3), dtype=np.float32)
+                aslices = zyxslice.split(',')
+                for a in range(3):
+                    l, u = aslices[a].split(':')
+                    res[0,a] = float(l) if l != '' else 0.
+                    res[1,a] = float(u) if u != '' else 2048.
+                res[0,:] = res[0,:] + zyx_pad
+                res[1,:] = res[1,:] - zyx_pad
+                res = res * zyx_scale
+                return res
+
+            # use ZYX Slice metadata to determine ROI
+            bbox1 = bbox(self._metadata['s1box'])
+            bbox2 = bbox(self._metadata['s2box'])
+
+            # we need tpts in opposing coordinate space to complete intersection test
+            Minv = np.linalg.inv(np.array(self._metadata['Alignment']))
+            s1inv = transform_centroids(Minv, self.s1[:,0:3])
+            s2inv = transform_centroids(Minv, self.s2[:,0:3])
+
+            def clip(a1, a2, bbox1, bbox2):
+                assert a1.shape[0] == a2.shape[0]
+                # re-clip in both spaces for better consistency
+                cond = np.all(a1[:,0:3] >= bbox1[0,:], axis=1) \
+                    & np.all(a1[:,0:3] < bbox1[1,:], axis=1) \
+                    & np.all(a2[:,0:3] >= bbox2[0,:], axis=1) \
+                    & np.all(a2[:,0:3] < bbox2[1,:], axis=1)
+                print('Retaining %d/%d intersecting centroids' % (cond.sum(), a1.shape[0]))
+                return a1[np.nonzero(cond)[0],:]
+
+            # clip by both bboxes to find intersection
+            self.s1 = clip(self.s1, s1inv, bbox1, bbox2)
+            self.s2 = clip(self.s2, s2inv, bbox1, bbox2)
+
+        if classifier_override is not None:
             if not isinstance(classifier_override, dict):
                 raise ValueError('Classifier override must be a dictionary or null')
-            
+
             if 'cmin' in classifier_override:
                 def cmin(a, q):
                     cond = ((a[:,3] - a[:,4]) / a[:,4]) > q
@@ -359,11 +403,8 @@ class SynapticPairStudy (NucleicPairStudy):
                     a2 = a[np.nonzero(cond)[0],:]
                     return a2
                 q = np.float32(classifier_override['cmin'])
-                self.s1 = cmin(s1, q)
-                self.s2 = cmin(s2, q)
-                return
-
-            raise ValueError('Unsupported classifier override: %s' % (classifier_override,))
+                self.s1 = cmin(self.s1, q)
+                self.s2 = cmin(self.s2, q)
 
     def syn_pairing_maps(self, max_dx_seq=(4.0,), dx_w_ratio=None, max_w_ratio=None):
         """Return (s1_to_s2, s2_to_s1) adjacency matrices after pairing search.

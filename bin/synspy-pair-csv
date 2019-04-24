@@ -24,6 +24,7 @@ dump_dir = '.'
 dump_dir = os.getenv('DUMP_DIR', dump_dir)
 pairing_radius = float(os.getenv('SYNAPSE_PAIR_RADIUS', '4.0'))
 disable_3point = os.getenv('DISABLE_3POINT', 'false').lower() == 'true'
+use_intersect = os.getenv('USE_INTERSECT', 'false').lower() == 'true'
 classifier_override = json.loads(os.getenv('SYNAPSE_CLASSIFIER', 'null'))
 
 print('Effective SYNAPSE_SERVER="%s"' % servername)
@@ -31,6 +32,7 @@ print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
 print('Effective SYNAPSE_PAIR_RADIUS="%s"' % pairing_radius)
 print('Effective DUMP_DIR="%s"' % dump_dir)
 print('Effective DISABLE_3POINT="%s"' % disable_3point)
+print('Effective USE_INTERSECT="%s"' % use_intersect)
 print("Effective SYNAPSE_CLASSIFIER='%s'" % json.dumps(classifier_override))
 
 credentials = get_credential(servername)
@@ -260,7 +262,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
         for row in study_rows:
             pair_study = SynapticPairStudy.from_study_id(catalog, row['RID'])
             try:
-                pair_study.retrieve_data(store, classifier_override)
+                pair_study.retrieve_data(store, classifier_override, use_intersect)
                 centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
                 dump_csv(centroids, study_id, pair_study._metadata['Subject'])
             except Exception as e:
@@ -270,7 +272,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
         # otherwise, assume pair_src_rid is a single Synaptic Pair Study
         # this will raise ValueError if it doesn't match anything...
         pair_study = SynapticPairStudy.from_study_id(catalog, pair_src_rid)
-        pair_study.retrieve_data(store, classifier_override)
+        pair_study.retrieve_data(store, classifier_override, use_intersect)
         centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
         dump_csv(centroids, study_id, pair_study._metadata['Subject'])
 

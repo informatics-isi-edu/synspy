@@ -416,7 +416,7 @@ def get_hatrac_object_cached(hatrac_store, object_path, cache_dir, suffix=''):
     resp = hatrac_store.head(object_path)
     md5 = resp.headers['content-md5']
     if cache_dir is not None:
-        fname = '%s/%s%s' % (cache_dir, md5, suffix)
+        fname = '%s/%s%s' % (cache_dir, md5.replace('/', '_'), suffix)
         if os.path.isfile(fname):
             return fname
     else:

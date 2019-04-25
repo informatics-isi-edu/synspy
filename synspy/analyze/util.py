@@ -297,22 +297,25 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
     """
     csv_centroids, csv_measures, csv_status, saved_params = load_segment_info_from_csv(infilename)
     csv_centroids -= np.array(offset_origin, dtype=np.int32)
-
+    return dense_segment_status(centroids, csv_centroids, csv_status), saved_params
+    
+def dense_segment_status(centroids, sparse_centroids, sparse_status):
+    """Construct dense segment status from sparse info, e.g. previously loaded from CSV."""
     # assume that dump is ordered subset of current analysis
     status = np.zeros((centroids.shape[0],), dtype=np.uint8)
 
     i = 0
-    for row in range(csv_centroids.shape[0]):
-        # scan forward until we find same centroid, since CSV is a subset
-        while i < centroids.shape[0] and tuple(csv_centroids[row]) != tuple(centroids[i]):
+    for row in range(sparse_centroids.shape[0]):
+        # scan forward until we find same centroid in sparse subset
+        while i < centroids.shape[0] and tuple(sparse_centroids[row]) != tuple(centroids[i]):
             i += 1
             
-        assert i < centroids.shape[0], ("CSV dump does not match image analysis!", infilename, csv_centroids[row])
+        assert i < centroids.shape[0], ("Sparse dump does not match image analysis!", sparse_centroids[row])
 
-        if csv_status[row]:
-            status[i] = csv_status[row]
+        if sparse_status[row]:
+            status[i] = sparse_status[row]
 
-    return status, saved_params
+    return status
 
 def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfilename, saved_params=None, all_segments=True, zx_swap=False, zyx_grid_scale=None, filter_status=None):
     """Load a segment list with manual override status values validating against expected centroid list.
@@ -409,8 +412,32 @@ def load_registered_csv(hatrac_store, object_path):
     rows = np.array(rows, dtype=np.float32)
     return rows
 
-def load_registered_npz(hatrac_store, object_path, alignment=None):
+def get_hatrac_object_cached(hatrac_store, object_path, cache_dir, suffix=''):
+    resp = hatrac_store.head(object_path)
+    md5 = resp.headers['content-md5']
+    if cache_dir is not None:
+        fname = '%s/%s%s' % (cache_dir, md5, suffix)
+        if os.path.isfile(fname):
+            return fname
+    else:
+        fd, fname = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+    hatrac_store.get_obj(object_path, destfilename=fname)
+    return fname
+
+def load_registered_npz(hatrac_store, object_path, alignment=None, csv_object_path=None, cache_dir=None):
     """Load registered segment list from the object store.
+
+       Arguments:
+         hatrac_store: from where to fetch object content
+         object_path: specific NPZ object within hatrac_store
+         alignment: 4x4 matrix to transform micron-spaced coordinates (or None)
+         csv_object_path: specific CSV object within hatrac_store (or None)
+         cache_dir: name of local directory to use as download cache for object reuse
+
+       If csv_object_path is specified, interpret it as a sparse
+       subject of the same pointcloud and merge its status field into
+       result.
 
        Returns:
          a: an array of shape (N, k) of type float32
@@ -424,21 +451,28 @@ def load_registered_npz(hatrac_store, object_path, alignment=None):
     else:
         alignment = np.eye(4, dtype=np.float64)
     try:
-        fd, fname = tempfile.mkstemp(suffix='.npz')
-        hatrac_store.get_obj(object_path, destfilename=fname)
+        fname = get_hatrac_object_cached(hatrac_store, object_path, cache_dir, '.npz')
+        if csv_object_path:
+            fnamec = get_hatrac_object_cached(hatrac_store, csv_object_path, cache_dir, '.csv')
+            csv_centroids, csv_measures, csv_status, csv_saved_params = load_segment_info_from_csv(fnamec)
         with np.load(fname) as parts:
             properties = json.loads(parts['properties'].tostring().decode('utf8'))
             measures = parts['measures'].astype(np.float32) * np.float32(properties['measures_divisor'])
-            centroids = parts['centroids'].astype(np.int32)
             slice_origin = np.array(properties['slice_origin'], dtype=np.int32)
+            centroids = parts['centroids'].astype(np.int32) + slice_origin
             image_grid = np.array(properties['image_grid'], dtype=np.float32)
             result = np.zeros((centroids.shape[0], 3 + measures.shape[1] + 1), np.float32)
-            result[:,0:3] = transform_centroids(alignment, (centroids + slice_origin) * image_grid)
+            result[:,0:3] = transform_centroids(alignment, centroids * image_grid)
             result[:,3:-1] = measures[:,:]
+            if csv_object_path:
+                result[:,-1] = dense_segment_status(centroids, csv_centroids, csv_status)
             return result
     finally:
-        os.unlink(fname)
-        os.close(fd)
+        if cache_dir is None:
+            if csv_object_path and fnamec:
+                os.unlink(fnamec)
+            if fname:
+                os.unlink(fname)
 
 def matrix_ident():
     """Produce indentity transform."""

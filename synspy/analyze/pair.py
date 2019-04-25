@@ -8,7 +8,7 @@ import sys
 import math
 import numpy as np
 from scipy.spatial import cKDTree
-from .util import load_registered_csv, load_registered_npz, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, transform_centroids, centroids_zx_swap
+from .util import load_registered_csv, load_registered_npz, load_segment_status_from_csv, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, transform_centroids, centroids_zx_swap
 
 from deriva.core import urlquote
 
@@ -315,6 +315,8 @@ class SynapticPairStudy (NucleicPairStudy):
             'n2:=IPS:%(r2u)s,'
             's1:=SPS:%(r1u)s,'
             's2:=SPS:%(r2u)s,'
+            's1raw:=S1:%(sfu)s,'
+            's2raw:=S2:%(sfu)s,'
             's1box:=S1:%(slice)s,'
             's2box:=S2:%(slice)s,'
             's1n:=S1:%(nu)s,'
@@ -322,6 +324,7 @@ class SynapticPairStudy (NucleicPairStudy):
         ) % {
             'sid': urlquote(study_id),
             'sps': urlquote('Synaptic Pair Study'),
+            'sfu': urlquote('Segments Filtered URL'),
             's1': urlquote('Synaptic Region 1'),
             's2': urlquote('Synaptic Region 2'),
             'n1': urlquote('Nucleic Region 1'),
@@ -334,7 +337,7 @@ class SynapticPairStudy (NucleicPairStudy):
             'nu': urlquote('Npz URL'),
         }
 
-    def retrieve_data(self, hatrac_store, classifier_override=None, use_intersect=False):
+    def retrieve_data(self, hatrac_store, classifier_override=None, use_intersect=False, cache_dir=None):
         """Download registered CSV pointcloud data from Hatrac object store.
 
            Arguments:
@@ -345,12 +348,17 @@ class SynapticPairStudy (NucleicPairStudy):
         """
         self.n1 = load_registered_csv(hatrac_store, self._metadata['n1'])
         self.n2 = load_registered_csv(hatrac_store, self._metadata['n2'])
+
+        s1raw, s2raw = self._metadata['s1raw'], self._metadata['s2raw']
+        self.s1 = load_registered_npz(hatrac_store, self._metadata['s1n'], None, s1raw, cache_dir)
+        self.s2 = load_registered_npz(hatrac_store, self._metadata['s2n'], self._metadata['Alignment'], s2raw, cache_dir)
+
         if classifier_override is None:
-            self.s1 = load_registered_csv(hatrac_store, self._metadata['s1'])
-            self.s2 = load_registered_csv(hatrac_store, self._metadata['s2'])
-        else:
-            self.s1 = load_registered_npz(hatrac_store, self._metadata['s1n'])
-            self.s2 = load_registered_npz(hatrac_store, self._metadata['s2n'], self._metadata['Alignment'])
+            def prune(centroids):
+                cond = centroids[:,-1] > 0
+                return centroids[np.nonzero(cond)[0],:]
+            self.s1 = prune(self.s1)
+            self.s2 = prune(self.s2)
 
         if use_intersect:
             # conservative border padding (rounded up slightly)

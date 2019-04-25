@@ -22,6 +22,7 @@ servername = os.getenv('SYNAPSE_SERVER', 'synapse.isrd.isi.edu')
 catalog_id = os.getenv('SYNAPSE_CATALOG', '1')
 dump_dir = '.'
 dump_dir = os.getenv('DUMP_DIR', dump_dir)
+cache_dir = os.getenv('CACHE_DIR', './cache')
 pairing_radius = float(os.getenv('SYNAPSE_PAIR_RADIUS', '4.0'))
 disable_3point = os.getenv('DISABLE_3POINT', 'false').lower() == 'true'
 use_intersect = os.getenv('USE_INTERSECT', 'false').lower() == 'true'
@@ -30,10 +31,14 @@ classifier_override = json.loads(os.getenv('SYNAPSE_CLASSIFIER', 'null'))
 print('Effective SYNAPSE_SERVER="%s"' % servername)
 print('Effective SYNAPSE_CATALOG="%s"' % catalog_id)
 print('Effective SYNAPSE_PAIR_RADIUS="%s"' % pairing_radius)
+print('Effective CACHE_DIR="%s"' % cache_dir)
 print('Effective DUMP_DIR="%s"' % dump_dir)
 print('Effective DISABLE_3POINT="%s"' % disable_3point)
 print('Effective USE_INTERSECT="%s"' % use_intersect)
 print("Effective SYNAPSE_CLASSIFIER='%s'" % json.dumps(classifier_override))
+
+if cache_dir == '':
+    cache_dir = None
 
 credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
@@ -262,7 +267,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
         for row in study_rows:
             pair_study = SynapticPairStudy.from_study_id(catalog, row['RID'])
             try:
-                pair_study.retrieve_data(store, classifier_override, use_intersect)
+                pair_study.retrieve_data(store, classifier_override, use_intersect, cache_dir=cache_dir)
                 centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
                 dump_csv(centroids, study_id, pair_study._metadata['Subject'])
             except Exception as e:
@@ -272,7 +277,7 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
         # otherwise, assume pair_src_rid is a single Synaptic Pair Study
         # this will raise ValueError if it doesn't match anything...
         pair_study = SynapticPairStudy.from_study_id(catalog, pair_src_rid)
-        pair_study.retrieve_data(store, classifier_override, use_intersect)
+        pair_study.retrieve_data(store, classifier_override, use_intersect, cache_dir=cache_dir)
         centroids, study_id = get_centroids_measures_from_pair(pair_study, voxel_image_aligner)
         dump_csv(centroids, study_id, pair_study._metadata['Subject'])
 
@@ -299,6 +304,7 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
 
        Environment parameters:
          DUMP_DIR: defaults to './'
+         CACHE_DIR: defaults to './cache'
          SYNAPSE_SERVER: defaults to 'synapse.isrd.isi.edu'
          SYNAPSE_CATALOG: defaults to '1'
          DISABLE_3POINT: defaults to 'false'
@@ -309,14 +315,17 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
          y1: centroid Y coord
          z1: centroid Z coord
          core1: centroid core measure
+         vcn1: centroid vicinity/hollow measure
          x2: centroid X coord
          y2: centroid Y coord
          z2: centroid Z coord
          core2: centroid core measure
+         vcn2: centroid vicinity/hollow measure
          t: centroid status 0 (paired), 1 (pre-only), 2 (post-only)
 
        Output is written to files:
          - main CSV result: '<DUMP_DIR>/<pair_src_rid>.csv'
+         - cached downloads: <CACHE_DIR>/<object_hash>.<suffix>'
          - work files: '<DUMP_DIR>/tmp-*'
 
     """

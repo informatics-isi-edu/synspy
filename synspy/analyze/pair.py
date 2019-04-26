@@ -355,7 +355,7 @@ class SynapticPairStudy (NucleicPairStudy):
 
         if classifier_override is None:
             def prune(centroids):
-                cond = centroids[:,-1] > 0
+                cond = centroids[:,-1] == 7
                 return centroids[np.nonzero(cond)[0],:]
             self.s1 = prune(self.s1)
             self.s2 = prune(self.s2)

@@ -1,0 +1,310 @@
+#!/usr/bin/python3
+
+import sys
+import os
+import os.path
+import re
+import json
+
+from requests import HTTPError
+from deriva.core import ErmrestCatalog, HatracStore, get_credential, urlquote
+from synspy.worker import Worker
+
+RoiWorker = Worker
+servername = RoiWorker.servername
+
+sys.stderr.write('Effective SYNSPY_SERVER="%s"\n' % servername)
+sys.stderr.write('Effective TMPDIR="%s"\n' % RoiWorker.tmpdir)
+sys.stderr.write('Effective SYNSPY_PATH="%s"\n' % RoiWorker.scriptdir)
+
+catalog = RoiWorker.catalog
+store = RoiWorker.store
+
+MLS_ZYX_slice = ':,0:1372,0:1024'
+
+MLS_cohort_description_templ = "Clone of [Cohort %(rid)s](/id/%(rid)s) with large ROI studies for MLS."
+MLS_cohort_description_pat = "^Clone of [[]Cohort (?P<rid>[^]]+)[]].*"
+
+def cohort_mls_clone_cli(*src_cohort_rids):
+    """Idempotently create MLS clone for source cohort.
+
+    Arguments:
+       src_cohort_rids: source Cohort Collection record
+
+    """
+    resp = catalog.get(
+        ("/entity"
+         + "/Cohort%20Analysis"
+         + "/" + ";".join([ "RID=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/!Description::regexp::" + urlquote("large ROI studies for MLS")
+        )
+    )
+
+    src_cohorts = {
+        row["RID"]: row
+        for row in resp.json()
+    }
+
+    def get_mls_cohort(src_rid):
+        resp = catalog.get(
+            ("/entity"
+             + "/Cohort%20Analysis"
+             + "/Description=" + urlquote(MLS_cohort_description_templ % dict(rid=src_rid))
+            )
+        )
+        return resp.json()
+    
+    mls_cohorts = {
+        src_rid: mls_cohort
+        for src_rid in src_cohorts
+        for mls_cohort in get_mls_cohort(src_rid)
+    }
+
+    cohorts_to_clone = [
+        {
+            "Experimentalist": row["Experimentalist"],
+            "Protocol": row["Protocol"],
+            "Description": MLS_cohort_description_templ % dict(rid=src_rid),
+        }
+        for src_rid, row in src_cohorts.items()
+        if src_rid not in mls_cohorts
+    ]
+
+    if cohorts_to_clone:
+        resp = catalog.post(
+            "/entity/Cohort%20Analysis",
+            json=cohorts_to_clone
+        )
+        for row in resp.json():
+            src_rid = re.match(MLS_cohort_description_pat, row["Description"]).groupdict()["rid"]
+            mls_cohorts[src_rid] = row
+            print("Cloned source Cohort %s into MLS Cohort %s.\n" % (src_rid, row["RID"]))
+
+    print("\nUsing source -> MLS cohort mapping: %s\n" % json.dumps({
+        src_rid: row["RID"]
+        for src_rid, row in mls_cohorts.items()
+    }, indent=2))
+
+
+    resp = catalog.get(
+        ("/attributegroup"
+         + "/ASSOC:=Cohort%20Analysis_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/SPS:=Synaptic%20Pair%20Study"
+         + "/R:=Image%20Region/Segmentation%20Mode=synaptic/!ZYX%20Slice=" + urlquote(MLS_ZYX_slice)
+         + "/R:Source%20Image,R:Anatomy;regions:=array_d(R:*)"
+        )
+    )
+
+    src_regions = {
+        (row["Source Image"], row["Anatomy"]): row["regions"][0]
+        for row in resp.json()
+    }
+
+    resp = catalog.get(
+        ("/entity"
+         + "/Image%20Region/Segmentation%20Mode=synaptic/ZYX%20Slice=" + urlquote(MLS_ZYX_slice)
+         + "/" + ";".join([ "Source%%20Image=%s&Anatomy=%s" % src_anat for src_anat in src_regions ])
+        )
+    )
+    
+    mls_regions = {
+        (row["Source Image"], row["Anatomy"]): row
+        for row in resp.json()
+    }
+
+    regions_to_clone = [
+        {
+            "Subject": row["Subject"],
+            "Source Image": src_anat[0],
+            "Anatomy": src_anat[1],
+            "Segmentation Mode": "synaptic",
+            "ZYX Slice": MLS_ZYX_slice,
+            "Status": "MLS clone in progress",
+            "Classifier": "MLS",
+        }
+        for src_anat, row in src_regions.items()
+        if src_anat not in mls_regions
+    ]
+    
+    if regions_to_clone:
+        resp = catalog.post(
+            "/entity/Image%20Region?defaults=ID,Sub-Sequence",
+            json=regions_to_clone
+        )
+        sys.stderr.write('\n')
+        for row in resp.json():
+            src_anat = (row['Source Image'], row['Anatomy'])
+            mls_regions[src_anat] = row
+            sys.stderr.write(
+                "Cloned Image Region %s into %s\n" % (src_regions[(src_anat)]["RID"], row["RID"])
+            )
+
+    mls_regions_byid = {
+        row["ID"]: row
+        for row in mls_regions.values()
+    }
+
+    sys.stderr.write(
+        "Using Image Region source -> MLS clone:\n%s\n" % (
+            json.dumps({
+                src_regions[src_anat]["RID"]: mls_regions[src_anat]["RID"]
+                for src_anat in mls_regions
+            }, indent=2)
+        ))
+
+
+    resp = catalog.get(
+        ("/attribute"
+         + "/ASSOC:=Cohort%20Analysis_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/SPS:=Synaptic%20Pair%20Study"
+         + "/$SPS/R1:=(Synaptic%20Region%201)"
+         + "/$SPS/R2:=(Synaptic%20Region%202)"
+         + "/$ASSOC"
+         + "/cohort:=Cohort%20Analysis"
+         + ",sps:=SPS:RID"
+         + ",study:=SPS:Study"
+         + ",r1i:=R1:Source%20Image,r2i:=R2:Source%20Image"
+         + ",r1a:=R1:Anatomy,r2a:=R2:Anatomy"
+        )
+    )
+
+    src_assoc_vectors = {
+        (row['cohort'], row['sps'], row['study'], row['r1i'], row['r2i'], row['r1a'], row['r2a'])
+        for row in resp.json()
+    }
+
+    def get_mls_sps(r1i, r1a, r2i, r2a, study):
+        resp = catalog.get(
+            ("/entity/Synaptic%20Pair%20Study"
+             + "/Synaptic%20Region%201=" + urlquote(mls_regions[(r1i,r1a)]["ID"])
+             + "/Synaptic%20Region%202=" + urlquote(mls_regions[(r2i,r2a)]["ID"])
+             + "/Study=" + urlquote(study)
+            )
+        )
+        return resp.json()
+
+    mls_sps = {
+        (study, r1i, r2i, r1a, r2a): mls_sps
+        for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
+        for mls_sps in get_mls_sps(r1i, r1a, r2i, r2a, study)
+    }
+
+    sps_to_clone = [
+        {
+            "Study": study,
+            "Image 1": mls_regions[(r1i,r1a)]["Source Image"],
+            "Image 2": mls_regions[(r2i,r2a)]["Source Image"],
+            "Synaptic Region 1": mls_regions[(r1i,r1a)]["ID"],
+            "Synaptic Region 2": mls_regions[(r2i,r2a)]["ID"],
+            "Notes": "Large ROI study for MLS.",
+        }
+        for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
+        if (study, r1i, r2i, r1a, r2a) not in mls_sps
+    ]
+    if sps_to_clone:
+        resp = catalog.post(
+            "/entity/Synaptic%20Pair%20Study?defaults=RID,ID",
+            json=sps_to_clone
+        )
+        sys.stderr.write('\n')
+        for row in resp.json():
+            r1i, r2i = row['Image 1'], row['Image 2']
+            r1 = mls_regions_byid[row['Synaptic Region 1']]
+            r2 = mls_regions_byid[row['Synaptic Region 2']]
+            mls_sps[(row['Study'], r1i, r2i, r1['Anatomy'], r2['Anatomy'])] = row
+            sys.stderr.write("Cloned Synaptic Pair Study into %s\n" % row['RID'])
+
+    sps_src2mls = {
+        src_sps: mls_sps[(study, r1i, r2i, r1a, r2a)]["RID"]
+        for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
+    }
+            
+    def get_mls_assoc_vector(src_cohort, src_sps):
+        resp = catalog.get(
+            ("/entity/Cohort%20Analysis_Synaptic%20Pair%20Study"
+             + "/Cohort%20Analysis=" + urlquote(mls_cohorts[src_cohort]["RID"])
+             + "/Synaptic%20Pair%20Study=" + urlquote(sps_src2mls[src_sps])
+            )
+        )
+        return resp.json()
+
+    mls_assoc_vectors = {
+        (src_cohort, src_sps, study, r1i, r2i, r1a, r2a): mls_assoc_vector
+        for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
+        for mls_assoc_vector in get_mls_assoc_vector(src_cohort, src_sps)
+    }
+
+    assocs_to_clone = [
+        {
+            "Cohort Analysis": mls_cohorts[src_cohort]["RID"],
+            "Synaptic Pair Study": mls_sps[(study, r1i, r2i, r1a, r2a)]["RID"],
+        }
+        for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
+        if (src_cohort, src_sps, study, r1i, r2i, r1a, r2a ) not in mls_assoc_vectors
+    ]
+    if assocs_to_clone:
+        resp = catalog.post(
+            "/entity/Cohort%20Analysis_Synaptic%20Pair%20Study",
+            json=assocs_to_clone
+        )
+        for row in resp.json():
+            print("Created assocation %(Cohort Analysis)s <-> %(Synaptic Pair Study)s.\n" % row)
+
+
+    resp = catalog.get(
+        ("/attribute/IR:=Image%20Region"
+         + "/Status=" + urlquote(json.dumps("MLS clone in progress"))
+         + "/I:=(Source%20Image)/$IR"
+         + "/*,I:URL"
+        )
+    )
+    rows = resp.json()
+    for row in rows:
+        print("Region=%(RID)s with NPZ=%(Npz URL)s Slice=%(ZYX Slice)s needs preprocessing...\n" % row)
+        worker = RoiWorker(row, None)
+        try:
+            img_filename = worker.get_file(row['URL'])
+            updated_row = {
+                'RID': row['RID'],
+                'Npz URL': worker.preprocess_roi(img_filename, row['ZYX Slice'], True),
+                'Status': "analysis pending",
+            }
+            resp = catalog.put(
+                "/attributegroup/Image%20Region/RID;Npz%20URL,Status",
+                json=[updated_row]
+            )
+            resp.raise_for_status()
+            print("Updated Image Region %s\n" % json.dumps(updated_row))
+        finally:
+            worker.cleanup()
+
+if __name__ == '__main__':
+    try:
+        try:
+            status = cohort_mls_clone_cli(*sys.argv[1:])
+            sys.exit(status)
+        except HTTPError as e:
+            if hasattr(e, 'response'):
+                if e.response.status_code == 401:
+                    sys.stderr.write("""
+ERROR: Please use deriva-auth to authenticate with the server %s first.
+""" % (
+    servername
+))
+            raise
+    except Exception as e:
+        sys.stderr.write("""
+ERROR: %s
+usage: synspy-mls-cohort <src_cohort_rid>...
+
+%s
+
+Examples:
+- synspy-mls-cohort 105T
+""" % (
+    e,
+    cohort_mls_clone_cli.__doc__
+))
+        raise

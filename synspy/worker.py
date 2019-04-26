@@ -350,8 +350,9 @@ class Worker (object):
         env = {
             'ZYX_SLICE': zyx_slice,
             'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
-            'SYNSPY_DETECT_NUCLEI': dict(nucleic='true').get(self.row['Segmentation Mode'], 'false'),
+            'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'synaptic')
             'DUMP_PREFIX': './%s' % self.row['ID'],
+            'OMIT_VOXELS': str(self.row['Segmentation Mode'].lower() != 'synaptic')
         }
         sys.stderr.write('Using analysis environment %r\n' % (env,))
         analysis = subprocess.Popen(command, stdin=fnull, env=env)

@@ -4,7 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-from deriva.core import PollingErmrestCatalog, HatracStore, urlquote
+from deriva.core import PollingErmrestCatalog, HatracStore, urlquote, get_credential
 from volspy.util import load_image
 import sys
 import traceback
@@ -260,8 +260,11 @@ class Worker (object):
     servername = os.getenv('SYNSPY_SERVER', platform.uname()[1])
 
     # secret session cookie
-    credfile = os.getenv('SYNSPY_CREDENTIALS', 'credentials.json')
-    credentials = json.load(open(credfile))
+    try:
+        credfile = os.getenv('SYNSPY_CREDENTIALS', 'credentials.json')
+        credentials = json.load(open(credfile))
+    except:
+        credentials = get_credential(servername)
 
     poll_seconds = int(os.getenv('SYNSPY_POLL_SECONDS', '600'))
 
@@ -344,15 +347,15 @@ class Worker (object):
             raise WorkerBadDataError('Image %s lacks expected micron_spacing attribute.' % img_filename)
         return I.micron_spacing, I.shape
 
-    def preprocess_roi(self, img_filename, zyx_slice):
+    def preprocess_roi(self, img_filename, zyx_slice, omit_voxels=False):
         """Analyze ROI and upload resulting NPZ file, returning NPZ URL."""
         command = [ self.scriptdir + 'synspy-analyze', img_filename ]
         env = {
             'ZYX_SLICE': zyx_slice,
             'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
-            'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'synaptic')
+            'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'synaptic'),
             'DUMP_PREFIX': './%s' % self.row['ID'],
-            'OMIT_VOXELS': str(self.row['Segmentation Mode'].lower() != 'synaptic')
+            'OMIT_VOXELS': str(omit_voxels).lower(),
         }
         sys.stderr.write('Using analysis environment %r\n' % (env,))
         analysis = subprocess.Popen(command, stdin=fnull, env=env)

@@ -4,6 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
+import os
 from numpy import array, concatenate, float32, int32, empty, uint32
 import numpy
 
@@ -674,11 +675,15 @@ def assign_voxels(syn_values, centroids, valid_shape, syn_kernel_3d, gridsize=No
 
     # use a slight subset as the splatting body
     body_shape = syn_kernel_3d.shape
-    edge_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2-1,0,syn_kernel_3d.shape[2]/2-1]
-    cent_val = syn_kernel_3d[syn_kernel_3d.shape[0]/2,syn_kernel_3d.shape[1]/2,syn_kernel_3d.shape[2]/2]
-    limit = edge_val #+ (cent_val - edge_val) * 0.1
+    D, H, W = body_shape
+    radial_fraction = numpy.clip(float(os.getenv('SYNSPY_SPLAT_RADIUS_SCALE', '1.0')), 0, 1)
+    limit = syn_kernel_3d[
+        D//2-1,
+        H//2 - int(radial_fraction * H/2),
+        W//2-1
+    ]
     mask_3d = syn_kernel_3d >= limit
-    mask_3d[tuple([w/2 for w in mask_3d.shape])] = 1 # fill at least central voxel
+    mask_3d[tuple([w//2 for w in mask_3d.shape])] = 1 # fill at least central voxel
     kernel = syn_kernel_3d * mask_3d
 
     # trim off zero-padded border to reduce per-feature work size

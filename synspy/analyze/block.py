@@ -865,7 +865,7 @@ nucleic_footprints = (
 )
 
 def get_mode_and_footprints():
-    do_nuclei = {'true': True}.get(os.getenv('SYNSPY_DETECT_NUCLEI'), False)
+    do_nuclei = os.getenv('SYNSPY_DETECT_NUCLEI', 'false').lower() == 'true'
     footprints = nucleic_footprints if do_nuclei else synaptic_footprints
     return do_nuclei, footprints
 
@@ -880,10 +880,11 @@ def batch_analyze_cli(fname):
          ZYX_SLICE: selects ROI within full image
          ZYX_IMAGE_GRID: overrides image grid step metadata
          SYNSPY_DETECT_NUCLEI: 'true' for nuclei mode, else synapse mode
+         OMIT_VOXELS: 'true' to omit voxel data from NPZ result
 
        Output NPZ array keys:
          'properties.json': various metadata as 1D uint8 array of UTF-8 JSON data
-         'voxels': 4D voxel data with axes (channel, z, y, x)
+         'voxels': 4D voxel data with axes (channel, z, y, x) unless OMIT_VOXELS is true
          'centroids': 2D centroid list with axes (N, c) for coords [z y x]
          'measures':  2D measure list with axes (N, m) for measures []
 
@@ -896,6 +897,7 @@ def batch_analyze_cli(fname):
     except:
         pass
     dump_prefix = os.getenv('DUMP_PREFIX', dump_prefix)
+    omit_voxels = os.getenv('OMIT_VOXELS', 'false').lower() == 'true'
 
     image, meta, slice_origin = load_and_mangle_image(fname)
     do_nuclei, footprints = get_mode_and_footprints()
@@ -931,7 +933,7 @@ def batch_analyze_cli(fname):
     np.savez(
         outf,
         properties=np.fromstring(json.dumps(props), np.uint8),
-        voxels=view_image,
+        voxels=view_image if not omit_voxels else np.zeros((0,), dtype=np.float16),
         centroids=centroids,
         measures=measures
     )

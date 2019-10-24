@@ -42,8 +42,8 @@ def cohort_qa_clone_cli(*src_cohort_rids):
 
     """
     src_sps_query = (
-        "/Cohort%20Analysis_Synaptic%20Pair%20Study"
-        + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+        "/Cohort_Synaptic%20Pair%20Study"
+        + "/" + ";".join([ "Cohort=%s" % urlquote(rid) for rid in src_cohort_rids ])
         + "/SSPS:=Synaptic%20Pair%20Study"
     )
 
@@ -91,7 +91,7 @@ def cohort_qa_clone_cli(*src_cohort_rids):
     ]
     if regions_to_clone:
         resp = catalog.post(
-            "/entity/Image%20Region?defaults=ID,Sub-Sequence",
+            "/entity/Image%20Region?defaults=ID",
             json=regions_to_clone
         )
         sys.stderr.write('\n')
@@ -156,9 +156,9 @@ def cohort_qa_clone_cli(*src_cohort_rids):
                 
     resp = catalog.get(
         ("/attribute"
-         + "/SC:=Cohort%20Analysis"
+         + "/SC:=Cohort"
          + "/" + ";".join([ "RID=%s" % urlquote(rid) for rid in src_cohort_rids ])
-         + "/QC:=left(RID)=(Cohort%20Analysis:QA_Source)"
+         + "/QC:=left(RID)=(Cohort:QA_Source)"
          + "/$SC"
          + "/SC:*,qrid:=QC:RID"
         )
@@ -181,24 +181,24 @@ def cohort_qa_clone_cli(*src_cohort_rids):
     ]
     if cohort_to_clone:
         resp = catalog.post(
-            "/entity/Cohort%20Analysis",
+            "/entity/Cohort",
             json=cohort_to_clone
         )
         sys.stderr.write('\n')
         for row in resp.json():
             cohorts_src2qa[row["QA_Source"]] = row["RID"]
-            sys.stderr.write("Cloned Cohort Analysis %(QA_Source)s into %(RID)s\n" % row)
+            sys.stderr.write("Cloned Cohort %(QA_Source)s into %(RID)s\n" % row)
 
-    sys.stderr.write("\nUsing Cohort Analysis source -> QA clone:\n%s\n" % json.dumps(cohorts_src2qa, indent=2))
+    sys.stderr.write("\nUsing Cohort source -> QA clone:\n%s\n" % json.dumps(cohorts_src2qa, indent=2))
 
     resp = catalog.get(
         ("/attribute"
-         + "/Sassoc:=Cohort%20Analysis_Synaptic%20Pair%20Study"
-         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/Sassoc:=Cohort_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort=%s" % urlquote(rid) for rid in src_cohort_rids ])
          + "/SSPS:=Synaptic%20Pair%20Study"
          + "/QSPS:=(SSPS:RID)=(Synaptic%20Pair%20Study:QA_Source)"
          + "/$Sassoc"
-         + "/cohort:=Sassoc:Cohort%20Analysis,ssps:=SSPS:RID,qsps:=QSPS:RID"
+         + "/cohort:=Sassoc:Cohort,ssps:=SSPS:RID,qsps:=QSPS:RID"
         )
     )
     rows = resp.json()
@@ -210,11 +210,11 @@ def cohort_qa_clone_cli(*src_cohort_rids):
 
     resp = catalog.get(
         ("/attribute"
-         + "/Qassoc:=Cohort%20Analysis_Synaptic%20Pair%20Study"
-         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(cohorts_src2qa[rid]) for rid in src_cohort_rids ])
+         + "/Qassoc:=Cohort_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort=%s" % urlquote(cohorts_src2qa[rid]) for rid in src_cohort_rids ])
          + "/QSPS:=Synaptic%20Pair%20Study"
          + "/$Qassoc"
-         + "/cohort:=Qassoc:Cohort%20Analysis,qsps:=QSPS:RID"
+         + "/cohort:=Qassoc:Cohort,qsps:=QSPS:RID"
         )
     )
     rows = resp.json()
@@ -229,23 +229,23 @@ def cohort_qa_clone_cli(*src_cohort_rids):
 
     needed_assocs = [
         {
-            "Cohort Analysis": cohort,
-            "Synaptic Pair Study": qsps,
+            "Cohort": cohort,
+            "Study": qsps,
         }
         for cohort, qsps in desired_qa_assocs - found_qa_assocs
     ]
     
     if needed_assocs:
         resp = catalog.post(
-            "/entity/Cohort%20Analysis_Synaptic%20Pair%20Study",
+            "/entity/Cohort_Synaptic%20Pair%20Study",
             json=needed_assocs
         )
         for row in resp.json():
-            sys.stderr.write("Cloned cohort-pair association %(Cohort Analysis)s-%(Synaptic Pair Study)s\n" % row)
+            sys.stderr.write("Cloned cohort_pair association %(Cohort)s_%(Study)s\n" % row)
 
     print('')
     for src, qa in cohorts_src2qa.items():
-        print("Cohort Analysis source %s has QA clone %s." % (src, qa))
+        print("Cohort source %s has QA clone %s." % (src, qa))
     
             
 if __name__ == '__main__':

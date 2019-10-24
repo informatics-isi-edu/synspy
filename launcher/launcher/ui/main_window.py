@@ -146,26 +146,26 @@ class MainWindow(QMainWindow):
         return False
 
     def displayWorklist(self, worklist):
-        keys = ["ID",
-                "Source Image",
-                "Classifier",
-                "Subject Issue Date",
-                "Due Date",
-                "Accepted?",
-                "Status",
-                "Identities",
-                "URL",
-                "Npz URL",
-                "ZYX Slice",
-                "Segmentation Mode",
-                "Segments URL",
-                "Segments Filtered URL",
-                "Subject",
-                "History"]
+        keys = [
+            "RID",
+            "Source Image",
+            "Classifier",
+            "Subject Issue Date",
+            "Due Date",
+            "Accepted?",
+            "Status",
+            "URL",
+            "Npz URL",
+            "ZYX Slice",
+            "Segmentation Mode",
+            "Segments URL",
+            "Segments Filtered URL",
+            "Subject",
+        ]
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
         self.ui.workList.setColumnCount(0)
-        displayed = ["ID", "Classifier", "Subject Issue Date", "Due Date", "Accepted?", "Status"]
+        displayed = ["RID", "Classifier", "Subject Issue Date", "Due Date", "Accepted?", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -184,16 +184,8 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem()
                 if key == "Classifier":
                     value = row['user'][0]['Full Name']
-                elif key == "Identities":
-                    value = row['user'][0]['Identities']
-                    item.setData(Qt.UserRole, value)
                 elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
-                elif key == "History":
-                    value = row.get(key)
-                    if not value:
-                        value = []
-                    item.setData(Qt.UserRole, value)
                 else:
                     value = row.get(key)
                 if isinstance(value, bool):
@@ -273,8 +265,8 @@ class MainWindow(QMainWindow):
         seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments Filtered URL")
         if segments_url:
-            segments_filename = '%s.%s-only.csv' % (
-                self.ui.workList.getCurrentTableItemTextByName("ID"),
+            segments_filename = 'ROI_%s_%s_only.csv' % (
+                self.ui.workList.getCurrentTableItemTextByName("RID"),
                 "synapses" if seg_mode == "synaptic" else "nucleic"
             )
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
@@ -294,14 +286,14 @@ class MainWindow(QMainWindow):
         seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if self.use_3D_viewer:
             url = self.ui.workList.getCurrentTableItemTextByName("URL")
-            filename = '%s.ome.tiff' % self.ui.workList.getCurrentTableItemTextByName("Source Image")
+            filename = 'Image_%s.ome.tiff' % self.ui.workList.getCurrentTableItemTextByName("Source Image")
         else:
             url = self.ui.workList.getCurrentTableItemTextByName("Npz URL")
-            filename = '%s.npz' % self.ui.workList.getCurrentTableItemTextByName("ID")
+            filename = 'ROI_%s.npz' % self.ui.workList.getCurrentTableItemTextByName("RID")
         destfile = os.path.abspath(os.path.join(self.getCacheDir(), filename))
         if not url and not self.use_3D_viewer:
             self.resetUI("Unable to launch 2D viewer due to missing NPZ file for %s." %
-                         self.ui.workList.getCurrentTableItemTextByName("ID"))
+                         self.ui.workList.getCurrentTableItemTextByName("RID"))
             self.serverProblemMessageBox(
                 "2D viewer requires NPZ data to be present!",
                 "The launcher is currently configured to execute the 2D viewer, which requires NPZ files for input. " +
@@ -328,22 +320,22 @@ class MainWindow(QMainWindow):
         self.updateStatus("Executing viewer...")
         env = os.environ
         env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
-        env["DUMP_PREFIX"] = "./%s." % self.ui.workList.getCurrentTableItemTextByName("ID")
+        env["DUMP_PREFIX"] = "./ROI_%s" % self.ui.workList.getCurrentTableItemTextByName("RID")
         env["ZYX_SLICE"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Slice")
         env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
         env["SYNSPY_DETECT_NUCLEI"] = str(
             "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
         output_path = os.path.join(os.path.dirname(self.config_path), "viewer.log")
-        identities = self.ui.workList.getTableItemByName(
-            self.ui.workList.getCurrentTableRow(), "Identities").data(Qt.UserRole)
-        viewerTask = ViewerTask(self.getSubprocessPath(), self.identity in identities, proc_output_path=output_path)
+        classifier = self.ui.workList.getTableItemByName(
+            self.ui.workList.getCurrentTableRow(), "Classifier").data(Qt.UserRole)
+        viewerTask = ViewerTask(self.getSubprocessPath(), self.identity == classifier, proc_output_path=output_path)
         viewerTask.status_update_signal.connect(self.onSubprocessExecuteResult)
         viewerTask.run(file_path, self.tempdir, env)
 
     def uploadAnalysisResult(self, update_state):
         qApp.setOverrideCursor(Qt.WaitCursor)
         # generate hatrac upload params
-        basename = self.ui.workList.getCurrentTableItemTextByName("ID")
+        basename = self.ui.workList.getCurrentTableItemTextByName("RID")
         match = "%s\..*\.csv" % basename
         output_files = [f for f in os.listdir(self.tempdir)
                         if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
@@ -371,9 +363,9 @@ class MainWindow(QMainWindow):
         uploadTask.upload(hatrac_path, file_path, update_state, callback=self.uploadCallback)
 
     def markIncomplete(self):
-        ID = self.ui.workList.getCurrentTableItemTextByName("ID")
-        body = [{"ID": ID, "Status":  "analysis in progress"}]
-        self.updateStatus("Updating task status for %s..." % ID)
+        RID = self.ui.workList.getCurrentTableItemTextByName("RID")
+        body = [{"RID": RID, "Status":  "analysis in progress"}]
+        self.updateStatus("Updating task status for %s..." % RID)
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
         updateTask.update(WORKLIST_STATUS_UPDATE, json=body)
@@ -503,16 +495,9 @@ class MainWindow(QMainWindow):
                 "One or more required files were not uploaded successfully.")
             return
         state = result[0]
-        ID = self.ui.workList.getCurrentTableItemTextByName("ID")
-        history = self.ui.workList.getTableItemByName(
-            self.ui.workList.getCurrentTableRow(), "History").data(Qt.UserRole)
-        history.append({
-            "program": "synspy-viewer" if self.use_3D_viewer else "synspy-viewer2d",
-            "version": synspy_version,
-            "ts": datetime.datetime.now(pytz.utc).isoformat()
-        })
-        body = [{"ID": ID, "Segments Filtered URL": result[1], "Status":  state[1], "History":history}]
-        self.updateStatus("Updating task status for %s..." % ID)
+        RID = self.ui.workList.getCurrentTableItemTextByName("RID")
+        body = [{"RID": RID, "Segments Filtered URL": result[1], "Status":  state[1]}]
+        self.updateStatus("Updating task status for %s..." % RID)
         updateTask = CatalogUpdateTask(self.catalog)
         updateTask.status_update_signal.connect(self.onCatalogUpdateResult)
         updateTask.update(WORKLIST_UPDATE, json=body)

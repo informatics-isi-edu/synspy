@@ -169,10 +169,9 @@ def dump_paired_points_csv_rows(pair_src_rid, voxel_image_aligner, csvwriter1, c
             + ('study_id', 'subject')
         )
 
-    # try to use pair_src_rid as a Cohort Analysis RID
-    r = catalog.get('/attribute/%(atable)s/%(ccol)s=%(crid)s/%(stable)s/RID' % {
-        'atable': urlquote('Cohort Analysis_Synaptic Pair Study'),
-        'ccol': urlquote('Cohort Analysis'),
+    # try to use pair_src_rid as a Cohort RID
+    r = catalog.get('/attribute/%(atable)s/Cohort=%(crid)s/%(stable)s/RID' % {
+        'atable': urlquote('Cohort_Synaptic Pair Study'),
         'crid': pair_src_rid,
         'stable': urlquote('Synaptic Pair Study'),
     })
@@ -292,7 +291,7 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
        that pair's synapse pointclouds will be combined into the
        resulting CSV.
 
-       If the pair source identifier is a Cohort Analysis:RID key, all
+       If the pair source identifier is a Cohort:RID key, all
        member pairs' synapse pointclouds will be combined into the
        resulting CSV.
 
@@ -329,8 +328,8 @@ def paired_csv_cli(voxel_img_rid, pair_src_rid):
          - work files: '<DUMP_DIR>/tmp-*'
 
     """
-    dump_fname1 = '%s/%s-%s.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
-    dump_fname2 = '%s/%s-%s-centers.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
+    dump_fname1 = '%s/%s_%s.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
+    dump_fname2 = '%s/%s_%s_centers.csv' % (dump_dir, pair_src_rid, voxel_img_rid)
 
     ref_image_aligner = ImageGrossAlignment.from_image_id(catalog, voxel_img_rid)
     outf1 = open(dump_fname1, 'w', newline='')

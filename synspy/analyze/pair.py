@@ -180,7 +180,6 @@ class NucleicPairStudy (object):
 
         """
         self._metadata = metadata
-        self.id = self._metadata['ID']
         self.spacing = self._metadata['ZYX Spacing']
         self.alignment = self._metadata['Alignment']
 
@@ -601,11 +600,6 @@ class ImageGrossAlignment (object):
             p1, p2 = p2, p1
 
         self._M, self._M_inv, self.length = gross_unit_alignment(p0, p1, p2)
-
-    @property
-    def id(self):
-        """The ID column of this Image record."""
-        return self._metadata['ID']
 
     @property
     def RID(self):

@@ -888,7 +888,7 @@ def batch_analyze_cli(fname):
          'centroids': 2D centroid list with axes (N, c) for coords [z y x]
          'measures':  2D measure list with axes (N, m) for measures []
 
-       Output is written to file names by DUMP_PREFIX + '.roi.npz'
+       Output is written to file names by DUMP_PREFIX + '.npz'
     """
     dump_prefix = os.path.basename(fname)
     try:

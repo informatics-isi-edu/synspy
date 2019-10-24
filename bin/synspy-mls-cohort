@@ -34,7 +34,7 @@ def cohort_mls_clone_cli(*src_cohort_rids):
     """
     resp = catalog.get(
         ("/entity"
-         + "/Cohort%20Analysis"
+         + "/Cohort"
          + "/" + ";".join([ "RID=%s" % urlquote(rid) for rid in src_cohort_rids ])
          + "/!Description::regexp::" + urlquote("large ROI studies for MLS")
         )
@@ -48,7 +48,7 @@ def cohort_mls_clone_cli(*src_cohort_rids):
     def get_mls_cohort(src_rid):
         resp = catalog.get(
             ("/entity"
-             + "/Cohort%20Analysis"
+             + "/Cohort"
              + "/Description=" + urlquote(MLS_cohort_description_templ % dict(rid=src_rid))
             )
         )
@@ -72,7 +72,7 @@ def cohort_mls_clone_cli(*src_cohort_rids):
 
     if cohorts_to_clone:
         resp = catalog.post(
-            "/entity/Cohort%20Analysis",
+            "/entity/Cohort",
             json=cohorts_to_clone
         )
         for row in resp.json():
@@ -88,8 +88,8 @@ def cohort_mls_clone_cli(*src_cohort_rids):
 
     resp = catalog.get(
         ("/attributegroup"
-         + "/ASSOC:=Cohort%20Analysis_Synaptic%20Pair%20Study"
-         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/ASSOC:=Cohort_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort=%s" % urlquote(rid) for rid in src_cohort_rids ])
          + "/SPS:=Synaptic%20Pair%20Study"
          + "/R:=Image%20Region/Segmentation%20Mode=synaptic/!ZYX%20Slice=" + urlquote(MLS_ZYX_slice)
          + "/R:Source%20Image,R:Anatomy;regions:=array_d(R:*)"
@@ -129,7 +129,7 @@ def cohort_mls_clone_cli(*src_cohort_rids):
     
     if regions_to_clone:
         resp = catalog.post(
-            "/entity/Image%20Region?defaults=ID,Sub-Sequence",
+            "/entity/Image%20Region?defaults=ID",
             json=regions_to_clone
         )
         sys.stderr.write('\n')
@@ -141,7 +141,7 @@ def cohort_mls_clone_cli(*src_cohort_rids):
             )
 
     mls_regions_byid = {
-        row["ID"]: row
+        row["RID"]: row
         for row in mls_regions.values()
     }
 
@@ -156,13 +156,13 @@ def cohort_mls_clone_cli(*src_cohort_rids):
 
     resp = catalog.get(
         ("/attribute"
-         + "/ASSOC:=Cohort%20Analysis_Synaptic%20Pair%20Study"
-         + "/" + ";".join([ "Cohort%%20Analysis=%s" % urlquote(rid) for rid in src_cohort_rids ])
+         + "/ASSOC:=Cohort_Synaptic%20Pair%20Study"
+         + "/" + ";".join([ "Cohort=%s" % urlquote(rid) for rid in src_cohort_rids ])
          + "/SPS:=Synaptic%20Pair%20Study"
          + "/$SPS/R1:=(Synaptic%20Region%201)"
          + "/$SPS/R2:=(Synaptic%20Region%202)"
          + "/$ASSOC"
-         + "/cohort:=Cohort%20Analysis"
+         + "/cohort:=Cohort"
          + ",sps:=SPS:RID"
          + ",study:=SPS:Study"
          + ",r1i:=R1:Source%20Image,r2i:=R2:Source%20Image"
@@ -178,8 +178,8 @@ def cohort_mls_clone_cli(*src_cohort_rids):
     def get_mls_sps(r1i, r1a, r2i, r2a, study):
         resp = catalog.get(
             ("/entity/Synaptic%20Pair%20Study"
-             + "/Synaptic%20Region%201=" + urlquote(mls_regions[(r1i,r1a)]["ID"])
-             + "/Synaptic%20Region%202=" + urlquote(mls_regions[(r2i,r2a)]["ID"])
+             + "/Synaptic%20Region%201=" + urlquote(mls_regions[(r1i,r1a)]["RID"])
+             + "/Synaptic%20Region%202=" + urlquote(mls_regions[(r2i,r2a)]["RID"])
              + "/Study=" + urlquote(study)
             )
         )
@@ -196,8 +196,8 @@ def cohort_mls_clone_cli(*src_cohort_rids):
             "Study": study,
             "Image 1": mls_regions[(r1i,r1a)]["Source Image"],
             "Image 2": mls_regions[(r2i,r2a)]["Source Image"],
-            "Synaptic Region 1": mls_regions[(r1i,r1a)]["ID"],
-            "Synaptic Region 2": mls_regions[(r2i,r2a)]["ID"],
+            "Synaptic Region 1": mls_regions[(r1i,r1a)]["RID"],
+            "Synaptic Region 2": mls_regions[(r2i,r2a)]["RID"],
             "Notes": "Large ROI study for MLS.",
         }
         for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
@@ -223,9 +223,9 @@ def cohort_mls_clone_cli(*src_cohort_rids):
             
     def get_mls_assoc_vector(src_cohort, src_sps):
         resp = catalog.get(
-            ("/entity/Cohort%20Analysis_Synaptic%20Pair%20Study"
-             + "/Cohort%20Analysis=" + urlquote(mls_cohorts[src_cohort]["RID"])
-             + "/Synaptic%20Pair%20Study=" + urlquote(sps_src2mls[src_sps])
+            ("/entity/Cohort_Synaptic%20Pair%20Study"
+             + "/Cohort=" + urlquote(mls_cohorts[src_cohort]["RID"])
+             + "/Study=" + urlquote(sps_src2mls[src_sps])
             )
         )
         return resp.json()
@@ -238,19 +238,19 @@ def cohort_mls_clone_cli(*src_cohort_rids):
 
     assocs_to_clone = [
         {
-            "Cohort Analysis": mls_cohorts[src_cohort]["RID"],
-            "Synaptic Pair Study": mls_sps[(study, r1i, r2i, r1a, r2a)]["RID"],
+            "Cohort": mls_cohorts[src_cohort]["RID"],
+            "Study": mls_sps[(study, r1i, r2i, r1a, r2a)]["RID"],
         }
         for src_cohort, src_sps, study, r1i, r2i, r1a, r2a in src_assoc_vectors
         if (src_cohort, src_sps, study, r1i, r2i, r1a, r2a ) not in mls_assoc_vectors
     ]
     if assocs_to_clone:
         resp = catalog.post(
-            "/entity/Cohort%20Analysis_Synaptic%20Pair%20Study",
+            "/entity/Cohort_Synaptic%20Pair%20Study",
             json=assocs_to_clone
         )
         for row in resp.json():
-            print("Created assocation %(Cohort Analysis)s <-> %(Synaptic Pair Study)s.\n" % row)
+            print("Created assocation %(Cohort)s <-> %(Study)s.\n" % row)
 
 
     resp = catalog.get(

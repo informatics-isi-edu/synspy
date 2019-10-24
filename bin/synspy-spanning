@@ -61,7 +61,7 @@ def process_region(region_id):
     if region_rows:
         row = region_rows[0]
         if row['Segments Filtered URL'] is None:
-            raise ValueError('Image Region ID="%(ID)s" lacks synaptic point-cloud.' % row)
+            raise ValueError('Image Region RID="%(RID)s" lacks synaptic point-cloud.' % row)
         try:
             points = centroids_zx_swap(load_registered_csv(store, row['Segments Filtered URL'])[:,0:3]) # repack XYZ
             points[:,:] *= np.array(xyz_grid_scale, dtype=np.float32)
@@ -80,7 +80,7 @@ def process_region(region_id):
             discard, sizes = np.unique(labels, return_counts=True)
             return row, points, edges1, edges2, n_components, labels, sizes
         except Exception as e:
-            print('WARNING: got error "%s" retrieving data for ID=%s, skipping!' % (e, row['ID']))
+            print('WARNING: got error "%s" retrieving data for RID=%s, skipping!' % (e, row['RID']))
             raise
     else:
         raise ValueError('Image Region "%s" not found.' % region_id)

@@ -3,16 +3,16 @@ from deriva.core import format_exception, DEFAULT_HEADERS
 from deriva.qt import async_execute, AsyncTask
 
 WORKLIST_QUERY = \
-    "/attributegroup/U:=Synapse:Person/Identities=%s/T:=(Zebrafish:Image Region:Classifier)/" \
+    "/attributegroup/U:=public:ERMrest_Client/ID=%s/T:=(Zebrafish:Image Region:Classifier)/" \
     "!ZYX Slice::null::/I:=(Source Image)/!T:Npz URL::null::/$T/*;source_image:=array(I:*),user:=array(U:*)"
 
 WORKLIST_CURATOR_QUERY = \
-    "/attributegroup/U:=Synapse:Person/T:=(Zebrafish:Image Region:Classifier)/" \
+    "/attributegroup/U:=public:ERMrest_Client/T:=(Zebrafish:Image Region:Classifier)/" \
     "!ZYX Slice::null::/I:=(Source Image)/$T/*;source_image:=array(I:*),user:=array(U:*)"
 
-WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Segments Filtered URL,Status,History"
+WORKLIST_UPDATE = "/attributegroup/Zebrafish:Image Region/RID;Segments Filtered URL,Status"
 
-WORKLIST_STATUS_UPDATE = "/attributegroup/Zebrafish:Image Region/ID;Status"
+WORKLIST_STATUS_UPDATE = "/attributegroup/Zebrafish:Image Region/RID;Status"
 
 
 class CatalogTask(AsyncTask):

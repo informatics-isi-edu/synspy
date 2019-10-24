@@ -4,7 +4,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
-from deriva.core import PollingErmrestCatalog, HatracStore, urlquote, get_credential
+from deriva.core import PollingErmrestCatalog, HatracStore, urlquote, get_credential, DEFAULT_CREDENTIAL_FILE
 from volspy.util import load_image
 import sys
 import traceback
@@ -45,8 +45,8 @@ class WorkUnit (object):
             put_claim_url,
             put_update_baseurl,
             run_row_job,
-            claim_input_data=lambda row: {'ID': row['ID'], 'Status': "pre-processing..."},
-            failure_input_data=lambda row, e: {'ID': row['ID'], 'Status': {"failed": "%s" % e}}
+            claim_input_data=lambda row: {'RID': row['RID'], 'Status': "pre-processing..."},
+            failure_input_data=lambda row, e: {'RID': row['RID'], 'Status': {"failed": "%s" % e}},
     ):
         self.get_claimable_url = get_claimable_url
         self.put_claim_url = put_claim_url
@@ -78,18 +78,18 @@ def image_row_job(handler):
         for axis, span in zip(['c','z','y','x'], czyx_shape)
     }
     handler.put_row_update({
-        'ID': handler.row['ID'],
+        'RID': handler.row['RID'],
         'ZYX Spacing': zyx_spacing,
         'CZYX Shape': czyx_shape,
         'Status': "ready",
     })
-    sys.stderr.write('Image %s processing complete.\n' % handler.row['ID'])
+    sys.stderr.write('Image %s processing complete.\n' % handler.row['RID'])
 
 _work_units.append(
     WorkUnit(
         '/entity/Zebrafish:Image/Status::null::;Status=null/!URL::null::?limit=1',
-        '/attributegroup/Zebrafish:Image/ID;Status',
-        '/attributegroup/Zebrafish:Image/ID',
+        '/attributegroup/Zebrafish:Image/RID;Status',
+        '/attributegroup/Zebrafish:Image/RID',
         image_row_job
     )
 )
@@ -154,12 +154,12 @@ def region_row_job(handler):
         updated_row['Status'] = "processed"
 
     if updated_row:
-        updated_row['ID'] = handler.row['ID']
+        updated_row['RID'] = handler.row['RID']
         handler.put_row_update(updated_row)
     else:
         raise WorkerRuntimeError('row had no work pending %s' % (handler.row,))
 
-    sys.stderr.write('Region %s processing complete.\n' % handler.row['ID'])
+    sys.stderr.write('Region %s processing complete.\n' % handler.row['RID'])
 
 _work_units.append(
     WorkUnit(
@@ -181,20 +181,20 @@ def image_pair_row_job(handler):
     # *-> Status={"failed": "reason"}
     M, n1_url, n2_url = handler.register_nuclei(handler.row['N1_URL'], handler.row['N2_URL'])
     updated_row = {
-        'ID': handler.row['ID'],
+        'RID': handler.row['RID'],
         'Alignment': handler.matrix_to_prejson(M),
         'Region 1 URL': n1_url,
         'Region 2 URL': n2_url,
         'Status': "aligned"
     }
     handler.put_row_update(updated_row)
-    sys.stderr.write('Image pair %s processing complete.\n' % handler.row['ID'])
+    sys.stderr.write('Image pair %s processing complete.\n' % handler.row['RID'])
 
 _work_units.append(
     WorkUnit(
         '/attribute/S:=Image%20Pair%20Study/Status::null::;Status=null/N1:=(Nucleic%20Region%201)/Status=%22processed%22/$S/N2:=(Nucleic%20Region%202)/Status=%22processed%22/$S/*,N1_URL:=N1:Segments%20Filtered%20URL,N2_URL:=N2:Segments%20Filtered%20URL?limit=1',
-        '/attributegroup/Zebrafish:Image%20Pair%20Study/ID;Status',
-        '/attributegroup/Zebrafish:Image%20Pair%20Study/ID',
+        '/attributegroup/Zebrafish:Image%20Pair%20Study/RID;Status',
+        '/attributegroup/Zebrafish:Image%20Pair%20Study/RID',
         image_pair_row_job
     )
 )
@@ -209,19 +209,19 @@ def synaptic_pair_row_job(handler):
     # *-> Status={"failed": "reason"}
     s1_url, s2_url = handler.register_synapses(handler.row['S1_URL'], handler.row['S2_URL'])
     updated_row = {
-        'ID': handler.row['ID'],
+        'RID': handler.row['RID'],
         'Region 1 URL': s1_url,
         'Region 2 URL': s2_url,
         'Status': "aligned"
     }
     handler.put_row_update(updated_row)
-    sys.stderr.write('Synaptic pair %s processing complete.\n' % handler.row['ID'])
+    sys.stderr.write('Synaptic pair %s processing complete.\n' % handler.row['RID'])
 
 _work_units.append(
     WorkUnit(
-        '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=(Study)/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Subject:=IP:Subject,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1',
-        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID;Status',
-        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/ID',
+        '/attribute/S:=Synaptic%20Pair%20Study/Status::null::;Status=null/IP:=Image%20Pair%20Study/Status=%22aligned%22/$S/S1:=(Synaptic%20Region%201)/Status=%22processed%22/$S/S2:=(Synaptic%20Region%202)/Status=%22processed%22/$S/*,Alignment:=IP:Alignment,S1_URL:=S1:Segments%20Filtered%20URL,S2_URL:=S2:Segments%20Filtered%20URL?limit=1',
+        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/RID;Status',
+        '/attributegroup/Zebrafish:Synaptic%20Pair%20Study/RID',
         synaptic_pair_row_job
     )
 )
@@ -260,11 +260,10 @@ class Worker (object):
     servername = os.getenv('SYNSPY_SERVER', platform.uname()[1])
 
     # secret session cookie
-    try:
-        credfile = os.getenv('SYNSPY_CREDENTIALS', 'credentials.json')
-        credentials = json.load(open(credfile))
-    except:
-        credentials = get_credential(servername)
+    credentials = get_credential(
+        servername,
+        credential_file=os.getenv('SYNSPY_CREDENTIALS', DEFAULT_CREDENTIAL_FILE)
+    )
 
     poll_seconds = int(os.getenv('SYNSPY_POLL_SECONDS', '600'))
 
@@ -298,12 +297,13 @@ class Worker (object):
     idle_etag = None
 
     def __init__(self, row, unit):
-        sys.stderr.write('Claimed job %s.\n' % row.get('ID', row.get('RID')))
+        sys.stderr.write('Claimed job %s.\n' % row.get('RID'))
 
         self.row = row
         self.unit = unit
-        self.subject_path = '/hatrac/Zf/%s' % row['Subject']
+        self.subject_path = '/hatrac/Zf/Zf_%s' % row['Subject']
 
+        self.working_dir = None
         # we want a temporary work space for our working files
         self.working_dir = tempfile.mkdtemp(dir=self.tmpdir)
         self.working_dirs[self.working_dir] = self.working_dir
@@ -354,7 +354,7 @@ class Worker (object):
             'ZYX_SLICE': zyx_slice,
             'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
             'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'synaptic'),
-            'DUMP_PREFIX': './%s' % self.row['ID'],
+            'DUMP_PREFIX': './ROI_%s' % self.row['RID'],
             'OMIT_VOXELS': str(omit_voxels).lower(),
         }
         sys.stderr.write('Using analysis environment %r\n' % (env,))
@@ -365,8 +365,8 @@ class Worker (object):
             raise WorkerRuntimeError('Non-zero analysis exit status %s!' % code)
 
         return self.store.put_loc(
-            '%s/%s.npz' % (self.subject_path, self.row['ID']),
-            '%s.npz' % self.row['ID'],
+            '%s/ROI_%s.npz' % (self.subject_path, self.row['RID']),
+            'ROI_%s.npz' % self.row['RID'],
             headers={'Content-Type': 'application/octet-stream'}
         )
 
@@ -385,7 +385,7 @@ class Worker (object):
         reader = csv.DictReader(csv_file)
 
         # prepare to write filtered CSV to temp dir
-        filtered_filename = '%s-only.csv' % base
+        filtered_filename = '%s_only.csv' % base
         filtered_file = open(filtered_filename, 'w', newline='')
         writer = csv.writer(filtered_file)
 
@@ -446,8 +446,8 @@ class Worker (object):
         nuc2cmsp = util.load_segment_info_from_csv(n2_filename, zyx_scale, filter_status=filter_status)
         M, angles = register.align_centroids(nuc1cmsp[0], nuc2cmsp[0])
         nuc2cmsp = (register.transform_centroids(M, nuc2cmsp[0]),) + nuc2cmsp[1:]
-        n1_outfile = '%s-n1-registered.csv' % self.row['ID']
-        n2_outfile = '%s-n2-registered.csv' % self.row['ID']
+        n1_outfile = 'ImagePair_%s_n1_registered.csv' % self.row['RID']
+        n2_outfile = 'ImagePair_%s_n2_registered.csv' % self.row['RID']
         register.dump_registered_file_pair(
             (n1_outfile, n2_outfile),
             (nuc1cmsp, nuc2cmsp)
@@ -485,8 +485,8 @@ class Worker (object):
         syn2cmsp = util.load_segment_info_from_csv(s2_filename, zyx_scale, filter_status=filter_status)
         M = np.array(self.row['Alignment'], dtype=np.float64)
         syn2cmsp = (register.transform_centroids(M, syn2cmsp[0]),) + syn2cmsp[1:]
-        s1_outfile = '%s-s1-registered.csv' % self.row.get('ID', self.row.get('RID'))
-        s2_outfile = '%s-s2-registered.csv' % self.row.get('ID', self.row.get('RID'))
+        s1_outfile = 'SynapticPair_%s_s1_registered.csv' % self.row.get('RID')
+        s2_outfile = 'SynapticPair_%s_s2_registered.csv' % self.row.get('RID')
         register.dump_registered_file_pair(
             (s1_outfile, s2_outfile),
             (syn1cmsp, syn2cmsp)
@@ -550,12 +550,13 @@ class Worker (object):
                     handler = cls(row, unit)
                     unit.run_row_job(handler)
                 except WorkerBadDataError as e:
-                    sys.stderr.write("Aborting task %s on data error: %s\n" % (row["ID"], e))
+                    sys.stderr.write("Aborting task %s on data error: %s\n" % (row["RID"], e))
                     cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
                     # continue with next task...?
                 except Exception as e:
                     # TODO: eat some exceptions and return True to continue?
-                    cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
+                    if unit.failure_input_data is not None:
+                        cls.catalog.put(unit.put_claim_url, json=[unit.failure_input_data(row, e)])
                     raise
                 finally:
                     if handler is not None:

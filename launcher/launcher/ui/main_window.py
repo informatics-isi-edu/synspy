@@ -43,9 +43,12 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.ui = MainWindowUI(self)
         self.configure(config_path)
-        self.authWindow = EmbeddedAuthWindow(config=self.config.get("server"),
-                                             cookie_persistence=False,
-                                             authentication_success_callback=self.onLoginSuccess)
+        self.authWindow = EmbeddedAuthWindow(
+            self,
+            config=self.config.get("server"),
+            cookie_persistence=False,
+            authentication_success_callback=self.onLoginSuccess
+        )
         self.getSession()
         if not self.identity:
             self.ui.actionLaunch.setEnabled(False)
@@ -183,7 +186,7 @@ class MainWindow(QMainWindow):
             for key in keys:
                 item = QTableWidgetItem()
                 if key == "Classifier":
-                    value = row['user'][0]['Full Name']
+                    value = row['user'][0]['Full_Name']
                 elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
                 else:
@@ -344,9 +347,9 @@ class MainWindow(QMainWindow):
             return
         seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if seg_mode == "synaptic":
-            extension = ".synapses-only.csv"
+            extension = "_synaptic_only.csv"
         elif seg_mode == "nucleic":
-            extension = ".nuclei-only.csv"
+            extension = "_nucleic_only.csv"
         else:
             self.updateStatus("Unknown segmentation mode \"%s\" -- aborting." % seg_mode)
             return

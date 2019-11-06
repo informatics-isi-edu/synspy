@@ -878,9 +878,9 @@ transparency factor: %f
 
     def _csv_dump_filename(self):
         if self.do_nuclei:
-            return '%snuclei-only.csv' % self.dump_prefix
+            return '%s_nucleic_only.csv' % self.dump_prefix
         else:
-            return '%ssynapses-only.csv' % self.dump_prefix
+            return '%s_synaptic_only.csv' % self.dump_prefix
 
     def dump_classified_voxels(self, event=None):
         """Dump a segment list."""

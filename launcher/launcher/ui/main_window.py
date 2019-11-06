@@ -187,6 +187,7 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem()
                 if key == "Classifier":
                     value = row['user'][0]['Full_Name']
+                    item.setData(Qt.UserRole, row['Classifier'])
                 elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
                 else:
@@ -269,9 +270,7 @@ class MainWindow(QMainWindow):
         segments_url = self.ui.workList.getCurrentTableItemTextByName("Segments Filtered URL")
         if segments_url:
             segments_filename = 'ROI_%s_%s_only.csv' % (
-                self.ui.workList.getCurrentTableItemTextByName("RID"),
-                "synapses" if seg_mode == "synaptic" else "nucleic"
-            )
+                self.ui.workList.getCurrentTableItemTextByName("RID"), seg_mode)
             segments_destfile = os.path.abspath(os.path.join(self.tempdir, segments_filename))
             self.updateStatus("Downloading file: [%s]" % segments_destfile)
             downloadTask = FileRetrieveTask(self.store)
@@ -286,7 +285,6 @@ class MainWindow(QMainWindow):
 
     def retrieveInputFile(self):
         # get the main TIFF file for analysis if not already cached
-        seg_mode = self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         if self.use_3D_viewer:
             url = self.ui.workList.getCurrentTableItemTextByName("URL")
             filename = 'Image_%s.ome.tiff' % self.ui.workList.getCurrentTableItemTextByName("Source Image")
@@ -338,8 +336,8 @@ class MainWindow(QMainWindow):
     def uploadAnalysisResult(self, update_state):
         qApp.setOverrideCursor(Qt.WaitCursor)
         # generate hatrac upload params
-        basename = self.ui.workList.getCurrentTableItemTextByName("RID")
-        match = "%s\..*\.csv" % basename
+        basename = "ROI_%s" % self.ui.workList.getCurrentTableItemTextByName("RID")
+        match = r"%s_.*\.csv$" % basename
         output_files = [f for f in os.listdir(self.tempdir)
                         if os.path.isfile(os.path.join(self.tempdir, f)) and re.match(match, f)]
         if not output_files:

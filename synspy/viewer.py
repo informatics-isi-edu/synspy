@@ -478,7 +478,7 @@ class Canvas(base.Canvas):
 
     def _pick_rgb_to_segment(self, pick):
         """Convert (R,G,B) encoding of segment pick to 1-based segment ID"""
-        return sum([ pick[i] * 2**(8*i) for i in range(3) ], 0)
+        return int(sum([ pick[i] * 2**(8*i) for i in range(3) ], 0))
 
     def _pick_segment_to_rgb(self, index):
         """Convert 1-based segment ID to (R,G,B) encoding of segment pick"""
@@ -713,12 +713,13 @@ class Canvas(base.Canvas):
         try:
             bn = os.path.basename(filename1)
             m = re.match('^(?P<id>.+)[.]ome[.]tif+$', bn)
-            self.dump_prefix = './%s.' % (m.groupdict()['id'],)
+            self.dump_prefix = './%s' % (m.groupdict()['id'],)
         except:
             # backwards compatible default
             self.dump_prefix = '%s-' % filename1
 
         self.dump_prefix = os.getenv('DUMP_PREFIX', self.dump_prefix)
+        print('Using DUMP_PREFIX="%s"' % self.dump_prefix)
 
         # textures prepared by self._reform_image() during base init above...
         self.volume_renderer.set_uniform('u_voxel_class_texture', self.voxel_class_texture)
@@ -737,6 +738,7 @@ class Canvas(base.Canvas):
         self.key_press_handlers['?'] = self.help
 
         self.auto_dump_load = os.getenv('SYNSPY_AUTO_DUMP_LOAD', 'false').lower() == 'true'
+        print('Using SYNSPY_AUTO_DUMP_LOAD=%s' % str(self.auto_dump_load).lower())
 
         # provide better names for synspy parameters on HUD
         self.hud_display_names['u_floorlvl'] = 'core measure'
@@ -790,8 +792,8 @@ class Canvas(base.Canvas):
         if self.auto_dump_load:
             try:
                 self.load_classified_segments(None)
-            except Exception as e:
-                print('Error during auto-load: %s' % e)
+            except IOError as e:
+                print('Skipping auto-load of segment status on error: %s' % e)
 
             @atexit.register
             def shutdown():
@@ -985,7 +987,7 @@ transparency factor: %f
                 x = (IMAGE_SIZE-1) * v0[i]
                 y = (IMAGE_SIZE-1) * v1[i]
                 assert x < IMAGE_SIZE and x >= 0 and y < IMAGE_SIZE and y >= 0, 'x,y = %s,%s' % (x, y)
-                heatmap[y,x,ch] += 1
+                heatmap[int(y),int(x),int(ch)] += 1
 
             hmax = heatmap[:,:,ch].max()
             max_bins = np.argwhere(heatmap[:,:,ch] == hmax)[0:20]

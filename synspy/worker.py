@@ -421,13 +421,22 @@ class Worker (object):
         """Process input CSV URL and return stats column value updates."""
         filename = self.get_file(csv_url)
         c, m, s, p = util.load_segment_info_from_csv(filename, (0.4,0.26,0.26), filter_status=(3,7))
-        stats = {
-            'Core Min.': float(m[:,0].min()),
-            'Core Max.': float(m[:,0].max()),
-            'Core Sum': float(m[:,0].sum()),
-            '#Centroids': int(m.shape[0]),
-            'Core Mean': float(m[:,0].mean()),
-        }
+        if c.shape[0] > 0:
+            stats = {
+                'Core Min.': float(m[:,0].min()),
+                'Core Max.': float(m[:,0].max()),
+                'Core Sum': float(m[:,0].sum()),
+                '#Centroids': int(m.shape[0]),
+                'Core Mean': float(m[:,0].mean()),
+            }
+        else:
+            stats = {
+                'Core Min.': None,
+                'Core Max.': None,
+                'Core Sum': None,
+                '#Centroids': 0,
+                'Core Mean': None,
+            }
         return {
             k: v
             for k, v in stats.items()

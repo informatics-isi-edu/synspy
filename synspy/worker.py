@@ -134,13 +134,13 @@ def region_row_job(handler):
             pass
 
     if handler.row['Status'] is None:
-        if handler.row['Npz URL'] is None and zyx_slice is not None and handler.row['Segmentation Mode'] == 'synaptic':
-            # we only generate NPZ for synaptic regions to save resources
+        if handler.row['Npz URL'] is None and zyx_slice is not None:
             img_filename = handler.get_file(handler.row['URL'])
-            updated_row['Npz URL'] = handler.preprocess_roi(img_filename, zyx_slice)
-            updated_row['Status'] = "analysis pending"
-        elif zyx_slice is not None and handler.row['Segmentation Mode'] == 'nucleic':
-            # we need to let nucleic tasks proceed with the 3D viewer in the launcher
+            updated_row['Npz URL'] = handler.preprocess_roi(
+                img_filename,
+                zyx_slice,
+                omit_voxels=handler.row['Segmentation Mode'] == 'nucleic'
+            )
             updated_row['Status'] = "analysis pending"
         else:
             raise WorkerRuntimeError('Classifier is set, but ZYX Slice could not be determined.')
@@ -164,8 +164,8 @@ def region_row_job(handler):
 _work_units.append(
     WorkUnit(
         '/attribute/I:=Zebrafish:Image/Status=%22ready%22/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;Status=%22analysis%20complete%22/*,I:URL,I:CZYX%20Shape?limit=1',
-        '/attributegroup/Zebrafish:Image%20Region/ID;Status',
-        '/attributegroup/Zebrafish:Image%20Region/ID',
+        '/attributegroup/Zebrafish:Image%20Region/RID;Status',
+        '/attributegroup/Zebrafish:Image%20Region/RID',
         region_row_job
     )
 )

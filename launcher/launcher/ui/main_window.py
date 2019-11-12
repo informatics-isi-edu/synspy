@@ -151,9 +151,9 @@ class MainWindow(QMainWindow):
     def displayWorklist(self, worklist):
         keys = [
             "RID",
+            "RCT",
             "Source Image",
             "Classifier",
-            "Subject Issue Date",
             "Due Date",
             "Accepted?",
             "Status",
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
         self.ui.workList.setColumnCount(0)
-        displayed = ["RID", "Classifier", "Subject Issue Date", "Due Date", "Accepted?", "Status"]
+        displayed = ["RID", "RCT", "Classifier", "Due Date", "Accepted?", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -194,6 +194,8 @@ class MainWindow(QMainWindow):
                     value = row.get(key)
                 if isinstance(value, bool):
                     value = str(value)
+                if isinstance(value, str) and key == 'RCT':
+                    value = value.replace('T', ' ')[0:19] # drop fractional seconds and TZ
                 if isinstance(value, str):
                     item.setText(value)
                     item.setToolTip(value)

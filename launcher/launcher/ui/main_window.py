@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
         self.ui.workList.setColumnCount(0)
-        displayed = ["RID", "RCT", "Classifier", "Due Date", "Accepted?", "Status"]
+        displayed = ["RID", "RCT", "Segmentation Mode", "Classifier", "Due Date", "Accepted?", "Status"]
         self.ui.workList.setRowCount(len(worklist))
         self.ui.workList.setColumnCount(len(keys))
 
@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
             for key in keys:
                 item = QTableWidgetItem()
                 if key == "Classifier":
-                    value = row['user'][0]['Full_Name']
+                    value = "%s (%s)" % (row['user'][0]['Full_Name'], row['user'][0]['Display_Name'])
                     item.setData(Qt.UserRole, row['Classifier'])
                 elif key == "URL" or key == "Subject":
                     value = row["source_image"][0].get(key)
@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
                 if isinstance(value, bool):
                     value = str(value)
                 if isinstance(value, str) and key == 'RCT':
-                    value = value.replace('T', ' ')[0:19] # drop fractional seconds and TZ
+                    value = value.replace('T', ' ')[0:19]  # drop fractional seconds and TZ
                 if isinstance(value, str):
                     item.setText(value)
                     item.setToolTip(value)

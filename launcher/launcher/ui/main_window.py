@@ -211,11 +211,8 @@ class MainWindow(QMainWindow):
 
         self.ui.workList.setHorizontalHeaderLabels(keys)  # add header names
         self.ui.workList.horizontalHeader().setDefaultAlignment(Qt.AlignLeft)  # set alignment
-        self.ui.workList.resizeColumnToContents(0)
-        self.ui.workList.resizeColumnToContents(1)
-        self.ui.workList.resizeColumnToContents(2)
-        self.ui.workList.resizeColumnToContents(3)
-        self.ui.workList.resizeColumnToContents(4)
+        for col in range(len(displayed)):
+            self.ui.workList.resizeColumnToContents(col)
         self.ui.workList.sortByColumn(2, Qt.DescendingOrder)
 
     def getCacheDir(self):

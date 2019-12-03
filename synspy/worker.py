@@ -353,7 +353,7 @@ class Worker (object):
         env = {
             'ZYX_SLICE': zyx_slice,
             'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
-            'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'synaptic'),
+            'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'nucleic'),
             'DUMP_PREFIX': './ROI_%s' % self.row['RID'],
             'OMIT_VOXELS': str(omit_voxels).lower(),
         }

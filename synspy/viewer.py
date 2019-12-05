@@ -482,7 +482,7 @@ class Canvas(base.Canvas):
 
     def _pick_segment_to_rgb(self, index):
         """Convert 1-based segment ID to (R,G,B) encoding of segment pick"""
-        return np.array([ (index/2**(8*i)) % 256 for i in range(3) ])
+        return np.array([ (index//2**(8*i)) % 256 for i in range(3) ])
 
     def _get_centroid_status(self, pick):
         """Get status byte for centroid pick (R,G,B) """
@@ -571,7 +571,7 @@ class Canvas(base.Canvas):
         # pack least significant byte as R, then G, etc.
         segment_map_uint8 = np.zeros(segment_map.shape + (nb,), dtype=np.uint8)
         for i in range(nb):
-            segment_map_uint8[:,:,:,i] = (segment_map[:,:,:] / (2**(i*8))) % 2**8
+            segment_map_uint8[:,:,:,i] = (segment_map[:,:,:] // (2**(i*8))) % 2**8
 
         del segment_map
         self.voxel_class_texture = gloo.Texture3D(segment_map_uint8.shape, format=fmt)

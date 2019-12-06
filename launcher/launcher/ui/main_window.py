@@ -458,7 +458,7 @@ class MainWindow(QMainWindow):
             self.resetUI(status, detail)
             return
 
-        if not is_owner:
+        if not is_owner or self.curator_mode:
             self.resetUI(status, detail)
             return
 

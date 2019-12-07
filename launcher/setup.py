@@ -7,7 +7,7 @@
 """
 
 from setuptools import setup, find_packages
-from synspy import __version__
+from launcher import __version__
 
 setup(
     name="synspy-launcher",

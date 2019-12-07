@@ -35,8 +35,8 @@ def find_image_basename(row):
         m = re.match("^filename[*]=UTF-8''(?P<basename>[-_A-Za-z0-9.]*)", row['headers']['content-disposition'])
         if m:
             return m.groupdict()['basename']
-    # fall-back, assume SPIM image and name via ID
-    return '%(ID)s.ome.tiff'
+    # fall-back, assume SPIM image and name via RID
+    return 'Image_%(RID)s.ome.tiff'
 
 def get_image(row):
     row = row.copy() # copy so we can freely mutate it...
@@ -75,17 +75,15 @@ def get_images(id, idempotent=True):
     # dictionary of ERMrest query URL fragments we can compose from templates below...
     parts = {
         'Image': 'Zebrafish:Image',
-        'Cohort': 'Zebrafish:Cohort%20Analysis',
-        'Cohort_Pair': 'Zebrafish:Cohort%20Analysis_Synaptic%20Pair%20Study',
+        'Cohort': 'Zebrafish:Cohort',
+        'Cohort_Pair': 'Zebrafish:Cohort_Synaptic%20Pair%20Study',
         'Pair': 'Zebrafish:Synaptic%20Pair%20Study',
         'id': urlquote(id),
     }
 
     url_templates = [
-        # get single image for matching image ID
-        '/entity/%(Image)s/ID=%(id)s',
-        # get single image for matching image RID
-        '/entity/%(Image)s/RID=%(id)s',
+        # get single image for matching image RID or ID
+        '/entity/%(Image)s/RID=%(id)s;RID=%(id)s',
         # get all images for matching cohort RID
         '/entity/%(Cohort)s/RID=%(id)s/%(Cohort_Pair)s/%(Pair)s/%(Image)s',
     ]
@@ -112,9 +110,9 @@ def get_images_cli(*idlist):
 
        Each identifier is resolved in this order and first match is
        considered sole image source for that identifier:
-         1. Image:ID
-         2. Image:RID
-         3. Cohort Analysis:RID
+         1. Image:RID
+         2. Image:ID  (for legacy records)
+         3. Cohort:RID
 
        Environment parameters:
          DUMP_DIR: defaults to './'

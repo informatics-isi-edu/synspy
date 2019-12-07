@@ -30,7 +30,8 @@ setup(
             'synspy-viewer2d = synspy.viewer2d:main'
         ]
     },
-    requires=["volspy", "vispy", "numpy", "pyopencl", "tifffile"],
+    requires=["volspy", "vispy", "numpy", "pyopencl", "tifffile", "deriva"],
+    install_requires=["deriva>=1.0"],
     maintainer_email="support@misd.isi.edu",
     license='(new) BSD',
     classifiers=[

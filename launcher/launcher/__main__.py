@@ -5,7 +5,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory, QMessageBox
 from deriva.core import BaseCLI, format_exception
 from launcher.ui import main_window as mw
-from synspy import __version__ as synspy_version
+from launcher import __version__ as synspy_version
 
 
 def excepthook(etype, value, tb):

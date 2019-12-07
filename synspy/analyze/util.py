@@ -309,8 +309,9 @@ def dense_segment_status(centroids, sparse_centroids, sparse_status):
         # scan forward until we find same centroid in sparse subset
         while i < centroids.shape[0] and tuple(sparse_centroids[row]) != tuple(centroids[i]):
             i += 1
-            
-        assert i < centroids.shape[0], ("Sparse dump does not match image analysis!", sparse_centroids[row])
+
+        if i >= centroids.shape[0]:
+            raise ValueError("Sparse dump does not match image analysis!", sparse_centroids[row])
 
         if sparse_status[row]:
             status[i] = sparse_status[row]

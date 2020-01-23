@@ -299,7 +299,7 @@ class SynapticPairStudy (NucleicPairStudy):
         return (
             '/attributegroup/'
             'SPS:=%(sps)s/ID=%(sid)s;RID=%(sid)s/'
-            'IPS:=(SPS:Study)/'
+            'IPS:=%(ips)s/'
             'S1:=(SPS:%(s1)s)/'
             'S2:=(SPS:%(s2)s)/'
             'N1:=(IPS:%(n1)s)/'
@@ -308,7 +308,6 @@ class SynapticPairStudy (NucleicPairStudy):
             '$SPS/'
             '*;'
             'I1:%(zs)s,'
-            'I1:Subject,'
             'IPS:Alignment,'
             'n1:=IPS:%(r1u)s,'
             'n2:=IPS:%(r2u)s,'
@@ -323,6 +322,7 @@ class SynapticPairStudy (NucleicPairStudy):
         ) % {
             'sid': urlquote(study_id),
             'sps': urlquote('Synaptic Pair Study'),
+            'ips': urlquote('Image Pair Study'),
             'sfu': urlquote('Segments Filtered URL'),
             's1': urlquote('Synaptic Region 1'),
             's2': urlquote('Synaptic Region 2'),

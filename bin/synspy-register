@@ -79,7 +79,7 @@ def main(synstudyid):
     study = SynapticPairStudy.from_study_id(catalog, synstudyid)
     study.retrieve_data(store)
 
-    print ('Showing registration for Synaptic Pair Study ID=%s' % study.id)
+    print ('Showing registration for Synaptic Pair Study RID=%s' % study._metadata['RID'])
     print ('grid scale: %(z)s, %(y)s, %(x)s' % study.spacing)
     print ('VIEW_MATRIX="%s"' % json.dumps(study.alignment))
 

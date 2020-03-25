@@ -257,7 +257,7 @@ def load_segment_info_from_csv(infilename, zyx_grid_scale=None, zx_swap=False, f
         )
         measures.append(
             (float(row['raw core']), float(row['raw hollow']), float(row['DoG core']), float(row['DoG hollow']))
-            + (float(row['red']) if 'red' in row else ())
+            + ((float(row['red']),) if 'red' in row else ())
         )
         status.append(
             int(row['override']) if row['override'] else 0

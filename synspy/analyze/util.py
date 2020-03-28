@@ -296,7 +296,8 @@ def load_segment_status_from_csv(centroids, offset_origin, infilename):
          saved params dict or None
     """
     csv_centroids, csv_measures, csv_status, saved_params = load_segment_info_from_csv(infilename)
-    csv_centroids -= np.array(offset_origin, dtype=np.int32)
+    if csv_centroids.shape[0] > 0:
+        csv_centroids -= np.array(offset_origin, dtype=np.int32)
     return dense_segment_status(centroids, csv_centroids, csv_status), saved_params
     
 def dense_segment_status(centroids, sparse_centroids, sparse_status):
@@ -345,7 +346,7 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
     writer = csv.writer(csvfile)
     writer.writerow(
         ('Z', 'Y', 'X', 'raw core', 'raw hollow', 'DoG core', 'DoG hollow')
-        + ((measures.shape[1] == 5) and ('red',) or ())
+        + (('red',) if (measures.shape[1] == 5) else ())
         + ('override',)
     )
     if saved_params:

@@ -77,15 +77,18 @@ def get_images(id, idempotent=True):
         'Image': 'Zebrafish:Image',
         'Cohort': 'Zebrafish:Cohort',
         'Cohort_Pair': 'Zebrafish:Cohort_Synaptic%20Pair%20Study',
+        'Cohort_Image': 'Zebrafish:Cohort_Image',
         'Pair': 'Zebrafish:Synaptic%20Pair%20Study',
         'id': urlquote(id),
     }
 
     url_templates = [
         # get single image for matching image RID or ID
-        '/entity/%(Image)s/RID=%(id)s;RID=%(id)s',
-        # get all images for matching cohort RID
+        '/entity/%(Image)s/RID=%(id)s;ID=%(id)s',
+        # get all images for matching cohort RID via synaptic pair study
         '/entity/%(Cohort)s/RID=%(id)s/%(Cohort_Pair)s/%(Pair)s/%(Image)s',
+        # get all direct images for matching cohort RID
+        '/entity/%(Cohort)s/RID=%(id)s/%(Cohort_Image)s/%(Image)s',
     ]
 
     for template in url_templates:

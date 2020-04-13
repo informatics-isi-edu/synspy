@@ -580,6 +580,9 @@ class ImageGrossAlignment (object):
             else:
                 raise ValueError('"%s" should be an object, not %s' % (colname, type(p)))
 
+        if disable_gross_align:
+            return
+
         p0, p1, p2 = centroids_zx_swap(
             np.array(
                 [

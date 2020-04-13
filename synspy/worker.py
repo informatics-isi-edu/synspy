@@ -142,8 +142,11 @@ def region_row_job(handler):
                 omit_voxels=handler.row['Segmentation Mode'] == 'nucleic'
             )
             updated_row['Status'] = "analysis pending"
-        else:
+        elif zyx_slice is None:
             raise WorkerRuntimeError('Classifier is set, but ZYX Slice could not be determined.')
+        else:
+            # let the user try again if they cleared status manually on record...
+            updated_row['Status'] = "analysis pending"
 
     if handler.row['Segments URL'] is not None and handler.row['Segments Filtered URL'] is None:
         updated_row['Segments Filtered URL'] = handler.filter_synspy_csv(handler.row['Segments URL'])

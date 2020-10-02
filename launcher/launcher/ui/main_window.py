@@ -421,7 +421,7 @@ class MainWindow(QMainWindow):
         self.tempdir = tempfile.mkdtemp(prefix="synspy_")
         self.retrieveFiles()
 
-    @pyqtSlot(bool, str, str, str)
+    @pyqtSlot(bool, str, str, object)
     def onRetrieveAnalysisFileResult(self, success, status, detail, file_path):
         if not success:
             try:
@@ -436,7 +436,7 @@ class MainWindow(QMainWindow):
 
         self.retrieveInputFile()
 
-    @pyqtSlot(bool, str, str, str)
+    @pyqtSlot(bool, str, str, object)
     def onRetrieveInputFileResult(self, success, status, detail, file_path):
         if not success:
             try:
@@ -451,14 +451,14 @@ class MainWindow(QMainWindow):
 
         self.executeViewer(file_path)
 
-    @pyqtSlot(bool, str, str, bool)
+    @pyqtSlot(bool, str, str, object)
     def onSubprocessExecuteResult(self, success, status, detail, is_owner):
         qApp.restoreOverrideCursor()
         if not success:
             self.resetUI(status, detail)
             return
 
-        if not is_owner or self.curator_mode:
+        if not bool(is_owner) or self.curator_mode:
             self.resetUI(status, detail)
             return
 

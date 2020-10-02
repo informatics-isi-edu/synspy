@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import qApp, QMainWindow, QWidget, QAction, QSizePolicy, QM
     QToolBar, QStatusBar, QVBoxLayout, QTableWidgetItem, QAbstractItemView, QDialog, QCheckBox, QMenu, QHBoxLayout, \
     QLabel, QLineEdit, QPushButton, QFileDialog
 from PyQt5.QtGui import QIcon
-from deriva.qt import EmbeddedAuthWindow, QPlainTextEditLogger, TableWidget, Request
+from deriva.qt import EmbeddedAuthWindow, QPlainTextEditLogger, TableWidget, Task
 from deriva.core import ErmrestCatalog, HatracStore, read_config, write_config, format_exception, urlquote, \
     resource_path
 from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, CatalogUpdateTask, WORKLIST_QUERY, \
@@ -20,7 +20,7 @@ from launcher.impl.catalog_tasks import CatalogQueryTask, SessionQueryTask, Cata
 from launcher.impl.store_tasks import FileRetrieveTask, FileUploadTask, HATRAC_UPDATE_URL_TEMPLATE
 from launcher.impl.process_tasks import ViewerTask
 from launcher.ui import DEFAULT_CONFIG, CURATORS
-from launcher import resources
+from launcher import resources, __version__ as launcher_version
 from synspy import __version__ as synspy_version
 
 
@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
             event.accept()
 
     def cancelTasks(self):
-        Request.shutdown()
+        Task.shutdown_all()
         self.statusBar().showMessage("Waiting for background tasks to terminate...")
 
         while True:
@@ -549,7 +549,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def on_actionLogout_triggered(self):
         self.authWindow.logout()
-        self.setWindowTitle("%s %s" % (self.ui.title, synspy_version))
+        self.setWindowTitle("%s %s (synspy: %s)" % (self.ui.title, launcher_version, synspy_version))
         self.ui.workList.clearContents()
         self.ui.workList.setRowCount(0)
         self.identity = None
@@ -653,7 +653,7 @@ class MainWindowUI(object):
 
         # Main Window
         MainWin.setObjectName("MainWindow")
-        MainWin.setWindowTitle(MainWin.tr("%s %s" % (self.title, synspy_version)))
+        MainWin.setWindowTitle(MainWin.tr("%s %s (synspy: %s)" % (self.title, launcher_version, synspy_version)))
         MainWin.resize(800, 600)
         self.centralWidget = QWidget(MainWin)
         self.centralWidget.setObjectName("centralWidget")

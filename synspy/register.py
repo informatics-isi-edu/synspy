@@ -1,14 +1,13 @@
 #!/usr/bin/python
 #
-# Copyright 2015-2018 University of Southern California
+# Copyright 2015-2020 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
 import os
 import sys
-import pcl
-import pcl.registration
 import numpy as np
+import vtk
 import csv
 import math
 from transformations import decompose_matrix
@@ -21,18 +20,7 @@ def get_env_grid_scale():
     assert grid.shape == (3,), grid.shape
     return grid
 
-def centroids2pointcloud(centroids):
-    pc = pcl.PointCloud()
-    pc.from_array(centroids)
-    return pc
-
-def csv2pointcloud_weights(filename, zyx_grid_scale=None):
-    centroids, measures, status, saved_params = load_segment_info_from_csv(filename, zyx_grid_scale, True, (3,7))
-    pc = pcl.PointCloud()
-    pc.from_array(centroids)
-    return pc, measures[0]
-
-def align_centroids(centroids1, centroids2):
+def align_centroids(centroids1, centroids2, maxiters=50):
     """Compute alignment matrix for centroids2 into centroids1 coordinates.
 
        Arguments:
@@ -43,20 +31,39 @@ def align_centroids(centroids1, centroids2):
          M: 4x4 transformation matrix
          angles: decomposed rotation vector from M (in radians)
     """
-    pc1 = centroids2pointcloud(centroids_zx_swap(centroids1))
-    pc2 = centroids2pointcloud(centroids_zx_swap(centroids2))
-    results = pcl.registration.icp_nl(pc2, pc1)
-    if not results[0]:
-        raise ValueError("point-cloud registration did not converge")
-    M = results[1]
-    parts = decompose_matrix(M.T)
+    def make_pc_poly(a):
+        points = vtk.vtkPoints()
+        verts = vtk.vtkCellArray()
+
+        for i in range(a.shape[0]):
+            verts.InsertNextCell(1)
+            verts.InsertCellPoint(points.InsertNextPoint(a[i,:]))
+
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(points)
+        poly.SetVerts(verts)
+        return poly
+
+    def do_icp(src, tgt):
+        icp = vtk.vtkIterativeClosestPointTransform()
+        icp.SetSource(src)
+        icp.SetTarget(tgt)
+        icp.GetLandmarkTransform().SetModeToRigidBody()
+        icp.SetMaximumNumberOfIterations(maxiters)
+        icp.StartByMatchingCentroidsOn()
+        icp.Modified()
+        icp.Update()
+        M = icp.GetMatrix()
+        return np.array(
+            [ [ M.GetElement(i, j) for j in range(4) ] for i in range(4) ],
+            dtype=np.float64
+        )
+
+    pc1 = make_pc_poly(centroids_zx_swap(centroids1).astype(np.float32))
+    pc2 = make_pc_poly(centroids_zx_swap(centroids2).astype(np.float32))
+    M = do_icp(pc2, pc1)
+    parts = decompose_matrix(M)
     angles = parts[2]
-    # sanity check that our transform is using same math as pcl did
-    nuc1 = centroids_zx_swap(centroids1)
-    nuc2 = centroids_zx_swap(transform_centroids(M, centroids2))
-    diff = nuc2 - results[2]
-    assert diff.min() <= 0.00001, 'Our transform differs from PCL by %s minimum.' % diff.min()
-    assert diff.max() <= 0.001, 'Our transform differs from PCL by %s maximum.' % diff.max()
     return M, angles
 
 def dump_registered_file_pair(dstfilenames, parts):

@@ -1,13 +1,11 @@
 #!/usr/bin/python
 #
-# Copyright 2015-2017 University of Southern California
+# Copyright 2015-2020 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
 import os
 import sys
-import pcl
-import pcl.registration
 import numpy as np
 import csv
 import math

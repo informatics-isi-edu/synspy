@@ -164,6 +164,7 @@ class MainWindow(QMainWindow):
             "Segments URL",
             "Segments Filtered URL",
             "Subject",
+            "ZYX Spacing",
         ]
         self.ui.workList.clear()
         self.ui.workList.setRowCount(0)
@@ -188,8 +189,13 @@ class MainWindow(QMainWindow):
                 if key == "Classifier":
                     value = "%s (%s)" % (row['user'][0]['Full_Name'], row['user'][0]['Display_Name'])
                     item.setData(Qt.UserRole, row['Classifier'])
-                elif key == "URL" or key == "Subject":
+                elif key in {"URL", "Subject", "ZYX Spacing"}:
                     value = row["source_image"][0].get(key)
+                    if key == "ZYX Spacing":
+                        if value is None:
+                            value = {"z": 0.4, "y": 0.26, "x": 0.26} # legacy default
+                        # translate into env string format of our viewer
+                        value = ','.join([ "%f" % (value[a],) for a in "zyx" ])
                 else:
                     value = row.get(key)
                 if isinstance(value, bool):
@@ -322,9 +328,11 @@ class MainWindow(QMainWindow):
         env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
         env["DUMP_PREFIX"] = "./ROI_%s" % self.ui.workList.getCurrentTableItemTextByName("RID")
         env["ZYX_SLICE"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Slice")
-        env["ZYX_IMAGE_GRID"] = "0.4, 0.26, 0.26"
-        env["SYNSPY_DETECT_NUCLEI"] = str(
-            "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")).lower()
+        env["ZYX_IMAGE_GRID"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Spacing")
+        nucleic = "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
+        env["SYNSPY_DETECT_NUCLEI"] = str(nucleic).lower()
+        if nucleic:
+            env["ZYX_VIEW_GRID"] = "2,2,3"
         output_path = os.path.join(os.path.dirname(self.config_path), "viewer.log")
         classifier = self.ui.workList.getTableItemByName(
             self.ui.workList.getCurrentTableRow(), "Classifier").data(Qt.UserRole)

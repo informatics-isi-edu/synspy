@@ -1,6 +1,6 @@
 
 #
-# Copyright 2014-2017 University of Southern California
+# Copyright 2014-2021 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -24,9 +24,9 @@ def Gsigma(sigma):
 
 def gaussian_kernel(s):
     G = Gsigma(s) # G(x) gaussian function
-    kernel_width = 2 * (int(6.0 * s - 1) // 2) + 1 # force always odd
+    kernel_width = 2 * max(1, int(6.0 * s - 1) // 2) + 1 # force always odd
     kernel_radius = (kernel_width - 1) // 2 # doesn't include central cell
-    kernel = list(map(G, list(range(-kernel_radius, kernel_radius+1))))
+    kernel = [ G(i) for i in range(-kernel_radius, kernel_radius+1) ]
     mag = sum(kernel)
     kernel = [x / mag for x in kernel]
     return kernel

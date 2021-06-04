@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright 2015-2020 University of Southern California
+# Copyright 2015-2021 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -10,7 +10,16 @@ import numpy as np
 import csv
 import math
 
-from synspy.register import get_env_grid_scale, register, dump_registered_file_pair
+from synspy.register import register, dump_registered_file_pair
+from synspy.analyze.util import legacy_zyx_spacing
+
+def get_env_grid_scale():
+    # ugly hack specific to this obsolete script that lacks access to image metadata
+    default_grid = ','.join([ legacy_zyx_spacing[a] for a in 'zyx' ])
+    grid = list(os.getenv('SEGMENTS_ZYX_GRID', default_grid).split(','))
+    grid = np.array(tuple(map(float, grid)), dtype=np.float32)
+    assert grid.shape == (3,), grid.shape
+    return grid
 
 def main(filenames):
     zyx_grid_scale = get_env_grid_scale()

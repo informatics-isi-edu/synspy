@@ -38,12 +38,6 @@ credentials = get_credential(servername)
 catalog = ErmrestCatalog('https', servername, catalog_id, credentials)
 store = HatracStore('https', servername, credentials)
 
-def get_zyx_spacing(aligner):
-    spacing = aligner._metadata['ZYX Spacing']
-    if spacing is None:
-        spacing = {'z': 0.4, 'y': 0.26, 'x': 0.26}
-    return np.array([ spacing[a] for a in 'zyx' ])
-
 def get_centroids_bbox_slice(centroids, image):
     bbox = (
         centroids.min(axis=0),
@@ -101,7 +95,7 @@ def get_centroids_measures_from_pair(pair_study, voxel_image_aligner):
     points_voxel_um = transform_points(xform, points_image1_um, np.float64)
     centroids[:,0:3] = centroids_zx_swap(points_voxel_um)
 
-    voxel_scale = get_zyx_spacing(voxel_image_aligner)
+    voxel_scale = voxel_image_aligner.spacing_nd
     centroids /= voxel_scale
 
     return centroids.astype(np.int32), measures, statuses.astype(np.uint8)
@@ -178,7 +172,7 @@ def paired_npz_cli(voxel_img_rid, pair_src_rid):
 
     ref_image_aligner = ImageGrossAlignment.from_image_id(catalog, voxel_img_rid)
     ref_image_url = ref_image_aligner._metadata['URL']
-    image_grid = get_zyx_spacing(ref_image_aligner)
+    image_grid = ref_image_aligner.spacing_nd
     
     centroids, measures, statuses = get_centroids_measures(pair_src_rid, ref_image_aligner)
 

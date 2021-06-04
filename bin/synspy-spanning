@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 #
-# Copyright 2018-2019 University of Southern California
+# Copyright 2018-2021 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -29,7 +29,6 @@ max_radius_um = float(os.getenv('MAX_RADIUS', '5.0'))
 bgcolor = os.getenv('BACKGROUND_RGB', '0.15,0.15,0.15')
 bgcolor = tuple([ float(c) for c in bgcolor.split(',') ]) + (1.0,)
 syn_face_size = float(os.getenv('SEGMENT_SIZE', '4'))
-xyz_grid_scale = (0.26, 0.26, 0.4)
 min_group_size = int(os.getenv('MIN_GROUP_SIZE', '4'))
 draw_pruned = os.getenv('DRAW_PRUNED', 'false').lower() == 'true'
 
@@ -51,9 +50,10 @@ store = HatracStore('https', servername, credentials)
 def process_region(region_id):
     """Process one Image Region record.
     """
-    r = catalog.get('/entity/%(table)s/RID=%(id)s;ID=%(id)s' % {
+    r = catalog.get('/attributegroup/I:Image/%(table)s/RID=%(id)s;ID=%(id)s/RID;*,I:%(spacing)s' % {
         'table': urlquote('Image Region'),
         'id': urlquote(region_id),
+        'spacing': urlquote('ZYX Spacing'),
     })
     r.raise_for_status()
     region_rows = r.json()
@@ -64,6 +64,8 @@ def process_region(region_id):
             raise ValueError('Image Region RID="%(RID)s" lacks synaptic point-cloud.' % row)
         try:
             points = centroids_zx_swap(load_registered_csv(store, row['Segments Filtered URL'])[:,0:3]) # repack XYZ
+            xyz_grid_scale = row['ZYX Spacing']
+            xyz_grid_scale = tuple([ xyz_grid_scale[a] for a in 'xyz' ])
             points[:,:] *= np.array(xyz_grid_scale, dtype=np.float32)
             # find a handful of nearest neighbors for each centroid
             dx, pairs = cKDTree(points).query(points, max_neighbors, max_radius_um * 2)

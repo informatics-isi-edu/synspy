@@ -711,11 +711,13 @@ try:
             splits.append((datetime.datetime.now(), 'mask peaks'))
 
             label_im, nb_labels = ndimage.label(peaks)
+            islabel_im = (label_im > 0).astype(np.uint8)
             label_im_dev = opencllib.cl_array.to_device(clq, label_im)
+            islabel_im_dev = opencllib.cl_array.to_device(clq, islabel_im)
             splits.append((datetime.datetime.now(), 'label peaks'))
 
             sizes = self.sum_labeled(
-                label_im_dev > 0,
+                islabel_im_dev,
                 label_im_dev,
                 nb_labels + 1,
                 clq=clq

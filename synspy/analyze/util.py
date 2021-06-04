@@ -16,6 +16,8 @@ from numpy.linalg import norm
 import json
 import math
 
+legacy_zyx_spacing = {'z': 0.4, 'y': 0.26, 'x': 0.26} # for use as fallback/default
+
 def Gsigma(sigma):
     """Pickle a gaussian function G(x) for given sigma"""
     def G(x):

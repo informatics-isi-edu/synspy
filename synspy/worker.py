@@ -1,6 +1,6 @@
 
 #
-# Copyright 2015-2018 University of Southern California
+# Copyright 2015-2021 University of Southern California
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 #
 
@@ -20,6 +20,9 @@ import json
 import numpy as np
 from . import register
 from .analyze import util
+from .analyze.util import legacy_zyx_spacing
+
+legacy_zyx_spacing_tuple = tuple([ legacy_zyx_spacing[a] for a in 'zyx' ])
 
 def coalesce(*args):
     for arg in args:
@@ -63,7 +66,7 @@ def image_row_job(handler):
     # Status is NULL and image URL is not NULL
     # -> Status="pre-processing..." (claimed)
     #    -> Status="ready"
-    #       ZYX Spacing=[0.4,0.26,0.26]
+    #       ZYX Spacing={"a": mpp, ...}
     #       CZYX Shape=[C,D,H,W]
     #    -> Status={"failed": "reason"}
     assert handler.row['URL'], handler.row
@@ -166,7 +169,7 @@ def region_row_job(handler):
 
 _work_units.append(
     WorkUnit(
-        '/attribute/I:=Zebrafish:Image/Status=%22ready%22/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;Status=%22analysis%20complete%22/*,I:URL,I:CZYX%20Shape?limit=1',
+        '/attribute/I:=Zebrafish:Image/Status=%22ready%22/Zebrafish:Image%20Region/!Classifier::null::/Status::null::;Status=null;Status=%22analysis%20complete%22/*,I:URL,I:CZYX%20Shape,I:ZYX%20Spacing?limit=1',
         '/attributegroup/Zebrafish:Image%20Region/RID;Status',
         '/attributegroup/Zebrafish:Image%20Region/RID',
         region_row_job
@@ -355,7 +358,6 @@ class Worker (object):
         command = [ self.scriptdir + 'synspy-analyze', img_filename ]
         env = {
             'ZYX_SLICE': zyx_slice,
-            'ZYX_IMAGE_GRID': '0.4,0.26,0.26',
             'SYNSPY_DETECT_NUCLEI': str(self.row['Segmentation Mode'].lower() == 'nucleic'),
             'DUMP_PREFIX': './ROI_%s' % self.row['RID'],
             'OMIT_VOXELS': str(omit_voxels).lower(),
@@ -423,7 +425,11 @@ class Worker (object):
     def compute_synspy_stats(self, csv_url, existing_row={}):
         """Process input CSV URL and return stats column value updates."""
         filename = self.get_file(csv_url)
-        c, m, s, p = util.load_segment_info_from_csv(filename, (0.4,0.26,0.26), filter_status=(3,7))
+        spacing = existing_row.get('ZYX Spacing')
+        if spacing is None:
+            spacing = legacy_zyx_spacing
+        spacing = tuple([ spacing[a] for a in 'zyx' ])
+        c, m, s, p = util.load_segment_info_from_csv(filename, spacing, filter_status=(3,7))
         if c.shape[0] > 0:
             stats = {
                 'Core Min.': float(m[:,0].min()),
@@ -446,7 +452,7 @@ class Worker (object):
             if k not in existing_row or existing_row[k] != v
         }
 
-    def register_nuclei(self, n1_url, n2_url, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7)):
+    def register_nuclei(self, n1_url, n2_url, zyx_scale=legacy_zyx_spacing_tuple, filter_status=(3,7)):
         """Register nuclei files returning alignment matrix and processed and uploaded pointcloud URLs.
 
            Returns:
@@ -485,7 +491,7 @@ class Worker (object):
             for i in range(4)
         ]
 
-    def register_synapses(self, s1_url, s2_url, zyx_scale=(0.4,0.26,0.26), filter_status=(3,7)):
+    def register_synapses(self, s1_url, s2_url, zyx_scale=legacy_zyx_spacing_tuple, filter_status=(3,7)):
         """Register synaptic files using image pair alignment, returning URLs of processed and uploaded pointcloud URLs.
 
            Returns:

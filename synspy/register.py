@@ -14,12 +14,6 @@ from transformations import decompose_matrix
 
 from .analyze.util import load_segment_info_from_csv, dump_segment_info_to_csv, centroids_zx_swap, transform_centroids
 
-def get_env_grid_scale():
-    grid = list(os.getenv('SEGMENTS_ZYX_GRID', '0.4,0.26,0.26').split(','))
-    grid = np.array(tuple(map(float, grid)), dtype=np.float32)
-    assert grid.shape == (3,), grid.shape
-    return grid
-
 def align_centroids(centroids1, centroids2, maxiters=50):
     """Compute alignment matrix for centroids2 into centroids1 coordinates.
 

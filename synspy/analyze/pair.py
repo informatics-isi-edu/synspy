@@ -8,7 +8,7 @@ import sys
 import math
 import numpy as np
 from scipy.spatial import cKDTree
-from .util import load_registered_csv, load_registered_npz, load_segment_status_from_csv, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, transform_centroids, centroids_zx_swap
+from .util import load_registered_csv, load_registered_npz, load_segment_status_from_csv, x_axis, y_axis, z_axis, matrix_ident, matrix_translate, matrix_scale, matrix_rotate, transform_points, transform_centroids, centroids_zx_swap, legacy_zyx_spacing
 
 from deriva.core import urlquote
 
@@ -182,6 +182,12 @@ class NucleicPairStudy (object):
         self._metadata = metadata
         self.spacing = self._metadata['ZYX Spacing']
         self.alignment = self._metadata['Alignment']
+
+        # fallback to main 2015-2020 SPIM assumptions
+        if self.spacing is None:
+            self.spacing = legacy_zyx_spacing
+
+        self.spacing_nd = np.array([ self.spacing[a] for a in 'zyx' ], dtype=np.float64)
 
     def retrieve_data(self, hatrac_store):
         """Download raw CSV pointcloud data from Hatrac object store and register it.
@@ -362,7 +368,6 @@ class SynapticPairStudy (NucleicPairStudy):
         if use_intersect:
             # conservative border padding (rounded up slightly)
             zyx_pad = np.array((16, 16, 16), dtype=np.float32)
-            zyx_scale = np.array((0.4, 0.26, 0.26), dtype=np.float32)
 
             def bbox(zyxslice):
                 res = np.zeros((2,3), dtype=np.float32)
@@ -373,7 +378,7 @@ class SynapticPairStudy (NucleicPairStudy):
                     res[1,a] = float(u) if u != '' else 2048.
                 res[0,:] = res[0,:] + zyx_pad
                 res[1,:] = res[1,:] - zyx_pad
-                res = res * zyx_scale
+                res = res * self.spacing_nd
                 return res
 
             # use ZYX Slice metadata to determine ROI
@@ -569,7 +574,14 @@ class ImageGrossAlignment (object):
         self._metadata = metadata
         self.disable_gross_align = disable_gross_align
 
-        grid_zyx = np.array([0.4, 0.26, 0.26], dtype=np.float64)
+        self.spacing = self._metadata['ZYX Spacing']
+
+        # fallback to main 2015-2020 SPIM assumptions
+        if self.spacing is None:
+            self.spacing = legacy_zyx_spacing
+
+        self.spacing_nd = np.array([ self.spacing[a] for a in 'zyx' ], dtype=np.float64)
+
         def get_align_coord(colname, axis):
             p = self._metadata[colname]
             if isinstance(p, dict):
@@ -594,7 +606,7 @@ class ImageGrossAlignment (object):
                 ],
                 #  Using np.float32 causes errors on some platforms, so use float64
                 dtype=np.float64
-            ) * grid_zyx
+            ) * self.spacing_nd
         )
         self.alignment_points_xyz = np.stack((p0, p1, p2))
 

@@ -372,7 +372,8 @@ class Worker (object):
         return self.store.put_loc(
             '%s/ROI_%s.npz' % (self.subject_path, self.row['RID']),
             'ROI_%s.npz' % self.row['RID'],
-            headers={'Content-Type': 'application/octet-stream'}
+            headers={'Content-Type': 'application/octet-stream'},
+            chunked=True,
         )
 
     def filter_synspy_csv(self, csv_url):
@@ -419,7 +420,8 @@ class Worker (object):
         return self.store.put_loc(
             '%s/%s' % (self.subject_path, segments_filtered_file),
             segments_filtered_file,
-            headers={'Content-Type': 'text/csv'}
+            headers={'Content-Type': 'text/csv'},
+            chunked=True,
         )
 
     def compute_synspy_stats(self, csv_url, existing_row={}):
@@ -473,12 +475,14 @@ class Worker (object):
         n1_url = self.store.put_loc(
             '%s/%s' % (self.subject_path, n1_outfile),
             n1_outfile,
-            headers={'Content-Type': 'text/csv'}
+            headers={'Content-Type': 'text/csv'},
+            chunked=True,
         )
         n2_url = self.store.put_loc(
             '%s/%s' % (self.subject_path, n2_outfile),
             n2_outfile,
-            headers={'Content-Type': 'text/csv'}
+            headers={'Content-Type': 'text/csv'},
+            chunked=True,
         )
         return M, n1_url, n2_url
 
@@ -512,12 +516,14 @@ class Worker (object):
         s1_url = self.store.put_loc(
             '%s/%s' % (self.subject_path, s1_outfile),
             s1_outfile,
-            headers={'Content-Type': 'text/csv'}
+            headers={'Content-Type': 'text/csv'},
+            chunked=True,
         )
         s2_url = self.store.put_loc(
             '%s/%s' % (self.subject_path, s2_outfile),
             s2_outfile,
-            headers={'Content-Type': 'text/csv'}
+            headers={'Content-Type': 'text/csv'},
+            chunked=True,
         )
         return s1_url, s2_url
 

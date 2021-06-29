@@ -324,15 +324,17 @@ class MainWindow(QMainWindow):
 
     def executeViewer(self, file_path):
         self.updateStatus("Executing viewer...")
-        env = os.environ
+        env = os.environ.copy()
         env["SYNSPY_AUTO_DUMP_LOAD"] = "true"
         env["DUMP_PREFIX"] = "./ROI_%s" % self.ui.workList.getCurrentTableItemTextByName("RID")
         env["ZYX_SLICE"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Slice")
         env["ZYX_IMAGE_GRID"] = self.ui.workList.getCurrentTableItemTextByName("ZYX Spacing")
         nucleic = "nucleic" == self.ui.workList.getCurrentTableItemTextByName("Segmentation Mode")
         env["SYNSPY_DETECT_NUCLEI"] = str(nucleic).lower()
-        if nucleic:
-            env["ZYX_VIEW_GRID"] = "2,2,3"
+        env["ZYX_VIEW_GRID"] = os.environ.get(
+            "ZYX_VIEW_GRID",
+            "1,1,1" if nucleic else "0.25,0.25,0.25",
+        )
         output_path = os.path.join(os.path.dirname(self.config_path), "viewer.log")
         classifier = self.ui.workList.getTableItemByName(
             self.ui.workList.getCurrentTableRow(), "Classifier").data(Qt.UserRole)

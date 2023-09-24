@@ -582,20 +582,6 @@ BlockedAnalyzerOpt = BlockedAnalyzer
 assign_voxels_opt = numpylib.assign_voxels
 
 try:
-    from . import nexpr as numerexprlib
-    class BlockedAnalyzerNumerexpr (BlockedAnalyzer):
-
-        def convNx1d(self, *args):
-            return numerexprlib.convNx1d(*args)
-
-        def array_mult(self, a1, a2):
-            return numerexprlib.array_mult(a1, a2)
-
-    BlockedAnalyzerOpt = BlockedAnalyzerNumerexpr
-except:
-    pass
-
-try:
     from . import ocl as opencllib
     class BlockedAnalyzerOpenCL (BlockedAnalyzerOpt):
 

@@ -270,7 +270,7 @@ def load_segment_info_from_csv(infilename, zyx_grid_scale=None, zx_swap=False, f
         assert zyx_grid_scale.shape == (3,)
         centroids = (centroids * zyx_grid_scale).astype(np.float32)
     if filter_status is not None:
-        filter_idx = np.zeros(status.shape, dtype=np.bool)
+        filter_idx = np.zeros(status.shape, dtype=bool)
         for value in filter_status:
             filter_idx += (status == value)
         centroids = centroids[filter_idx]
@@ -364,9 +364,9 @@ def dump_segment_info_to_csv(centroids, measures, status, offset_origin, outfile
             + (saved_params.get('override', ''),)
         )
 
-    filter_idx = np.zeros(status.shape, dtype=np.bool)
+    filter_idx = np.zeros(status.shape, dtype=bool)
     if all_segments:
-        filter_idx += np.bool(1)
+        filter_idx += bool(1)
     elif filter_status is not None:
         for value in filter_status:
             filter_idx += (status == value)

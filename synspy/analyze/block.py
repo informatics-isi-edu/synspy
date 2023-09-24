@@ -388,7 +388,7 @@ class BlockedAnalyzer (object):
         max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
 
         # find syn cores via local maxima test
-        peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+        peaks = np.zeros(max_channels[0].shape, dtype=bool)
         for i in range(len(max_inputs)):
             assert max_inputs[i].shape == max_channels[i].shape
             peaks += max_inputs[i] >= (max_channels[i])
@@ -694,7 +694,7 @@ try:
             max_inputs = [crop_centered(img, max_channels[0].shape) for img in max_inputs]
 
             # find syn cores via local maxima test
-            peaks = np.zeros(max_channels[0].shape, dtype=np.bool)
+            peaks = np.zeros(max_channels[0].shape, dtype=bool)
             for i in range(len(max_inputs)):
                 assert max_inputs[i].shape == max_channels[i].shape
                 peaks += max_inputs[i] >= (max_channels[i])
